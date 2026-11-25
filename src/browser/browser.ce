@@ -1,7 +1,9 @@
 (** The browser: a page of Ceres compiled to WebAssembly by cesia build --target wasm, painted by web/ceres.js, which
     the build puts beside the page. Run takes the events of the page, runs the app and paints a frame when the page changed,
     at the browser's next frame: the loop of src/sdl, its window the page's canvas. Between events it waits, and
-    nothing runs: the live screen wakes it when the app pushed something. *)
+    nothing runs: the live screen wakes it when the app pushed something. The hidden DOM gets what changed in the
+    semantics tree at each frame, web.Patch; a page whose address holds ceres-check, as page.html?ceres-check, also
+    sends the whole tree, which ceres.js checks the hidden DOM against (Stats().checks). *)
 use src/web
 use std/fiber
 use std/js
@@ -19,11 +21,11 @@ defn Run(app, origin = missing, path = missing)
   (** Runs the app in the page's canvas, until the page closes. Its live screen, if it has one, opens at origin, the
       page's own by default; path is the route shown first, the canvas's data-path or "/". *)
   events = fiber.Channel()
-  page = js.Call("../../web/ceres.js", "Start", [events])
+  page = js.Call("../../web/ceres.js", "Start", [events, "lists"])
   ui = web.Start(app, page[1], page[2], Measure(), origin = if value.IsMissing(origin) page[3] else origin end,
     path = if value.IsMissing(path) page[4] else path end, wake = events)
+  check = value.Len(page) >= 5 and page[5] == true
   asked = false
-  shown = ""
   while true
     if web.Changed(ui) and not asked
       js.Call("../../web/ceres.js", "Wake", [])
@@ -35,26 +37,44 @@ defn Run(app, origin = missing, path = missing)
     end
     frame = false
     for x in list.Prepend(got.Value, drain(events))
-      if x == "frame"
+      if not value.IsText(x)
+        ui = web.Handle(event(x), ui)
+      else if x == "frame"
         frame = true
-      else if x != "live"
-        e = json.Parse(x).Value
-        ui = web.Handle(e, ui)
       end
     end
     ui = web.Update(ui)
     if frame
       asked = false
       if web.Changed(ui)
-        js.Call("../../web/ceres.js", "Paint", [web.Encode(web.Frame(ui))])
-        tree = json.Text(web.Semantics(ui))
-        if tree != shown
-          js.Call("../../web/ceres.js", "Mirror", [tree])
-          shown = tree
+        drawn = web.Encoded(ui)
+        ui = drawn.Ui
+        js.Call("../../web/ceres.js", "Paint", [drawn.Bytes])
+        sem = web.Patch(ui)
+        ui = sem.Ui
+        if sem.Text != ""
+          js.Call("../../web/ceres.js", "Patch", [sem.Text])
+        end
+        if check
+          js.Call("../../web/ceres.js", "Check", [json.Text(web.Semantics(ui))])
         end
         ui = web.Painted(ui)
       end
     end
+  end
+end
+
+defn event(x)
+  (** An event of the page, as ceres.js sends it, a list of its fields, made the dictionary that web.Handle takes. *)
+  k = x[1]
+  if k == "mouse"
+    {Kind: k, Action: x[2], X: x[3], Y: x[4], Button: x[5], Amount: x[6]}
+  else if k == "key"
+    {Kind: k, Key: x[2], Ctrl: x[3], Alt: x[4], Shift: x[5]}
+  else if k == "text"
+    {Kind: k, Text: x[2]}
+  else
+    {Kind: k, Width: x[2], Height: x[3]}
   end
 end
 

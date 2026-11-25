@@ -5,26 +5,36 @@
 //
 // The page calls it by js.Call("./ceres.js", name, args), from src/browser (docs/book/backends.md); a text comes as the
 // Uint8Array of its bytes, a channel as a handle whose send(value) gives the page a value:
-//   Start(events)            the canvas of the page set up, each event sent on events as JSON text, {Kind: 'mouse'|
-//                            'key'|'text'|'resize', ...} as web.Handle takes it; gives [width, height, origin, path]
+//   Start(events, form)      the canvas of the page set up, each event sent on events as JSON text, {Kind: 'mouse'|
+//                            'key'|'text'|'resize', ...} as web.Handle takes it, or with form "lists" as a list of its
+//                            fields: ['mouse', Action, X, Y, Button, Amount], ['key', Key, Ctrl, Alt, Shift], ['text',
+//                            Text], ['resize', Width, Height], which the page reads with no JSON; gives [width, height,
+//                            origin, path, check], check true when the page's address holds ceres-check
 //   Measure(text, size, font)  the width of a text in pixels, font 'body', 'strong' or 'code'; Line(size) a line's height
-//   Paint(bytes)             paints the bytes of a draw list, web.Encode's
+//   Paint(bytes)             paints the bytes of a draw list, web.Encode's or web.Encoded's
 //   Mirror(json)             the hidden DOM of the semantics tree, as JSON text (web.Semantics)
+//   Patch(json)              the hidden DOM changed as a patch of the tree says, the JSON text of web.Patch
+//   Check(json)              in a page whose address holds ceres-check: the hidden DOM checked against the whole tree
 //   Wake()                   sends "frame" on events at the browser's next frame: the page paints then
 // Nothing is drawn while nothing changes: a frame is asked only by Wake.
 
 const FONTS = ['system-ui, sans-serif', '600 system-ui, sans-serif', 'ui-monospace, Menlo, Consolas, monospace']
+// A vertex: its place p, its color c, its place in the atlas t, the box b of its rectangle (center, half sizes), r its
+// corner's radius and whether it is an edge (r.x -1 for a text), k the clip in pixels of the canvas (x, y from its
+// bottom, width, height): what a scissor would cut, so that a whole frame is one draw call.
 const VS = `#version 300 es
-in vec2 p; in vec4 c; in vec2 t; in vec4 b; in vec2 r;
+in vec2 p; in vec4 c; in vec2 t; in vec4 b; in vec2 r; in vec4 k;
 uniform vec2 s;
-out vec4 vc; out vec2 vt; out vec4 vb; out vec2 vr; out vec2 vp;
-void main() { vc = c; vt = t; vb = b; vr = r; vp = p; gl_Position = vec4(p.x / s.x * 2.0 - 1.0, 1.0 - p.y / s.y * 2.0, 0.0, 1.0); }`
+out vec4 vc; out vec2 vt; out vec4 vb; out vec2 vr; out vec2 vp; flat out highp vec4 vk;
+void main() { vc = c; vt = t; vb = b; vr = r; vp = p; vk = k; gl_Position = vec4(p.x / s.x * 2.0 - 1.0, 1.0 - p.y / s.y * 2.0, 0.0, 1.0); }`
 const FS = `#version 300 es
 precision mediump float;
-in vec4 vc; in vec2 vt; in vec4 vb; in vec2 vr; in vec2 vp;
+in vec4 vc; in vec2 vt; in vec4 vb; in vec2 vr; in vec2 vp; flat in highp vec4 vk;
 uniform sampler2D a;
 out vec4 o;
 void main() {
+  highp vec2 f = gl_FragCoord.xy;
+  if (f.x < vk.x || f.y < vk.y || f.x >= vk.x + vk.z || f.y >= vk.y + vk.w) discard;
   if (vr.x < 0.0) { o = vec4(vc.rgb, vc.a * texture(a, vt).a); return; }
   vec2 q = abs(vp - vb.xy) - vb.zw + vr.x;
   float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - vr.x;
@@ -32,7 +42,7 @@ void main() {
   if (vr.y > 0.0) k *= clamp(d + vr.y + 0.5, 0.0, 1.0);
   o = vec4(vc.rgb, vc.a * k);
 }`
-const STRIDE = 14 // floats a vertex: p 2, c 4, t 2, b 4, r 2
+const STRIDE = 18 // floats a vertex: p 2, c 4, t 2, b 4, r 2, k 4
 const ATLAS = 2048
 
 export function painter(canvas) {
@@ -51,7 +61,7 @@ export function painter(canvas) {
   const vbo = gl.createBuffer()
   gl.bindBuffer(gl.ARRAY_BUFFER, vbo)
   let off = 0
-  for (const [name, n] of [['p', 2], ['c', 4], ['t', 2], ['b', 4], ['r', 2]]) {
+  for (const [name, n] of [['p', 2], ['c', 4], ['t', 2], ['b', 4], ['r', 2], ['k', 4]]) {
     const at = gl.getAttribLocation(prog, name)
     gl.enableVertexAttribArray(at)
     gl.vertexAttribPointer(at, n, gl.FLOAT, false, STRIDE * 4, off * 4)
@@ -65,125 +75,176 @@ export function painter(canvas) {
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, ATLAS, ATLAS, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  const scratch = document.createElement('canvas').getContext('2d', { willReadFrequently: false })
+  // The texts of a frame that aren't in the atlas yet are drawn by the browser's own text engine, side by side, into a
+  // strip of the width of the atlas that holds the shelf being filled, a canvas in memory never resized for a text;
+  // the part drawn goes up to the atlas once, before the frame's next draw call.
+  const strip = document.createElement('canvas').getContext('2d', { willReadFrequently: true })
+  strip.canvas.width = ATLAS
+  strip.canvas.height = 64
+  let stripFont = '', due0 = ATLAS, due1 = 0, dueH = 0
   const meter = document.createElement('canvas').getContext('2d')
-  let runs = new Map(), shelfX = 0, shelfY = 0, shelfH = 0
-  let verts = new Float32Array(65536), n = 0, dpr = 1, clips = [], width = 0, height = 0
-  const font = (f, size) => FONTS[f].replace(/^(\d+ )?/, m => m + size + 'px ')
+  let meterFont = ''
+  let runs = [new Map(), new Map(), new Map()], shelfX = 0, shelfY = 0, shelfH = 0 // per font, size -> text -> run
+  let widths = [new Map(), new Map(), new Map()], measured = 0 // per font, size -> text -> width
+  let verts = new Float32Array(65536), n = 0, dpr = 1, width = 0, height = 0
+  const css = [new Map(), new Map(), new Map()] // per font, size in px -> the CSS font
+  function font(f, size) {
+    let s = css[f].get(size)
+    if (s === undefined) { s = FONTS[f].replace(/^(\d+ )?/, m => m + size + 'px '); css[f].set(size, s) }
+    return s
+  }
+  function restart() { runs = [new Map(), new Map(), new Map()]; shelfX = shelfY = shelfH = 0; due0 = ATLAS; due1 = dueH = 0; strip.clearRect(0, 0, ATLAS, strip.canvas.height) }
+
+  // The part of the strip drawn since the last upload, into the atlas at the shelf.
+  function upload() {
+    if (due1 <= due0) return
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, ATLAS)
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, due0)
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, due0, shelfY, due1 - due0, dueH, gl.RGBA, gl.UNSIGNED_BYTE, strip.canvas)
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0)
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+    due0 = ATLAS; due1 = dueH = 0
+  }
 
   // A text run in the atlas, drawn once by the browser's own text engine: {u0, v0, u1, v1, w, h} in css pixels.
   function run(text, size, f) {
-    const key = f + '|' + size + '|' + text
-    let e = runs.get(key)
-    if (e) return e
-    const css = font(f, size * dpr)
-    scratch.font = css
-    const w = Math.ceil(scratch.measureText(text).width) + 2, h = Math.ceil(size * dpr * 1.4) + 2
-    if (shelfX + w > ATLAS) { shelfX = 0; shelfY += shelfH; shelfH = 0 }
-    if (shelfY + h > ATLAS) { runs = new Map(); shelfX = shelfY = shelfH = 0 } // full: start again, as Cemacs does
-    scratch.canvas.width = w; scratch.canvas.height = h
-    scratch.font = css
-    scratch.textBaseline = 'top'
-    scratch.fillStyle = '#fff'
-    scratch.fillText(text, 1, 1)
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, shelfX, shelfY, gl.RGBA, gl.UNSIGNED_BYTE, scratch.canvas)
+    let bySize = runs[f].get(size)
+    if (bySize === undefined) { bySize = new Map(); runs[f].set(size, bySize) }
+    let e = bySize.get(text)
+    if (e !== undefined) return e
+    const c = font(f, size * dpr)
+    if (stripFont !== c) { strip.font = c; stripFont = c }
+    const w = Math.min(ATLAS, Math.ceil(strip.measureText(text).width) + 2), h = Math.ceil(size * dpr * 1.4) + 2
+    if (shelfX + w > ATLAS) { upload(); strip.clearRect(0, 0, ATLAS, strip.canvas.height); shelfX = 0; shelfY += shelfH; shelfH = 0 }
+    if (shelfY + h > ATLAS) { flush(); restart(); return run(text, size, f) } // full: what is drawn so far is painted, then it starts again, as Cemacs does
+    if (h > strip.canvas.height) { upload(); strip.canvas.height = h; stripFont = ''; return run(text, size, f) }
+    strip.textBaseline = 'top'
+    strip.fillStyle = '#fff'
+    strip.fillText(text, shelfX + 1, 1)
+    if (shelfX < due0) due0 = shelfX
+    if (shelfX + w > due1) due1 = shelfX + w
+    if (h > dueH) dueH = h
     e = { u0: shelfX / ATLAS, v0: shelfY / ATLAS, u1: (shelfX + w) / ATLAS, v1: (shelfY + h) / ATLAS, w: w / dpr, h: h / dpr }
-    runs.set(key, e)
+    bySize.set(text, e)
     shelfX += w; shelfH = Math.max(shelfH, h)
     return e
   }
 
   function grow(more) {
-    if (n + more <= verts.length) return
     const v = new Float32Array(Math.max(verts.length * 2, n + more))
     v.set(verts.subarray(0, n)); verts = v
   }
-  function vertex(x, y, col, u, v, bx, by, bw, bh, rad, edge) {
-    verts[n++] = x; verts[n++] = y
-    verts[n++] = col[0]; verts[n++] = col[1]; verts[n++] = col[2]; verts[n++] = col[3]
-    verts[n++] = u; verts[n++] = v
-    verts[n++] = bx; verts[n++] = by; verts[n++] = bw; verts[n++] = bh
-    verts[n++] = rad; verts[n++] = edge
+  // The color, the box, the corners and the clip of the vertices that put writes: set by the item that is drawn and
+  // by the group it is in.
+  let cr = 0, cg = 0, cb = 0, ca = 0, bx = 0, by = 0, bw = 0, bh = 0, br = 0, be = 0, k0 = 0, k1 = 0, k2 = 0, k3 = 0
+  function put(x, y, u, v) {
+    const a = verts
+    a[n] = x; a[n + 1] = y; a[n + 2] = cr; a[n + 3] = cg; a[n + 4] = cb; a[n + 5] = ca; a[n + 6] = u; a[n + 7] = v
+    a[n + 8] = bx; a[n + 9] = by; a[n + 10] = bw; a[n + 11] = bh; a[n + 12] = br; a[n + 13] = be
+    a[n + 14] = k0; a[n + 15] = k1; a[n + 16] = k2; a[n + 17] = k3
+    n += STRIDE
   }
-  function quad(x, y, w, h, col, rad, edge, uv) {
-    grow(6 * STRIDE)
-    const cx = x + w / 2, cy = y + h / 2, r = uv ? -1 : rad
-    const [u0, v0, u1, v1] = uv || [0, 0, 0, 0]
-    for (const [px, py, u, v] of [[x, y, u0, v0], [x + w, y, u1, v0], [x + w, y + h, u1, v1], [x, y, u0, v0], [x + w, y + h, u1, v1], [x, y + h, u0, v1]])
-      vertex(px, py, col, u, v, cx, cy, w / 2, h / 2, r, edge)
+  function color(c, a) { cr = ((c >> 16) & 255) / 255; cg = ((c >> 8) & 255) / 255; cb = (c & 255) / 255; ca = a / 255 }
+  // A rectangle, round at its corners with rad, its edge only with edge 1; or, with rad -1, the run at u0 v0 u1 v1.
+  function quad(x, y, w, h, rad, edge, u0, v0, u1, v1) {
+    if (n + 6 * STRIDE > verts.length) grow(6 * STRIDE)
+    bx = x + w / 2; by = y + h / 2; bw = w / 2; bh = h / 2; br = rad; be = edge
+    put(x, y, u0, v0); put(x + w, y, u1, v0); put(x + w, y + h, u1, v1)
+    put(x, y, u0, v0); put(x + w, y + h, u1, v1); put(x, y + h, u0, v1)
   }
-  function tri(pts, col) {
-    grow(pts.length / 2 * STRIDE)
-    for (let k = 0; k < pts.length; k += 2) vertex(pts[k], pts[k + 1], col, 0, 0, pts[k], pts[k + 1], 1e6, 1e6, 0, 0)
-  }
+  function point(x, y) { bx = x; by = y; put(x, y, 0, 0) } // a vertex of a filled triangle
   function flush() {
+    upload()
     if (n === 0) return
-    gl.bufferData(gl.ARRAY_BUFFER, verts.subarray(0, n), gl.STREAM_DRAW)
+    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STREAM_DRAW, 0, n)
     gl.drawArrays(gl.TRIANGLES, 0, n / STRIDE)
     n = 0
   }
+  // The groups of the draw list: at each depth, its offset, the start of its texts, and its clip if it has one, else
+  // the one above.
+  let ox = [0], oy = [0], tx = [0], has = [false], kx = [0], ky = [0], kw = [0], kh = [0], own = [false], depth = 0
+  // The clip of the vertices that follow: that of the group at depth, in pixels of the canvas as a scissor takes it.
   function scissor() {
-    flush()
-    const c = clips[clips.length - 1]
-    if (!c) return gl.disable(gl.SCISSOR_TEST)
-    gl.enable(gl.SCISSOR_TEST)
-    gl.scissor(Math.floor(c[0] * dpr), Math.floor((height - c[1] - c[3]) * dpr), Math.ceil(c[2] * dpr), Math.ceil(c[3] * dpr))
+    if (!has[depth]) { k0 = k1 = -1e9; k2 = k3 = 4e9; return }
+    k0 = Math.floor(kx[depth] * dpr); k1 = Math.floor((height - ky[depth] - kh[depth]) * dpr); k2 = Math.ceil(kw[depth] * dpr); k3 = Math.ceil(kh[depth] * dpr)
   }
-  const rgba = (c, a) => [((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255, a / 255]
+  // A byte offset into the texts -> the place of its character in their string, for the texts of one frame, decoded
+  // at once; texts that aren't all UTF-8 are decoded one by one.
+  let place = new Int32Array(4096)
+  const dec = new TextDecoder()
 
-  // Paints the bytes of a draw list, web.Encode's: one buffer of vertices and one draw call for each clip.
+  // Paints the bytes of a draw list, web.Encode's or web.Encoded's: one buffer of vertices and one draw call, the clips
+  // in the vertices. Nothing is made for an item: its numbers are read where they are, its vertices written into a
+  // buffer kept from frame to frame.
   function paint(bytes) {
     const head = new Uint32Array(bytes.buffer, bytes.byteOffset, 2)
     const f = new Float32Array(bytes.buffer, bytes.byteOffset + 8, head[0])
-    const texts = new TextDecoder()
-    const tbytes = new Uint8Array(bytes.buffer, bytes.byteOffset + 8 + head[0] * 4, head[1])
+    const tb = new Uint8Array(bytes.buffer, bytes.byteOffset + 8 + head[0] * 4, head[1])
+    const all = dec.decode(tb)
+    if (place.length < tb.length + 1) place = new Int32Array(tb.length * 2 + 1)
+    for (let i = 0, j = 0; i <= tb.length; i++) { place[i] = j; const b = tb[i]; if ((b & 0xc0) !== 0x80) j += b >= 0xf0 ? 2 : 1 }
+    const whole = place[tb.length] === all.length
     gl.viewport(0, 0, canvas.width, canvas.height)
     gl.uniform2f(uS, width, height)
     gl.clearColor(1, 1, 1, 1)
-    gl.disable(gl.SCISSOR_TEST)
     gl.clear(gl.COLOR_BUFFER_BIT)
-    const at = [[0, 0]]
-    clips = []
+    depth = 0; ox[0] = 0; oy[0] = 0; tx[0] = 0; has[0] = false; own[0] = false
+    scissor()
     let k = 0
     while (k < f.length) {
-      const op = f[k], [dx, dy] = at[at.length - 1]
+      const op = f[k], dx = ox[depth], dy = oy[depth]
       if (op === 1 || op === 2) {
-        const [x, y, w, h, c, a, r] = f.subarray(k + 1, k + 8)
-        quad(x + dx, y + dy, w, h, rgba(c, a), r, op === 2 ? 1 : 0)
+        color(f[k + 5], f[k + 6])
+        quad(f[k + 1] + dx, f[k + 2] + dy, f[k + 3], f[k + 4], f[k + 7], op === 2 ? 1 : 0, 0, 0, 0, 0)
         k += 8
       } else if (op === 3) {
-        const [x, y, size, c, a, fo, start, len] = f.subarray(k + 1, k + 9)
-        const e = run(texts.decode(tbytes.subarray(start, start + len)), size, fo)
-        quad(x + dx - 1 / dpr, y + dy - 1 / dpr, e.w, e.h, rgba(c, a), 0, 0, [e.u0, e.v0, e.u1, e.v1])
+        const start = f[k + 7] + tx[depth], text = whole ? all.substring(place[start], place[start + f[k + 8]]) : dec.decode(tb.subarray(start, start + f[k + 8]))
+        const e = run(text, f[k + 3], f[k + 6])
+        color(f[k + 4], f[k + 5])
+        quad(f[k + 1] + dx - 1 / dpr, f[k + 2] + dy - 1 / dpr, e.w, e.h, -1, 0, e.u0, e.v0, e.u1, e.v1)
         k += 10
       } else if (op === 4) {
-        const m = f[k + 1], lw = f[k + 2], col = rgba(f[k + 3], f[k + 4]), p = f.subarray(k + 5, k + 5 + 2 * m)
-        for (let j = 0; j + 3 < p.length; j += 2) {
-          const x1 = p[j] + dx, y1 = p[j + 1] + dy, x2 = p[j + 2] + dx, y2 = p[j + 3] + dy, l = Math.hypot(x2 - x1, y2 - y1)
+        const m = f[k + 1], lw = f[k + 2] / 2, p = k + 5
+        color(f[k + 3], f[k + 4])
+        br = 0; be = 0; bw = 1e6; bh = 1e6
+        for (let j = 0; j + 3 < 2 * m; j += 2) {
+          const x1 = f[p + j] + dx, y1 = f[p + j + 1] + dy, x2 = f[p + j + 2] + dx, y2 = f[p + j + 3] + dy, l = Math.hypot(x2 - x1, y2 - y1)
           if (l === 0) continue
-          const nx = -(y2 - y1) / l * lw / 2, ny = (x2 - x1) / l * lw / 2
-          tri([x1 + nx, y1 + ny, x2 + nx, y2 + ny, x2 - nx, y2 - ny, x1 + nx, y1 + ny, x2 - nx, y2 - ny, x1 - nx, y1 - ny], col)
+          const nx = -(y2 - y1) / l * lw, ny = (x2 - x1) / l * lw
+          if (n + 6 * STRIDE > verts.length) grow(6 * STRIDE)
+          point(x1 + nx, y1 + ny); point(x2 + nx, y2 + ny); point(x2 - nx, y2 - ny)
+          point(x1 + nx, y1 + ny); point(x2 - nx, y2 - ny); point(x1 - nx, y1 - ny)
         }
         k += 5 + 2 * m
       } else if (op === 5) {
-        const m = f[k + 1], col = rgba(f[k + 2], f[k + 3]), p = Array.from(f.subarray(k + 4, k + 4 + 2 * m))
-        for (let j = 0; j < p.length; j += 2) { p[j] += dx; p[j + 1] += dy }
-        tri(p, col)
+        const m = f[k + 1], p = k + 4
+        color(f[k + 2], f[k + 3])
+        br = 0; be = 0; bw = 1e6; bh = 1e6
+        if (n + m * STRIDE > verts.length) grow(m * STRIDE)
+        for (let j = 0; j < 2 * m; j += 2) point(f[p + j] + dx, f[p + j + 1] + dy)
         k += 4 + 2 * m
       } else if (op === 6) {
-        const [x, y, w, h, clip] = f.subarray(k + 1, k + 6)
-        at.push([x + dx, y + dy])
-        if (clip) {
-          const o = clips[clips.length - 1], c = [x + dx, y + dy, w, h]
-          if (o) { const x0 = Math.max(o[0], c[0]), y0 = Math.max(o[1], c[1]); c[2] = Math.max(0, Math.min(o[0] + o[2], c[0] + c[2]) - x0); c[3] = Math.max(0, Math.min(o[1] + o[3], c[1] + c[3]) - y0); c[0] = x0; c[1] = y0 }
-          clips.push(c); scissor()
-        } else clips.push(clips[clips.length - 1])
+        const x = f[k + 1] + dx, y = f[k + 2] + dy, d = depth + 1
+        depth = d; ox[d] = x; oy[d] = y; tx[d] = tx[d - 1]
+        if (f[k + 5]) {
+          let x0 = x, y0 = y, w = f[k + 3], h = f[k + 4]
+          if (has[d - 1]) {
+            const px = kx[d - 1], py = ky[d - 1]
+            w = Math.max(0, Math.min(px + kw[d - 1], x0 + w) - Math.max(px, x0)); h = Math.max(0, Math.min(py + kh[d - 1], y0 + h) - Math.max(py, y0))
+            x0 = Math.max(px, x0); y0 = Math.max(py, y0)
+          }
+          has[d] = true; kx[d] = x0; ky[d] = y0; kw[d] = w; kh[d] = h; own[d] = true
+          scissor()
+        } else { has[d] = has[d - 1]; kx[d] = kx[d - 1]; ky[d] = ky[d - 1]; kw[d] = kw[d - 1]; kh[d] = kh[d - 1]; own[d] = false }
         k += 6
       } else if (op === 7) {
-        at.pop()
-        const before = clips.pop()
-        if (before !== clips[clips.length - 1]) scissor()
+        const mine = own[depth]
+        depth--
+        if (mine) scissor()
         k += 1
+      } else if (op === 8) {
+        tx[depth] = (depth > 0 ? tx[depth - 1] : 0) + f[k + 1]
+        k += 2
       } else throw new Error('Ceres: no draw item ' + op)
     }
     flush()
@@ -191,62 +252,195 @@ export function painter(canvas) {
 
   function resize(w, h, ratio) {
     width = w; height = h
-    if (ratio !== dpr) { dpr = ratio; runs = new Map(); shelfX = shelfY = shelfH = 0 }
+    if (ratio !== dpr) { dpr = ratio; restart() }
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr)
     canvas.style.width = w + 'px'; canvas.style.height = h + 'px'
   }
-  function measure(text, size, f) {
-    meter.font = font(['body', 'strong', 'code'].indexOf(f) < 0 ? 0 : ['body', 'strong', 'code'].indexOf(f), size)
-    return Math.ceil(meter.measureText(text).width) // whole pixels, as SDL3_ttf measures: the layout divides them
+  // The width of a text, measured once for each font and size: whole pixels, as SDL3_ttf measures, which the layout
+  // divides.
+  function measure(text, size, name) {
+    const f = name === 'strong' ? 1 : name === 'code' ? 2 : 0
+    let bySize = widths[f].get(size)
+    if (bySize === undefined) { bySize = new Map(); widths[f].set(size, bySize) }
+    let w = bySize.get(text)
+    if (w !== undefined) return w
+    const c = font(f, size)
+    if (meterFont !== c) { meter.font = c; meterFont = c }
+    w = Math.ceil(meter.measureText(text).width)
+    if (++measured > 65536) { widths = [new Map(), new Map(), new Map()]; measured = 0; bySize = new Map(); widths[f].set(size, bySize) }
+    bySize.set(text, w)
+    return w
   }
   return { paint, resize, measure, line: size => Math.ceil(size * 1.4) }
 }
 
 // The hidden DOM: one element for each node of the semantics tree, kept by its Id, at its place over the canvas,
-// transparent; a textbox is a real <input>, where the browser's typing, IME, paste and autofill happen.
+// transparent, without the browser's ring of focus (the page draws its own); a textbox is a real <input>, where the
+// browser's typing, IME, paste and autofill happen. It takes the tree whole (update(json)) or only what changed in it
+// (update.patch(json), web.Patch's), and writes only the elements, the attributes and the places that changed: a frame
+// that moves rows moves their elements, and the rest of the DOM stays as it is. A node of the patch is [Id, Role, Name,
+// Value, X, Y, W, H, Focused, Extra], Extra its other fields ({Href}, {Invalid, Secret}, {Expanded}, {Count}, {Index})
+// or null, X and Y those of the tree less those of the nearest node above it that has a width (an element sits in the
+// element of that node), as they are when W is 0; a list of kids is [Id, [Ids of its kids, in order]], and a kid that
+// leaves it leaves the tree, with its own kids.
 const TAGS = { heading: 'h2', button: 'button', link: 'a', textbox: 'input', list: 'ul', listitem: 'li' }
+const NAMED = { text: true, heading: true, cell: true, columnheader: true } // roles whose element holds its name as text
+const EXTRAS = ['Href', 'Invalid', 'Secret', 'Expanded', 'Count', 'Index']
+const NONE = [undefined, undefined, undefined, undefined, undefined, undefined, 0, undefined, false, null]
+const field = (e, name) => e[9] ? e[9][name] : undefined
 export function mirror(layer, host) {
-  const kept = new Map()
-  function element(node) {
-    let el = kept.get(node.Id)
-    const tag = TAGS[node.Role] || 'div'
-    if (!el || el.tagName.toLowerCase() !== tag) {
-      el = document.createElement(tag)
-      el.style.cssText = 'position:absolute;margin:0;padding:0;border:0;color:transparent;background:none;caret-color:transparent;font-size:1px'
-      if (tag === 'input') {
-        // Typed text, a paste or an autofill lands in the input, goes to the page and leaves it empty; while an IME
-        // composes, the input keeps the text and the page gets it whole at the end.
-        const take = () => { if (el.value) host.event({ Kind: 'text', Text: el.value }); el.value = '' }
-        el.addEventListener('input', ev => { if (!ev.isComposing) take() })
-        el.addEventListener('compositionend', take)
-        el.addEventListener('keydown', ev => { const k = keyName(ev, true); if (k && !ev.isComposing) { ev.preventDefault(); host.event(keyOf(k, ev)) } })
-      }
-      kept.set(node.Id, el)
+  const kept = new Map() // Id -> {e: its node, el, tag, kids: [Ids], up: the kept node above}
+  const root = { e: [0, 'page', '', null, 0, 0, 0, 0, false, null], el: layer, tag: null, kids: [], up: null }
+  kept.set(0, root)
+  let focus = null // the kept node in focus
+  const protos = {} // an element of each tag, its style set once, that new ones are copies of
+  function element(tag) {
+    let proto = protos[tag]
+    if (!proto) {
+      proto = protos[tag] = document.createElement(tag)
+      proto.style.cssText = 'position:absolute;margin:0;padding:0;border:0;outline:none;color:transparent;background:none;caret-color:transparent;font-size:1px'
     }
-    if (!TAGS[node.Role] && node.Role !== 'text') el.setAttribute('role', node.Role === 'img' ? 'img' : node.Role)
-    if (node.Role === 'link') el.href = node.Href
-    if (node.Name) el.setAttribute('aria-label', node.Name)
-    if (node.Role === 'text' || node.Role === 'heading' || node.Role === 'cell' || node.Role === 'columnheader') el.textContent = node.Name
-    if (node.Expanded !== undefined) el.setAttribute('aria-expanded', node.Expanded)
-    if (node.Invalid) el.setAttribute('aria-invalid', 'true')
-    if (tag === 'input') { const type = node.Secret ? 'password' : 'text'; if (el.type !== type) el.type = type }
-    if (node.Index) el.setAttribute('aria-rowindex', node.Index)
-    if (node.Count !== undefined) el.setAttribute('aria-rowcount', node.Count)
-    if (node.W > 0) Object.assign(el.style, { left: node.X + 'px', top: node.Y + 'px', width: node.W + 'px', height: node.H + 'px' })
+    const el = proto.cloneNode(false)
+    if (tag === 'input') {
+      // Typed text, a paste or an autofill lands in the input, goes to the page and leaves it empty; while an IME
+      // composes, the input keeps the text and the page gets it whole at the end.
+      const take = () => { if (el.value) host.event({ Kind: 'text', Text: el.value }); el.value = '' }
+      el.addEventListener('input', ev => { if (!ev.isComposing) take() })
+      el.addEventListener('compositionend', take)
+      el.addEventListener('keydown', ev => { const k = keyName(ev, true); if (k && !ev.isComposing) { ev.preventDefault(); host.event(keyOf(k, ev)) } })
+    }
     return el
   }
-  function place(node, parent, seen) {
-    const el = node.Id === 0 ? parent : element(node)
-    seen.add(node.Id)
-    if (el !== parent && el.parentNode !== parent) parent.appendChild(el)
-    for (const kid of node.Kids) place(kid, el, seen)
-    if (node.Focused && document.activeElement !== el) el.focus({ preventScroll: true })
+  // The node e given to its kept node k: only what differs from its last node is written.
+  function put(k, e) {
+    if (k === root) { root.e = e; return }
+    const role = e[1], tag = TAGS[role] || 'div'
+    let o = k.e || NONE, el = k.el
+    if (k.tag !== tag) {
+      const made = element(tag)
+      if (el) { while (el.firstChild) made.appendChild(el.firstChild); el.replaceWith(made) }
+      el = k.el = made; k.tag = tag; o = NONE
+    }
+    if (o[1] !== role) { if (!TAGS[role] && role !== 'text') el.setAttribute('role', role); else el.removeAttribute('role') }
+    if (o[2] !== e[2] || o[1] !== role) {
+      if (e[2]) el.setAttribute('aria-label', e[2]); else el.removeAttribute('aria-label')
+      if (NAMED[role]) el.textContent = e[2]
+    }
+    if (e[9] || o[9]) {
+      const href = field(e, 'Href'), expanded = field(e, 'Expanded'), invalid = field(e, 'Invalid'), index = field(e, 'Index'), count = field(e, 'Count')
+      if (role === 'link' && href !== field(o, 'Href')) el.href = href
+      if (expanded !== field(o, 'Expanded')) { if (expanded !== undefined) el.setAttribute('aria-expanded', expanded); else el.removeAttribute('aria-expanded') }
+      if (!invalid !== !field(o, 'Invalid')) { if (invalid) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid') }
+      if (index !== field(o, 'Index')) { if (index) el.setAttribute('aria-rowindex', index); else el.removeAttribute('aria-rowindex') }
+      if (count !== field(o, 'Count')) { if (count !== undefined) el.setAttribute('aria-rowcount', count); else el.removeAttribute('aria-rowcount') }
+    }
+    if (tag === 'input') { const type = field(e, 'Secret') ? 'password' : 'text'; if (el.type !== type) el.type = type }
+    if (e[6] > 0) {
+      const was = o[6] > 0, s = el.style
+      if (!was || o[4] !== e[4]) s.left = e[4] + 'px'
+      if (!was || o[5] !== e[5]) s.top = e[5] + 'px'
+      if (!was || o[6] !== e[6]) s.width = e[6] + 'px'
+      if (!was || o[7] !== e[7]) s.height = e[7] + 'px'
+    }
+    k.e = e
+    if (e[8]) focus = k
+    else if (focus === k) focus = null
   }
-  return function update(json) {
-    const seen = new Set()
-    place(JSON.parse(json), layer, seen)
-    for (const [id, el] of kept) if (!seen.has(id)) { el.remove(); kept.delete(id) }
+  // A kept node and all those under it leave the tree; its element leaves the DOM with theirs inside it.
+  function forget(k) {
+    for (const id of k.kids) { const c = kept.get(id); if (c && c.up === k) forget(c) }
+    kept.delete(k.e[0])
+    if (focus === k) focus = null
   }
+  function drop(k) { forget(k); k.el.remove() }
+  // The kids of a kept node, in order: their elements are put in its element where they aren't yet, those that left
+  // are dropped.
+  function place(k, ids) {
+    if (k.kids.length) {
+      const now = new Set(ids)
+      for (const id of k.kids) { const c = kept.get(id); if (!now.has(id) && c && c.up === k) drop(c) }
+    }
+    let prev = null
+    for (const id of ids) {
+      const c = kept.get(id)
+      if (!c) continue
+      c.up = k
+      const want = prev ? prev.nextSibling : k.el.firstChild
+      if (c.el !== want) k.el.insertBefore(c.el, want)
+      prev = c.el
+    }
+    k.kids = ids
+  }
+  function patch(p) {
+    for (const e of p[0]) { let k = kept.get(e[0]); if (!k) { k = { e: null, el: null, tag: null, kids: [], up: null }; kept.set(e[0], k) } put(k, e) }
+    for (const [id, ids] of p[1]) { const k = kept.get(id); if (k) place(k, ids) }
+    if (focus && document.activeElement !== focus.el) focus.el.focus({ preventScroll: true })
+  }
+  // The whole tree, as web.Semantics gives it, as a patch of all its nodes.
+  function whole(t) {
+    const nodes = [], kids = []
+    const walk = (n, ax, ay) => {
+      const w = n.W > 0, extra = {}
+      let any = false
+      for (const f of EXTRAS) if (n[f] !== undefined) { extra[f] = n[f]; any = true }
+      nodes.push([n.Id, n.Role, n.Name, n.Value === undefined ? null : n.Value, w ? n.X - ax : n.X, w ? n.Y - ay : n.Y, n.W, n.H, n.Focused, any ? extra : null])
+      kids.push([n.Id, n.Kids.map(c => c.Id)])
+      for (const c of n.Kids) walk(c, w ? n.X : ax, w ? n.Y : ay)
+    }
+    walk(t, 0, 0)
+    patch([nodes, kids])
+  }
+  // The tree as web.Semantics gives it, from the kept nodes.
+  function tree(k = root, ax = 0, ay = 0) {
+    const e = k.e, w = e[6] > 0, x = w ? e[4] + ax : e[4], y = w ? e[5] + ay : e[5]
+    const n = { Id: e[0], Role: e[1], Name: e[2], Value: e[3], X: x, Y: y, W: e[6], H: e[7], Focused: e[8] }
+    if (e[9]) Object.assign(n, e[9])
+    n.Kids = k.kids.map(id => tree(kept.get(id), w ? x : ax, w ? y : ay))
+    return n
+  }
+  // The mistakes of the hidden DOM against the kept tree: each element in its place, with the attributes of its node.
+  function check() {
+    const bad = []
+    const walk = (k, ax, ay) => {
+      const e = k.e, w = e[6] > 0, x = w ? e[4] + ax : e[4], y = w ? e[5] + ay : e[5], el = k.el, say = m => bad.push(e[0] + ' ' + e[1] + ': ' + m)
+      if (k !== root) {
+        const role = e[1], tag = TAGS[role] || 'div'
+        if (el.tagName.toLowerCase() !== tag) say('tag ' + el.tagName)
+        const r = el.getAttribute('role')
+        if ((!TAGS[role] && role !== 'text') ? r !== role : r !== null) say('role ' + r)
+        if ((el.getAttribute('aria-label') || '') !== (e[2] || '')) say('label ' + el.getAttribute('aria-label'))
+        if (NAMED[role] && el.textContent !== e[2]) say('text ' + el.textContent)
+        if (role === 'link' && el.getAttribute('href') !== field(e, 'Href')) say('href ' + el.getAttribute('href'))
+        const ex = field(e, 'Expanded')
+        if ((ex === undefined ? null : String(ex)) !== el.getAttribute('aria-expanded')) say('expanded ' + el.getAttribute('aria-expanded'))
+        if ((field(e, 'Invalid') ? 'true' : null) !== el.getAttribute('aria-invalid')) say('invalid ' + el.getAttribute('aria-invalid'))
+        if (tag === 'input' && el.type !== (field(e, 'Secret') ? 'password' : 'text')) say('type ' + el.type)
+        const ix = field(e, 'Index'), ct = field(e, 'Count')
+        if ((ix ? String(ix) : null) !== el.getAttribute('aria-rowindex')) say('rowindex ' + el.getAttribute('aria-rowindex'))
+        if ((ct === undefined ? null : String(ct)) !== el.getAttribute('aria-rowcount')) say('rowcount ' + el.getAttribute('aria-rowcount'))
+        if (w) {
+          const b = el.getBoundingClientRect(), l = layer.getBoundingClientRect()
+          if (Math.abs(b.left - l.left - x) > 0.5 || Math.abs(b.top - l.top - y) > 0.5 || Math.abs(b.width - e[6]) > 0.5 || Math.abs(b.height - e[7]) > 0.5)
+            say('box ' + [b.left - l.left, b.top - l.top, b.width, b.height].join(',') + ' for ' + [x, y, e[6], e[7]].join(','))
+        }
+      }
+      const els = Array.from(el.children)
+      if (!NAMED[e[1]] || k.kids.length) {
+        if (els.length !== k.kids.length) say(els.length + ' elements for ' + k.kids.length + ' kids')
+        k.kids.forEach((id, i) => { if (els[i] !== kept.get(id).el) say('kid ' + i + ' out of place') })
+      }
+      for (const id of k.kids) walk(kept.get(id), w ? x : ax, w ? y : ay)
+    }
+    walk(root, 0, 0)
+    // An element that the browser can't focus (a table's) keeps the focus where it was, as it always did.
+    if (focus && document.activeElement !== focus.el && focus.el.matches('input, button, a[href]')) bad.push('focus not on ' + focus.e[0])
+    return bad
+  }
+  const update = json => whole(JSON.parse(json))
+  update.patch = json => patch(JSON.parse(json))
+  update.tree = () => tree()
+  update.check = check
+  return update
 }
 
 const KEYS = { Enter: 'enter', Escape: 'escape', Backspace: 'backspace', Tab: 'tab', ' ': 'space', Delete: 'delete', Home: 'home', End: 'end', PageUp: 'pageup', PageDown: 'pagedown', ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
@@ -276,8 +470,10 @@ const dec = new TextDecoder()
 const text = b => typeof b === 'string' ? b : dec.decode(b)
 
 // Sets up the canvas of the page (the first <canvas> of the document): it fills its parent, the events go to the page
-// on events, as JSON text. Gives the page its width, height, origin and first path.
-export function Start(events) {
+// on events, as JSON text or, with form "lists", as lists. Gives the page its width, height, origin and first path.
+const listed = e => e.Kind === 'mouse' ? ['mouse', e.Action, e.X, e.Y, e.Button, e.Amount] : e.Kind === 'key' ? ['key', e.Key, e.Ctrl, e.Alt, e.Shift]
+  : e.Kind === 'text' ? ['text', e.Text] : ['resize', e.Width, e.Height]
+export function Start(events, form) {
   const canvas = document.querySelector('canvas')
   canvas.style.display = 'block'
   const p = early && early.canvas === canvas ? early.p : painter(canvas)
@@ -285,7 +481,7 @@ export function Start(events) {
   layer.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;overflow:hidden'
   canvas.parentNode.style.position = 'relative'
   canvas.parentNode.appendChild(layer)
-  const send = e => events.send(JSON.stringify(e))
+  const send = form !== undefined && text(form) === 'lists' ? e => events.send(listed(e)) : e => events.send(JSON.stringify(e))
   const mirrored = mirror(layer, { event: send })
   let asked = false
   const r = canvas.parentNode.getBoundingClientRect()
@@ -310,12 +506,27 @@ export function Start(events) {
     const k = keyName(ev, false)
     if (k) { ev.preventDefault(); send(keyOf(k, ev)) }
   })
-  return [Math.floor(r.width), Math.floor(r.height), location.origin, canvas.dataset.path || '/']
+  return [Math.floor(r.width), Math.floor(r.height), location.origin, canvas.dataset.path || '/', /[?&]ceres-check\b/.test(location.search)]
 }
 
 export const Measure = (t, size, font) => glue.p.measure(text(t), size, text(font))
 export const Line = size => glue.p.line(size)
-export const Mirror = json => { tree = text(json); glue.mirrored(tree) }
+let shown = false
+export const Mirror = json => { glue.mirrored(text(json)); shown = true }
+export const Patch = json => {
+  glue.mirrored.patch(text(json))
+  shown = true
+  if (glue.painted === glue.asked) stats.frames[stats.frames.length - 1] = performance.now() - glue.asked // the frame's work ends here
+}
+// The kept tree against the whole one, and the hidden DOM against the kept tree: the first mistakes in checks.first.
+export function Check(json) {
+  const c = stats.checks, want = JSON.parse(text(json)), got = glue.mirrored.tree(), bad = glue.mirrored.check()
+  const same = (a, b) => a === b || (a && b && typeof a === 'object' && typeof b === 'object' &&
+    Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => same(a[k], b[k])))
+  if (!same(want, got)) bad.unshift('the kept tree differs from the tree')
+  c.frames++
+  if (bad.length) { c.bad++; if (!c.first.length) c.first = bad.slice(0, 5) }
+}
 export const Wake = () => glue.wake()
 export function Paint(bytes) {
   const start = performance.now()
@@ -323,16 +534,18 @@ export function Paint(bytes) {
   const now = performance.now()
   if (stats.firstPaint === null) stats.firstPaint = now
   stats.frames.push(now - glue.asked)
+  glue.painted = glue.asked
   stats.waits.push(glue.called - glue.asked)
   stats.paints.push(now - start)
   if (stats.frames.length > 1000) { stats.frames.shift(); stats.waits.shift(); stats.paints.shift() }
 }
 
-// What a test reads: the last semantics tree, as JSON text, and the times of the frames: firstPaint, the time from the
-// page's start, frames, for each, the time from the browser's frame to the page painted, waits, the part of it before
-// the browser called the page (the time of requestAnimationFrame's callback is the frame's start, which Chrome takes
-// before it runs the frame), and paints, the part that WebGL took, in ms.
-let tree = null
-const stats = { firstPaint: null, frames: [], waits: [], paints: [] }
-export const Tree = () => tree
+// What a test reads: the semantics tree that the hidden DOM keeps, as JSON text, and the times of the frames:
+// firstPaint, the time from the page's start, frames, for each, the time from the browser's frame to the page painted
+// and its hidden DOM changed, waits, the part of it before the browser called the page (the time of
+// requestAnimationFrame's callback is the frame's start, which Chrome takes before it runs the frame), and paints, the
+// part that WebGL took, in ms; checks, in a page whose address holds ceres-check, the frames checked, those that had a
+// mistake and the first mistakes.
+const stats = { firstPaint: null, frames: [], waits: [], paints: [], checks: { frames: 0, bad: 0, first: [] } }
+export const Tree = () => shown ? JSON.stringify(glue.mirrored.tree()) : null
 export const Stats = () => stats

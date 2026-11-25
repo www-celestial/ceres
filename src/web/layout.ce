@@ -91,18 +91,35 @@ defn layout(id, maxW, fit, ui)
   else if k == "spacer" sized(id, 0 if fit else maxW, b.Node.Size, [], u)
   else if k == "divider" sized(id, maxW, 1, [rect(0, 0, maxW, 1, u.Theme.Line)], u)
   else bug.Panic("No layout for the widget kind $k.") end
-  u.Boxes[id].Cw = maxW
-  u.Boxes[id].Fit = fit
-  u.Boxes[id].Dirty = false
+  done = u.Boxes[id]
+  done.Cw = maxW
+  done.Fit = fit
+  done.Dirty = false
+  done.Laid = fresh()
+  u.Boxes[id] = done
   u
 end
 
 defn sized(id, w, h, items, ui)
-  (** Gives the box id its size and its items. *)
+  (** Gives the box id its size and its items: one write of the box. *)
   u = ui
-  u.Boxes[id].W = w
-  u.Boxes[id].H = h
-  u.Boxes[id].Items = items
+  b = u.Boxes[id]
+  b.W = w
+  b.H = h
+  b.Items = items
+  u.Boxes[id] = b
+  u
+end
+
+defn cached(id, w, h, items, cache, ui)
+  (** Gives the box id its size, its items and what it keeps of its widget: one write of the box. *)
+  u = ui
+  b = u.Boxes[id]
+  b.W = w
+  b.H = h
+  b.Items = items
+  b.Cache = cache
+  u.Boxes[id] = b
   u
 end
 
@@ -121,10 +138,15 @@ end
 kidGroups(b, u) = [group(u.Boxes[c].X, u.Boxes[c].Y, u.Boxes[c].W, u.Boxes[c].H, false, u.Boxes[c].Items) for c in b.Kids]
 
 defn place(id, x, y, ui)
-  (** Puts the box id at x, y in its parent. *)
+  (** Puts the box id at x, y in its parent: a box that stays where it is isn't written. *)
+  b = ui.Boxes[id]
+  if b.X == x and b.Y == y
+    return ui
+  end
   u = ui
-  u.Boxes[id].X = x
-  u.Boxes[id].Y = y
+  b.X = x
+  b.Y = y
+  u.Boxes[id] = b
   u
 end
 
@@ -223,8 +245,7 @@ defn layText(id, maxW, ui)
   s = textOf(got.Value)
   lines = wrapped(s, maxW, size, font, u)
   widest = list.Max([widthOf(l, size, font, u) for l in lines])
-  u.Boxes[id].Cache = {Text: s}
-  sized(id, list.Min(widest, maxW), lh * value.Len(lines), [words(0, k * lh - lh, lines[k], size, color, font) for k in 1..value.Len(lines) if text.Trim(lines[k]) != ""], u)
+  cached(id, list.Min(widest, maxW), lh * value.Len(lines), [words(0, k * lh - lh, lines[k], size, color, font) for k in 1..value.Len(lines) if text.Trim(lines[k]) != ""], {Text: s}, u)
 end
 
 defn layButton(id, ui)
@@ -248,8 +269,7 @@ defn layButton(id, ui)
   if u.Focus == id and u.Ring
     out = list.Append(frame(-2, -2, w + 4, h + 4, t.Accent), out)
   end
-  u.Boxes[id].Cache = {Text: label}
-  sized(id, w, h, out, u)
+  cached(id, w, h, out, {Text: label}, u)
 end
 
 defn layLink(id, ui)
@@ -290,8 +310,7 @@ defn layInput(id, maxW, ui)
     inside = [rect(cx - shift, ty, 1, lh, t.Ink)]
   end
   shownText = if s == "" and n.Placeholder == "" [] else if s == "" [words(0, ty, n.Placeholder, t.Size, t.Muted, "code")] else [words(-shift, ty, s, t.Size, t.Ink, "code")] end
-  u.Boxes[id].Cache = {Text: s, Shift: shift}
-  sized(id, w, h, list.Append(group(6, 0, w - 12, h, true, list.Concat(shownText, inside)), fieldEdge(id, got.Value.Bad, w, h, u)), u)
+  cached(id, w, h, list.Append(group(6, 0, w - 12, h, true, list.Concat(shownText, inside)), fieldEdge(id, got.Value.Bad, w, h, u)), {Text: s, Shift: shift}, u)
 end
 
 defn optionsOf(n)
@@ -321,6 +340,5 @@ defn laySelect(id, maxW, ui)
   label = got.Value.Label
   shownText = if value.IsMissing(label) words(6, ty, n.Placeholder, t.Size, t.Muted, "code") else words(6, ty, label, t.Size, t.Ink, "code") end
   vw = widthOf("v", t.Size, "code", u)
-  u.Boxes[id].Cache = {Text: "" if value.IsMissing(label) else label}
-  sized(id, w, h, list.Concat(fieldEdge(id, false, w, h, u), [group(0, 0, w - vw - 10, h, true, [shownText]), words(w - vw - 6, ty, "v", t.Size, t.Ink, "code")]), u)
+  cached(id, w, h, list.Concat(fieldEdge(id, false, w, h, u), [group(0, 0, w - vw - 10, h, true, [shownText]), words(w - vw - 6, ty, "v", t.Size, t.Ink, "code")]), {Text: "" if value.IsMissing(label) else label}, u)
 end

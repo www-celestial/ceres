@@ -1,5 +1,6 @@
 (* The draw list as bytes, for the glue of the browser, web/ceres.js: what it paints with WebGL2 in one pass. *)
 use std/list
+use std/math
 use std/text
 use std/value
 
@@ -7,9 +8,10 @@ defn Encode(items)
   (** The draw list as the bytes that web/ceres.js paints: two u32, the count of f32 numbers and the count of bytes of
       text, then the numbers, then the texts in UTF-8. Each item is a code and its numbers: 1 rect and 2 frame, X Y W
       H Color Alpha Radius; 3 text, X Y Size Color Alpha Font (0 body, 1 strong, 2 code) Start Length Angle, Start and
-      Length the place of its text in the bytes of texts; 4 line, n Width Color Alpha then n points x y; 5 tris, n
-      Color Alpha then n points; 6 a group, X Y W H Clip (1 or 0), whose items follow, up to 7, its end. A color fits
-      in an f32 exactly, as every integer up to 2^24 does.
+      Length the place of its text in the bytes of texts, from the group's start of texts; 4 line, n Width Color Alpha
+      then n points x y; 5 tris, n Color Alpha then n points; 6 a group, X Y W H Clip (1 or 0), whose items follow, up
+      to 7, its end; 8 Base, inside a group, the start of its texts, Base bytes after that of the group around it (0 at
+      first, and for a group without one). A color fits in an f32 exactly, as every integer up to 2^24 does.
 
         value.Len(text.Numbers("u32", text.ByteSlice(1, 8, Encode([{Kind: "rect", X: 0, Y: 0, W: 1, H: 1, Color: 0, Radius: 0}])))) --> 2 *)
   got = encoded(items, 0)
@@ -62,3 +64,56 @@ radiusOf(one) = one.Radius if "Radius" in one else 0   (* The radius of a rectan
 fontName(one) = one.Font if "Font" in one and value.IsSome(one.Font) else "body"   (* The font of a text. *)
 angleOf(one) = one.Angle if "Angle" in one else 0   (* The angle of a text. *)
 widthOf1(one) = one.Width if "Width" in one and value.IsSome(one.Width) else 1   (* The width of a line. *)
+
+defn Encoded(ui)
+  (** The bytes of the page's frame, as web.Encode(web.Frame(ui)) gives them to paint, made again only for the boxes
+      laid out since the last frame: each box keeps the bytes of its items, in which those of its children are copied
+      whole, and a group of a child starts its texts where they are (8, Base). {Ui, Bytes}: a back-end gives the Ui to
+      the next frame. *)
+  u = chunked(ui.Root, ui)
+  c = u.Boxes[u.Root].Enc
+  t = u.Theme
+  root = u.Boxes[u.Root]
+  head = encoded([rect(0, 0, u.Width, u.Height, t.Back)], 0)
+  pos = head.At
+  rest = []
+  seen = seenHeight(u)
+  if root.H > seen
+    bar = list.Max(20, math.Div(seen * seen, root.H))
+    y = math.Div((seen - bar) * u.ScrollY, root.H - seen)
+    rest = [rect(u.Width - 6, y, 4, bar, t.Muted)]
+  end
+  tail = encoded(list.Concat(list.Concat(rest, popupItems(u)), bandItems(u)), pos + text.ByteLength(c.Texts))
+  nums = text.Str(text.Join("", head.Chunks), text.FromNumbers("f32", [6, 0, -u.ScrollY, root.W, root.H, 0, 8, pos]), c.Nums,
+    text.FromNumbers("f32", [7]), text.Join("", tail.Chunks))
+  words = text.Str(text.Join("", head.Texts), c.Texts, text.Join("", tail.Texts))
+  count = head.Count + 8 + c.Count + 1 + tail.Count
+  {Ui: u, Bytes: text.Str(text.FromNumbers("u32", [count, text.ByteLength(words)]), nums, words)}
+end
+
+defn chunked(id, ui)
+  (** The page with the bytes of the box id kept in its Enc, {Laid, Nums, Count, Texts}, made again if it was laid out
+      since: its own items, then a group for each child, whose bytes are the child's. *)
+  b = ui.Boxes[id]
+  if value.IsSome(b.Enc) and b.Enc.Laid == b.Laid
+    return ui
+  end
+  u = ui
+  own = value.Len(b.Items) - value.Len(b.Kids)
+  mine = encoded(if own == value.Len(b.Items) b.Items else list.Take(own, b.Items) end, 0)
+  nums = [text.Join("", mine.Chunks)]
+  ts = [text.Join("", mine.Texts)]
+  pos = mine.At
+  count = mine.Count
+  for c in b.Kids
+    u = chunked(c, u)
+    k = u.Boxes[c]
+    e = k.Enc
+    nums = list.Append(text.Str(text.FromNumbers("f32", [6, k.X, k.Y, k.W, k.H, 0, 8, pos]), e.Nums, text.FromNumbers("f32", [7])), nums)
+    ts = list.Append(e.Texts, ts)
+    pos += text.ByteLength(e.Texts)
+    count += 8 + e.Count + 1
+  end
+  u.Boxes[id].Enc = {Laid: b.Laid, Nums: text.Join("", nums), Count: count, Texts: text.Join("", ts)}
+  u
+end

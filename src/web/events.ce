@@ -113,21 +113,32 @@ defn mouse(e, ui)
     u.Caret = caretAt(h.X - 6 + dict.GetOr("Shift", 0, u.Boxes[h.Id].Cache), h.Id, u)
     return touch(h.Id, u)
   else if k == "select"
-    u = focus(h.Id, u)
-    u.Popup = h.Id
-    u.Changed = true
-    return u
+    return opened(h.Id, focus(h.Id, u))
   else if k == "table"
     return tableDown(h, focus(h.Id, u))
   end
   u
 end
 
+defn opened(id, ui)
+  (** The page with the list of the select id open, 0 for none: the selects that open or close are laid out again, so
+      that their node says so. *)
+  u = ui
+  was = u.Popup
+  u.Popup = id
+  u.Changed = true
+  if was != id and was != 0 and was in u.Boxes
+    u = touch(was, u)
+  end
+  if was != id and id != 0
+    u = touch(id, u)
+  end
+  u
+end
+
 defn picked(e, o, ui)
   (** A click while the list of a select is open: an option is chosen, and the list closes. *)
-  u = ui
-  u.Popup = 0
-  u.Changed = true
+  u = opened(0, ui)
   inside = e.X >= o.X and e.X < o.X + o.W and e.Y >= o.Y and e.Y < o.Y + o.Row * value.Len(o.Options)
   if inside
     opt = o.Options[math.Div(e.Y - o.Y, o.Row) + 1]
@@ -277,7 +288,7 @@ defn key(e, ui)
     end
   end
   if e.Key == "tab"
-    u.Popup = 0
+    u = opened(0, u)
     return tabbed(dict.GetOr("Shift", false, e), u)
   end
   if u.Focus == 0 or not (u.Focus in u.Boxes)
@@ -320,11 +331,9 @@ defn selectKey(e, ui)
   n = u.Boxes[u.Focus].Node
   opts = optionsOf(n)
   if e.Key == "enter" or e.Key == "space"
-    u.Popup = 0 if u.Popup == u.Focus else u.Focus
-    u.Changed = true
+    u = opened(0 if u.Popup == u.Focus else u.Focus, u)
   else if e.Key == "escape"
-    u.Popup = 0
-    u.Changed = true
+    u = opened(0, u)
   else if (e.Key == "down" or e.Key == "up") and not value.IsEmpty(opts)
     keys = [n.Key(o) for o in opts]
     i = list.IndexOf(Get(n.Value), keys)

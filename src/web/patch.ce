@@ -1,0 +1,196 @@
+(* The semantics tree a patch at a time, for a mirror that keeps it, as the hidden DOM of web/ceres.js does: a patch
+   holds only the nodes that are new or changed since the last one, and the lists of kids that changed. Each box keeps
+   what was sent of it, in Sem: {Rx, Ry, Ax, Ay, Loose, Sids, Node, Kids, Rows, Head}, its place from the nearest node
+   above it that has a width and in the window, whether a node of width 0 is in it (its place is the window's), the ids
+   it gives the node above, the JSON of its own node and of its kids, and for a table its rows. A box that wasn't laid
+   out since the last patch and stays at the same place from that node gives the same nodes: the walk doesn't go into
+   it. So a frame that changes one field sends one node, and one that scrolls a table its rows. *)
+use std/dict
+use std/fiber
+use std/json
+use std/list
+use std/text
+use std/value
+
+semNodes = fiber.Channel()   (* The JSON of the nodes of the patch being made. *)
+semKids = fiber.Channel()   (* The JSON of the lists of kids of the patch being made. *)
+
+defn Patch(ui)
+  (** What changed in the semantics tree since the last patch: {Ui, Text}, Text the JSON of [nodes, kids], "" when
+      nothing changed. Each node that is new or changed is [Id, Role, Name, Value, X, Y, W, H, Focused, Extra], as
+      web.Semantics has it: Extra its other fields ({Href}, {Invalid, Secret}, {Expanded}, {Count}, {Index}) or missing,
+      X and Y its own less those of the nearest node above it that has a width, or as they are when W is 0. Each node
+      whose kids changed is [Id, [the Ids of its kids, in order]]: a kid that leaves the list leaves the tree, with its
+      own kids. The first patch holds the whole tree; a back-end gives the Ui back to the next one. *)
+  since = ui.SemSeq
+  u = ui
+  page = json.Text([0, "page", "", missing, 0, 0, u.Width, u.Height, false, missing])
+  if page != u.SemPage
+    fiber.Send(page, semNodes)
+    u.SemPage = page
+  end
+  u = semWalk(u.Root, 0, 0, 0, -u.ScrollY, since, u)
+  kids = json.Text([0, u.Boxes[u.Root].Sem.Sids])
+  if kids != u.SemKids
+    fiber.Send(kids, semKids)
+    u.SemKids = kids
+  end
+  u.SemSeq = fresh()
+  nodes = drain(semNodes)
+  lists = drain(semKids)
+  if value.IsEmpty(nodes) and value.IsEmpty(lists)
+    return {Ui: u, Text: ""}
+  end
+  {Ui: u, Text: "[[$(text.Join(",", nodes))],[$(text.Join(",", lists))]]"}
+end
+
+defn sent(entry, was)
+  (** Sends the JSON of a node unless it is what was sent of it. *)
+  if entry != was
+    fiber.Send(entry, semNodes)
+  end
+end
+
+defn kept(id, at, loose, sids, node, ui, kids = missing, rows = missing, head = missing)
+  (** The page with what was sent of the box id, at = [rx, ry, x, y]. *)
+  u = ui
+  u.Boxes[id].Sem = {Rx: at[1], Ry: at[2], Ax: at[3], Ay: at[4], Loose: loose, Sids: sids, Node: node, Kids: kids, Rows: rows, Head: head}
+  u
+end
+
+defn semWalk(id, ax, ay, x0, y0, since, ui)
+  (** The patch of the box id, whose parent is at x0, y0 in the window and the nearest node above it that has a width
+      at ax, ay: its nodes and lists of kids that changed sent, and what was sent of it kept in its Sem. *)
+  b = ui.Boxes[id]
+  x = x0 + b.X
+  y = y0 + b.Y
+  rx = x - ax
+  ry = y - ay
+  old = b.Sem
+  had = value.IsSome(old)
+  if b.Laid <= since and had and old.Rx == rx and old.Ry == ry and (not old.Loose or old.Ax == x and old.Ay == y)
+    return ui
+  end
+  at = [rx, ry, x, y]
+  loose = b.W <= 0
+  was = if had old.Node else missing end
+  n = b.Node
+  k = n.Kind
+  ex = rx if b.W > 0 else x
+  ey = ry if b.W > 0 else y
+  f = ui.Focus == id
+  if k == "text"
+    s = b.Cache.Text
+    if text.Trim(s) == ""
+      return kept(id, at, false, [], missing, ui)
+    end
+    e = json.Text([id, n.Role, s, missing, ex, ey, b.W, b.H, f, missing])
+    sent(e, was)
+    return kept(id, at, loose, [id], e, ui)
+  else if k == "button" or k == "link" or k == "input" or k == "select" or k == "plot"
+    e = if k == "button"
+      json.Text([id, "button", b.Cache.Text, missing, ex, ey, b.W, b.H, f, missing])
+    else if k == "link"
+      json.Text([id, "link", n.Label, missing, ex, ey, b.W, b.H, f, {Href: n.To}])
+    else if k == "input"
+      bad = value.IsFunction(n.Invalid) and n.Invalid()
+      more = if dict.GetOr("Secret", false, n) {Invalid: bad, Secret: true} else {Invalid: bad} end
+      json.Text([id, "textbox", n.Label, b.Cache.Text, ex, ey, b.W, b.H, f, more])
+    else if k == "select"
+      json.Text([id, "combobox", n.Name, b.Cache.Text, ex, ey, b.W, b.H, f, {Expanded: ui.Popup == id}])
+    else
+      json.Text([id, "img", b.Cache.Text, missing, ex, ey, b.W, b.H, f, missing])
+    end
+    sent(e, was)
+    return kept(id, at, loose, [id], e, ui)
+  else if k == "table"
+    return tablePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
+  else if k == "each"
+    e = json.Text([id, "list", "", missing, ex, ey, b.W, b.H, f, missing])
+    sent(e, was)
+    nax = x if b.W > 0 else ax
+    nay = y if b.W > 0 else ay
+    u = ui
+    items = []
+    for c in b.Kids
+      li = "$(c)i"
+      before = u.Boxes[c].Sem
+      if value.IsMissing(before)
+        fiber.Send(json.Text([li, "listitem", "", missing, 0, 0, 0, 0, false, missing]), semNodes)
+      end
+      u = semWalk(c, nax, nay, x, y, since, u)
+      now = u.Boxes[c].Sem.Sids
+      loose = loose or u.Boxes[c].Sem.Loose
+      if value.IsMissing(before) or not value.Equal(now, before.Sids)
+        fiber.Send(json.Text([li, now]), semKids)
+      end
+      items = list.Append(li, items)
+    end
+    ks = json.Text([id, items])
+    if not had or ks != old.Kids
+      fiber.Send(ks, semKids)
+    end
+    return kept(id, at, loose, [id], e, u, kids = ks)
+  end
+  u = ui
+  sids = []
+  loose = false
+  for c in b.Kids
+    u = semWalk(c, ax, ay, x, y, since, u)
+    s = u.Boxes[c].Sem
+    sids = list.Concat(sids, s.Sids)
+    loose = loose or s.Loose
+  end
+  kept(id, at, loose, sids, missing, u)
+end
+
+defn tablePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
+  (** The patch of a table: its node, its header, and the rows in sight that are new, moved or changed. A row keeps
+      its id while it is in sight, so a notch of the wheel sends the rows that came, with their cells, and the places of
+      those that moved. *)
+  c = b.Cache
+  n = b.Node
+  old = b.Sem
+  had = value.IsSome(old)
+  e = json.Text([id, "table", n.Label, missing, ex, ey, b.W, b.H, f, {Count: c.Count}])
+  sent(e, if had old.Node else missing end)
+  nax = x if b.W > 0 else ax
+  nay = y if b.W > 0 else ay
+  hid = "$(id)h"
+  head = json.Text([hid, "row", "", missing, x - nax, y - nay, b.W, c.Row, false, {Index: 0}])
+  if not had
+    names = ["$(hid)$k" for k in 1..value.Len(n.Columns)]
+    for k in 1..value.Len(n.Columns)
+      fiber.Send(json.Text([names[k], "columnheader", n.Columns[k].Title, missing, 0, 0, 0, 0, false, missing]), semNodes)
+    end
+    fiber.Send(json.Text([hid, names]), semKids)
+  end
+  sent(head, if had old.Head else missing end)
+  before = if had old.Rows else dict.Dict() end
+  rows = dict.Dict()
+  ids = [hid]
+  for k in 1..value.Len(c.Texts)
+    i = c.First + k - 1
+    rid = "$(id)r$i"
+    re = json.Text([rid, "row", "", missing, x - nax, y + c.Row + (i - 1) * c.Row - c.Offset - nay, b.W, c.Row, false, {Index: i}])
+    w = dict.Get(rid, before)
+    texts = c.Texts[k]
+    sent(re, if value.IsSome(w) w.Node else missing end)
+    if value.IsMissing(w) or not value.Equal(w.Texts, texts)
+      cells = ["$(rid)c$j" for j in 1..value.Len(texts)]
+      for j in 1..value.Len(texts)
+        fiber.Send(json.Text([cells[j], "cell", texts[j], missing, 0, 0, 0, 0, false, missing]), semNodes)
+      end
+      if value.IsMissing(w)
+        fiber.Send(json.Text([rid, cells]), semKids)
+      end
+    end
+    rows[rid] = {Node: re, Texts: texts}
+    ids = list.Append(rid, ids)
+  end
+  ks = json.Text([id, ids])
+  if not had or ks != old.Kids
+    fiber.Send(ks, semKids)
+  end
+  kept(id, at, b.W <= 0, [id], e, ui, kids = ks, rows = rows, head = head)
+end

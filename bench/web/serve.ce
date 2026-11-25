@@ -1,0 +1,14 @@
+(* The page of bench/web/table.ce in a browser, compiled to WebAssembly first (cesia build --target wasm
+   bench/web/table.ce): http://127.0.0.1:8080/table.html, and its measure at /tests/table.html. PORT changes the port. *)
+use std/http
+use std/io
+use std/net
+use std/sys
+use std/text
+use std/value
+
+given = sys.Env("PORT")
+l = net.Listen(if value.IsMissing(given) 8080 else text.Number(given) end).Value
+io.Print("http://127.0.0.1:$(net.Port(l))/table.html")
+app = http.App() then http.Static("/tests", "tests/web") then http.Static("", "bench/web")
+http.Serve(app, listener = l)!

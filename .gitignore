@@ -11,3 +11,7 @@ examples/hello/hello.js
 examples/hello/hello.wasm
 examples/hello/hello.sites
 examples/hello/ceres.js
+bench/web/table.js
+bench/web/table.wasm
+bench/web/table.sites
+bench/web/ceres.js

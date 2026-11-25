@@ -1,7 +1,9 @@
 (* The runtime: the mounted page as boxes, the live parts that follow signals, and the update that runs only those whose
-   signals changed. A box is a dictionary {Id, Parent, Node, Kids, W, H, X, Y, Cw, Fit, Dirty, Items, Cache}: its widget,
-   its children's ids, its size, its place in its parent, the width it was laid out for, and its draw items in its own
-   coordinates. A box that changed is Dirty, and so are all the boxes above it. *)
+   signals changed. A box is a dictionary {Id, Parent, Node, Kids, W, H, X, Y, Cw, Fit, Dirty, Items, Cache, Laid, Sem}:
+   its widget, its children's ids, its size, its place in its parent, the width it was laid out for, its draw items in
+   its own coordinates, when it was last laid out (an id of fresh, which only grows) and what the last patch sent of it
+   (src/web/patch.ce). A box
+   that changed is Dirty, and so are all the boxes above it. *)
 use std/bug
 use std/dict
 use std/list
@@ -11,7 +13,7 @@ defn newUi(width, height, measure, theme)
   (** An empty page of this size. *)
   {Boxes: dict.Dict(), Root: 0, Comps: dict.Dict(), Deps: dict.Dict(), Subs: dict.Dict(), Width: width, Height: height,
     Measure: measure, Theme: theme, Focus: 0, Ring: false, Caret: 0, Pressed: 0, Popup: 0, Drag: missing, ScrollY: 0, Changed: true,
-    Screens: [], Nav: missing, Memos: dict.Dict()}
+    Screens: [], Nav: missing, Memos: dict.Dict(), SemSeq: 0, SemPage: "", SemKids: ""}
 end
 
 defn mount(node, parent, ui)
@@ -19,7 +21,7 @@ defn mount(node, parent, ui)
   n = kid(node)
   id = fresh()
   u = ui
-  u.Boxes[id] = {Id: id, Parent: parent, Node: n, Kids: [], W: 0, H: 0, X: 0, Y: 0, Cw: -1, Fit: false, Dirty: true, Items: [], Cache: missing}
+  u.Boxes[id] = {Id: id, Parent: parent, Node: n, Kids: [], W: 0, H: 0, X: 0, Y: 0, Cw: -1, Fit: false, Dirty: true, Items: [], Cache: missing, Laid: 0, Sem: missing, Enc: missing}
   k = n.Kind
   if k == "stack" or k == "row"
     ids = []

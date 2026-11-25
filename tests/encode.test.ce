@@ -1,0 +1,99 @@
+(* web.Encoded, the bytes of a frame kept box by box, paints what web.Encode(web.Frame(page)) paints: both read as a
+   painter reads them (each group's offset and start of texts, 8 Base inside a group) give the same items at the same
+   places with the same texts, on a page of each kind of box, after each step that changes a part of it. *)
+use src/web
+use src/headless
+use std/list
+use std/math
+use std/text
+use std/value
+
+defn painted(bytes)
+  (** The items of the bytes of a draw list, as a painter reads them: a line each, at its place in the window. *)
+  head = text.Numbers("u32", text.ByteSlice(1, 8, bytes))
+  f = text.Numbers("f32", text.ByteSlice(9, 8 + 4 * head[1], bytes))
+  words = if head[2] == 0 "" else text.ByteSlice(9 + 4 * head[1], 8 + 4 * head[1] + head[2], bytes) end
+  out = []
+  xs = [0]
+  ys = [0]
+  bases = [0]
+  k = 1
+  while k <= value.Len(f)
+    op = f[k]
+    d = value.Len(xs)
+    if op == 1 or op == 2
+      out = list.Append("$op $(f[k + 1] + xs[d]) $(f[k + 2] + ys[d]) $(f[k + 3]) $(f[k + 4]) $(f[k + 5]) $(f[k + 6]) $(f[k + 7])", out)
+      k += 8
+    else if op == 3
+      at = math.Div(f[k + 7], 1) + bases[d] + 1
+      s = if f[k + 8] == 0 "" else text.ByteSlice(at, at + math.Div(f[k + 8], 1) - 1, words) end
+      out = list.Append("3 $(f[k + 1] + xs[d]) $(f[k + 2] + ys[d]) $(f[k + 3]) $(f[k + 4]) $(f[k + 5]) $(f[k + 6]) $s $(f[k + 9])", out)
+      k += 10
+    else if op == 4 or op == 5
+      m = math.Div(f[k + 1], 1)
+      skip = 5 if op == 4 else 4
+      pts = [f[k + skip + j - 1] + (xs[d] if math.Mod(j, 2) == 1 else ys[d]) for j in 1..(2 * m)]
+      out = list.Append("$op $(f[k + 2]) $(f[k + 3]) $(f[k + 4]) $pts", out)
+      k += skip + 2 * m
+    else if op == 6
+      xs = list.Append(f[k + 1] + xs[d], xs)
+      ys = list.Append(f[k + 2] + ys[d], ys)
+      bases = list.Append(bases[d], bases)
+      out = list.Append("clip $(f[k + 5]) $(f[k + 1] + xs[d]) $(f[k + 2] + ys[d]) $(f[k + 3]) $(f[k + 4])", out)
+      k += 6
+    else if op == 7
+      xs = list.DropLast(1, xs)
+      ys = list.DropLast(1, ys)
+      bases = list.DropLast(1, bases)
+      out = list.Append("end", out)
+      k += 1
+    else
+      bases[d] = (bases[d - 1] if d > 1 else 0) + f[k + 1]
+      k += 2
+    end
+  end
+  out
+end
+
+rows = web.Signal([{Id: 1, Name: "Ana"}, {Id: 2, Name: "Bo"}])
+many = [{N: k, Name: "Client n° $(1000 - k)"} for k in 1..1000]
+
+defn page(p)
+  name = web.Signal("")
+  web.Stack([
+    web.Title("Bytes"),
+    web.Row([web.Input(name, label = "Name"), web.Select(web.Signal(missing), [1, 2], o -> o, o -> "n$o", name = "Pick"), web.Button("Go", () -> missing, key = "C-g")]),
+    web.Each(rows, r -> r.Id, r -> web.Row([web.Text(r.Name), web.Spacer(), web.Text(r.Id)]), gap = 2),
+    web.Table(many, [web.Column("N", r -> r.N, sort = "N", width = 80), web.Column("Name", r -> r.Name, sort = "Name")], height = 200, label = "Many"),
+    web.Spacer(size = 300),
+    web.Text("The end"),
+  ])
+end
+
+defn isEncodedPaintsTheFrame()
+  ui = headless.Open(web.App([web.Route("/", page)]), width = 640, height = 480)
+  steps = [
+    u -> u,
+    u -> headless.Type("Ada", headless.ClickOn("Name", u)),
+    u -> headless.Press("enter", headless.ClickOn("Pick", u)),
+    defn (u)
+      web.Set(rows, [{Id: 2, Name: "Bo"}, {Id: 3, Name: "Cy"}])
+      web.Update(u)
+    end,
+    u -> headless.Wheel(300, 300, -2, u),
+    u -> headless.Click(200, 230, u),
+    u -> headless.Wheel(600, 60, -3, u),
+  ]
+  bad = []
+  last = []
+  for k in 1..value.Len(steps)
+    ui = steps[k](ui)
+    got = web.Encoded(ui)
+    last = painted(got.Bytes)
+    if not value.Equal(last, painted(web.Encode(web.Frame(got.Ui))))
+      bad = list.Append(k, bad)
+    end
+    ui = web.Painted(got.Ui)
+  end
+  list.All([value.IsEmpty(bad), value.Len(last) > 100, text.Contains(" Bytes ", text.Join("\n", last)), text.Contains("Client n° 99", text.Join("\n", last))])
+end

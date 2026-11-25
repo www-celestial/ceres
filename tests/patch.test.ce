@@ -1,0 +1,161 @@
+(* The semantics tree a patch at a time (web.Patch): a mirror that applies each patch, as the hidden DOM of web/ceres.js
+   does, holds after every step the tree that web.Semantics gives, on a page of each kind of node: a title, fields, a
+   secret, a choice and its open list, a live list whose rows come, go and move, a text that empties, a link, a table
+   of a list scrolled, sorted and chosen in, the page scrolled, the window resized. And a step that changes one field
+   sends that field's node alone. *)
+use src/web
+use src/headless
+use std/dict
+use std/io
+use std/json
+use std/list
+use std/value
+
+defn dropped(id, m)
+  (** The kept tree without the node id and those under it. *)
+  out = m
+  for c in dict.GetOr(id, [], out.Kids)
+    out = dropped(c, out)
+  end
+  out.Nodes = dict.Drop(id, out.Nodes)
+  out.Kids = dict.Drop(id, out.Kids)
+  out
+end
+
+defn applied(patch, m)
+  (** The kept tree m, {Nodes: id -> node, Kids: id -> ids}, changed as a patch says. *)
+  if patch == ""
+    return m
+  end
+  p = json.Parse(patch).Value
+  out = m
+  for e in p[1]
+    out.Nodes[e[1]] = e
+  end
+  for k in p[2]
+    old = dict.GetOr(k[1], [], out.Kids)
+    out.Kids[k[1]] = k[2]
+    for c in old
+      if value.IsMissing(list.IndexOf(c, k[2]))
+        out = dropped(c, out)
+      end
+    end
+  end
+  out
+end
+
+defn treeOf(id, ax, ay, m)
+  (** The tree of the kept node id, as web.Semantics gives it, its places in the window again. *)
+  e = m.Nodes[id]
+  w = e[7] > 0
+  x = e[5] + ax if w else e[5]
+  y = e[6] + ay if w else e[6]
+  n = {Id: e[1], Role: e[2], Name: e[3], Value: e[4], X: x, Y: y, W: e[7], H: e[8], Focused: e[9],
+    Kids: [treeOf(c, x if w else ax, y if w else ay, m) for c in dict.GetOr(id, [], m.Kids)]}
+  if value.IsSome(e[10])
+    for k in dict.Keys(e[10])
+      n[k] = e[10][k]
+    end
+  end
+  n
+end
+
+defn stepped(name, ui, st)
+  (** The patch of a step applied: st is {M, Bad, Sizes}, Bad the names of the steps whose kept tree differs. *)
+  got = web.Patch(ui)
+  s = st
+  s.M = applied(got.Text, s.M)
+  if not value.Equal(treeOf(0, 0, 0, s.M), web.Semantics(got.Ui))
+    s.Bad = list.Append(name, s.Bad)
+  end
+  s.Sizes[name] = value.Len(got.Text)
+  {Ui: web.Painted(got.Ui), St: s}
+end
+
+rows = web.Signal([{Id: 1, Name: "Ana", Due: 10}, {Id: 2, Name: "Bo", Due: 20}, {Id: 3, Name: "Cy", Due: 30}])
+many = [{N: k, Name: "Client $(1000 - k)"} for k in 1..1000]
+
+defn page(p)
+  name = web.Signal("")
+  word = web.Signal("")
+  pick = web.Signal(missing)
+  note = web.Signal("a note")
+  web.Stack([
+    web.Title("Patches"),
+    web.Row([web.Input(name, label = "Name"), web.Input(word, label = "Password", secret = true), web.Select(pick, [1, 2, 3], o -> o, o -> "n$o", name = "Pick")]),
+    () -> web.Text(web.Get(note)),
+    web.Each(rows, r -> r.Id, r -> web.Row([web.Text(r.Name), web.Spacer(), web.Text(r.Due)]), gap = 2),
+    web.Button("Clear", () -> web.Set(note, "")),
+    web.Link("Elsewhere", "/else"),
+    web.Table(many, [web.Column("N", r -> r.N, sort = "N", width = 80), web.Column("Name", r -> r.Name, sort = "Name")], height = 200, label = "Many"),
+    web.Spacer(size = 400),
+    web.Text("The end"),
+  ])
+end
+
+defn isPatchKeepsTheTree()
+  app = web.App([web.Route("/", page), web.Route("/else", _ -> web.Title("Else"))])
+  ui = headless.Open(app, width = 700, height = 500)
+  st = {M: {Nodes: dict.Dict(), Kids: dict.Dict()}, Bad: [], Sizes: dict.Dict()}
+  steps = [
+    ["start", u -> u],
+    ["nothing", u -> u],
+    ["click Name", u -> headless.ClickOn("Name", u)],
+    ["type", u -> headless.Type("Ada", u)],
+    ["backspace", u -> headless.Press("backspace", u)],
+    ["tab to Password", u -> headless.Press("tab", u)],
+    ["type secret", u -> headless.Type("s3cret", u)],
+    ["tab to Pick", u -> headless.Press("tab", u)],
+    ["open the list", u -> headless.Press("enter", u)],
+    ["choose", u -> headless.Press("down", u)],
+    ["close the list", u -> headless.Press("escape", u)],
+    ["a row comes", defn (u)
+      web.Set(rows, list.Append({Id: 4, Name: "Di", Due: 40}, web.Get(rows)))
+      web.Update(u)
+    end],
+    ["rows move and one goes", defn (u)
+      web.Set(rows, [{Id: 3, Name: "Cy", Due: 30}, {Id: 1, Name: "Ana", Due: 11}, {Id: 4, Name: "Di", Due: 40}])
+      web.Update(u)
+    end],
+    ["the text empties", u -> headless.ClickOn("Clear", u)],
+    ["focus the table", u -> headless.ClickOn("Many", u)],
+    ["wheel the table", u -> headless.Wheel(300, 300, -3, u)],
+    ["page down in the table", u -> headless.Press("pagedown", u)],
+    ["wheel back", u -> headless.Wheel(300, 300, 2, u)],
+    ["end of the table", u -> headless.Press("end", u)],
+    ["home of the table", u -> headless.Press("home", u)],
+    ["tab out", u -> headless.Press("tab", u)],
+    ["scroll the page", u -> headless.Wheel(650, 100, -4, u)],
+    ["scroll the page back", u -> headless.Wheel(650, 100, 2, u)],
+    ["resize", u -> web.Handle({Kind: "resize", Width: 640, Height: 480}, u)],
+    ["follow the link", u -> headless.ClickOn("Elsewhere", u)],
+  ]
+  for s in steps
+    got = stepped(s[1], s[2](ui), st)
+    ui = got.Ui
+    st = got.St
+  end
+  if not value.IsEmpty(st.Bad)
+    io.Print("steps whose kept tree differs: $(st.Bad)")
+  end
+  list.All([value.IsEmpty(st.Bad), st.Sizes["nothing"] == 0, st.Sizes["start"] > 0])
+end
+
+defn isPatchOfAFieldIsItsNode()
+  app = web.App([web.Route("/", page)])
+  ui = headless.ClickOn("Name", headless.Open(app, width = 700, height = 500))
+  ui = web.Painted(web.Patch(ui).Ui)
+  got = web.Patch(headless.Type("x", ui))
+  p = json.Parse(got.Text).Value
+  list.All([value.Len(p[1]) == 1, p[1][1][2] == "textbox", p[1][1][4] == "x", value.IsEmpty(p[2])])
+end
+
+defn isPatchOfAScrollIsItsRows()
+  app = web.App([web.Route("/", page)])
+  ui = headless.Open(app, width = 700, height = 500)
+  ui = web.Painted(web.Patch(ui).Ui)
+  got = web.Patch(headless.Wheel(300, 300, -1, ui))
+  p = json.Parse(got.Text).Value
+  roles = list.Unique([e[2] for e in p[1]])
+  list.All([value.Len(p[2]) >= 1, list.All([r == "row" or r == "cell" or r == "table" for r in roles])])
+end

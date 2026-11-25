@@ -26,6 +26,12 @@ allow = ["net=:8080", "read=examples/hello"]
 file = "examples/invoices/serve.ce"
 allow = ["net=127.0.0.1", "read=examples/invoices", "read=tests/web", "env=PORT"]
 
+# A table of 100,000 rows kept in a page, in a browser, as Centauri's admin shows the clients of an office: cesia build
+# --target wasm bench/web/table.ce first, then http://127.0.0.1:8080/table.html; tests/web/table.html measures it.
+[tasks.webtable]
+file = "bench/web/serve.ce"
+allow = ["net=127.0.0.1", "read=bench/web", "read=tests/web", "env=PORT"]
+
 # The measures of docs/book/speed.md: frame times of the invoices page and of a table of 100,000 rows.
 [tasks.bench]
 file = "bench/frames.ce"

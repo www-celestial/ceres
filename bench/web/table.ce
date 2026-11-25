@@ -1,0 +1,29 @@
+(* A page of a table of 100,000 rows kept in the page, as the data browser of Centauri's admin shows the clients of an
+   office: eight columns, two of numbers. Compiled to WebAssembly (cesia build --target wasm bench/web/table.ce), served
+   by bench/web/serve.ce and measured by tests/web/table.html: the frames while the wheel scrolls it, a sort, typing. *)
+use src/browser
+use src/web
+use std/math
+
+defn rows(n)
+  (** n rows of clients. *)
+  [{Id: k, Tenant: 3, Name: "Client n° $k", Search: "client n° $k", Email: "c$k@example.org", Key: "3/c$k@example.org",
+    City: if math.Mod(k, 2) == 0 "Paris" else "Lyon" end, Country: "FR"} for k in 1..n]
+end
+
+defn Page(p)
+  (** The page: a field, and the table of the clients. *)
+  filter = web.Signal("")
+  clients = web.Signal(rows(100000))
+  web.Stack([
+    web.Title("Clients"),
+    web.Input(filter, label = "Filter", placeholder = "a name"),
+    web.Table(clients, [web.Column("Id", c -> c.Id, sort = "Id", width = 80), web.Column("Tenant", c -> c.Tenant, sort = "Tenant", width = 70),
+      web.Column("Name", c -> c.Name, sort = "Name"), web.Column("Search", c -> c.Search, sort = "Search"),
+      web.Column("Email", c -> c.Email, sort = "Email"), web.Column("Key", c -> c.Key, sort = "Key"),
+      web.Column("City", c -> c.City, sort = "City", width = 70), web.Column("Country", c -> c.Country, sort = "Country", width = 70)],
+      height = 380, label = "client"),
+  ])
+end
+
+browser.Run(web.App([web.Route("/", Page)], title = "Clients — Ceres"))
