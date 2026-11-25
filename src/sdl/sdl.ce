@@ -86,7 +86,17 @@ failed(w) = result.Err({Kind: "sdl", Message: w.Sdl.Error()})   (* An Err with t
 defn Open(title, width, height, fonts = missing, vsync = true, driver = missing)
   (** A window of width by height pixels: an Ok of it, or an Err of the kind "sdl". fonts is {Body, Strong, Code}, the
       paths of the three fonts, Ceres's own by default; driver, as "dummy", the video driver of SDL, for a window that no screen
-      shows. *)
+      shows. Until Close, a TERM or an INT is a "quit" event of Events, as Cemacs takes them, so that --watch ends the
+      window the way closing it does. *)
+  sys.TakeStops(true)
+  made = opened(title, width, height, fonts, vsync, driver)
+  if result.IsErr(made)
+    sys.TakeStops(false)
+  end
+  made
+end
+
+defn opened(title, width, height, fonts, vsync, driver)
   api = bound(c.Open("SDL3", version = 0)?, sdlSpecs)?
   ttf = bound(c.Open("SDL3_ttf", version = 0)?, ttfSpecs)?
   if api.Version() < 3002000
@@ -445,7 +455,7 @@ defn Events(w)
       out = list.Append(one, out)
     end
   end
-  out
+  if sys.StopAsked() list.Append({Kind: "quit"}, out) else out end
 end
 
 defn Run(app, origin = missing, title = missing, width = 1100, height = 860, path = "/", fonts = missing)
@@ -540,5 +550,5 @@ defn Close(w)
   end
   w.Ttf.Quit()
   w.Sdl.Quit(InitVideo)
-  missing
+  sys.TakeStops(false)
 end
