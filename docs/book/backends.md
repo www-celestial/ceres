@@ -71,7 +71,7 @@ browser's next frame when the page changed. Its live screen opens at the page's 
 another, and its first route is the canvas's `data-path`, or `/`.
 
 What WebAssembly can't reach, the canvas, WebGL2, the events and the DOM, goes through `web/ceres.js`: 330 lines written
-by hand, no dependency, 5.8 KB in brotli, which `cesia build` copies beside the page's module. It never decides anything
+by hand, no dependency, 6.1 KB in brotli, which `cesia build` copies beside the page's module. It never decides anything
 about the page. The page calls it by `js.Call("../../web/ceres.js", name, args)` of `std/js`, five functions:
 
 - `Start(events)` sets the canvas up and sends each event on `events`, a channel of `std/fiber`, as the JSON of what
