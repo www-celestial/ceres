@@ -263,6 +263,14 @@ function keyName(ev, typing) {
 
 // The glue of the page: one canvas, its painter, its hidden DOM, and the channel of the page's events.
 let glue = null
+
+// The painter of the page's canvas, made as this module loads: the loader imports it while the page's WebAssembly
+// compiles, so that the browser sets up WebGL meanwhile, the longest part of a first paint in Chrome without a GPU.
+// Start makes it if it couldn't be made here, and says why.
+const early = (() => {
+  const canvas = typeof document === 'object' ? document.querySelector('canvas') : null
+  try { return canvas ? { canvas, p: painter(canvas) } : null } catch (e) { return null }
+})()
 const dec = new TextDecoder()
 const text = b => typeof b === 'string' ? b : dec.decode(b)
 
@@ -271,7 +279,7 @@ const text = b => typeof b === 'string' ? b : dec.decode(b)
 export function Start(events) {
   const canvas = document.querySelector('canvas')
   canvas.style.display = 'block'
-  const p = painter(canvas)
+  const p = early && early.canvas === canvas ? early.p : painter(canvas)
   const layer = document.createElement('div')
   layer.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;overflow:hidden'
   canvas.parentNode.style.position = 'relative'
