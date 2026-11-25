@@ -6,3 +6,4 @@ site/
 examples/invoices/browser.js
 examples/invoices/browser.wasm
 examples/invoices/ceres.js
+examples/invoices/browser.sites
