@@ -90,13 +90,16 @@ defn Button(label, onClick, key = missing)
   {Kind: "button", Label: label, On: onClick, Key: key}
 end
 
-defn Input(v, label = "", placeholder = "", width = missing, onEnter = missing, invalid = missing)
+defn Input(v, label = "", placeholder = "", width = missing, onEnter = missing, invalid = missing, secret = false)
   (** A field of one line of text, bound to a signal of a text, v: typing changes it, and a change of it shows. label
       names it for a screen reader, placeholder shows while it is empty; onEnter() runs on Enter. invalid is a function
-      that tells whether to draw it as wrong, as a form does.
+      that tells whether to draw it as wrong, as a form does. secret = true makes it a field of a password: it shows a
+      dot for each character, the tree of semantics holds the dots only, and the browser's input is of the type
+      password, which its manager of passwords fills.
 
-        Input(Signal("")).Kind --> "input" *)
-  {Kind: "input", Value: v, Label: label, Placeholder: placeholder, Width: width, OnEnter: onEnter, Invalid: invalid}
+        Input(Signal("")).Kind --> "input"
+        Input(Signal(""), secret = true).Secret --> true *)
+  {Kind: "input", Value: v, Label: label, Placeholder: placeholder, Width: width, OnEnter: onEnter, Invalid: invalid, Secret: secret}
 end
 
 defn Select(v, options, key, label, placeholder = "Choose", name = "", width = missing)

@@ -272,7 +272,8 @@ defn layInput(id, maxW, ui)
   got = watched(id, defn ()
     v = Get(n.Value)
     bad = if value.IsFunction(n.Invalid) n.Invalid() else false end
-    {Text: textOf(v), Bad: bad}
+    shown = textOf(v)
+    {Text: if dict.GetOr("Secret", false, n) text.Repeat(value.Len(shown), "•") else shown end, Bad: bad}
   end, ui)
   u = got.Ui
   t = u.Theme

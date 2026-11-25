@@ -259,6 +259,9 @@ defn semOf(id, x0, y0, ui)
   else if k == "input"
     one = node("textbox", n.Label, b, x, y, ui, v = b.Cache.Text)
     one.Invalid = value.IsFunction(n.Invalid) and n.Invalid()
+    if dict.GetOr("Secret", false, n)
+      one.Secret = true
+    end
     [one]
   else if k == "select"
     one = node("combobox", n.Name, b, x, y, ui, v = b.Cache.Text)

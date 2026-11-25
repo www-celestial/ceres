@@ -22,7 +22,7 @@ defn Connect(url, headers = [], wake = missing)
       screen is {Up, Error, ...}: Up a signal, true while connected; Error a signal of the error that ended the screen,
       or missing. *)
   s = {Url: url, Inbox: fiber.Channel(), Stop: fiber.Channel(), Out: cell(missing), Shows: cell(dict.Dict()),
-    Acts: cell(dict.Dict()), Next: cell(1), Up: Signal(false), Error: Signal(missing), Wake: wake}
+    Acts: cell(dict.Dict()), Next: cell(1), Up: Signal(false), Error: Signal(missing), Wake: wake, Early: cell([]), Ever: cell(false)}
   fiber.Spawn(() -> dialing(s, headers))
   s
 end
@@ -102,8 +102,14 @@ defn Act(name, args, p)
 end
 
 defn actThen(name, args, screen, reply)
-  (** Sends an action, and calls reply(m) with its reply, {Ack, Ok} or {Ack, Err}, on the page's fiber. *)
+  (** Sends an action, and calls reply(m) with its reply, {Ack, Ok} or {Ack, Err}, on the page's fiber. An action asked
+      before the screen first connected, as a page asks what it shows when it opens, waits for the connection; one
+      asked after a break gets an Err at once. *)
   conn = peek(screen.Out)
+  if value.IsMissing(conn) and not peek(screen.Ever) and value.IsMissing(peek(screen.Error.Cell).Value)
+    put(list.Append({Name: name, Args: args, Reply: reply}, peek(screen.Early)), screen.Early)
+    return missing
+  end
   if value.IsMissing(conn)
     reply({Err: {Kind: "live", Message: "This page is not connected to its app."}})
     return missing
@@ -154,6 +160,11 @@ defn heard(m, screen)
     answered(m.Ack, m, screen)
   else if "Error" in m
     Set(screen.Error, m.Error)
+    early = peek(screen.Early)
+    put([], screen.Early)
+    for a in early
+      a.Reply({Err: m.Error})
+    end
     Close(screen)
   end
 end
@@ -163,7 +174,13 @@ defn pump(screen)
   for e in drain(screen.Inbox)
     if e.Kind == "up"
       put(e.Conn, screen.Out)
+      put(true, screen.Ever)
       Set(screen.Up, true)
+      early = peek(screen.Early)
+      put([], screen.Early)
+      for a in early
+        actThen(a.Name, a.Args, screen, a.Reply)
+      end
     else if e.Kind == "down"
       put(missing, screen.Out)
       Set(screen.Up, false)

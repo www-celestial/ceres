@@ -229,6 +229,7 @@ export function mirror(layer, host) {
     if (node.Role === 'text' || node.Role === 'heading' || node.Role === 'cell' || node.Role === 'columnheader') el.textContent = node.Name
     if (node.Expanded !== undefined) el.setAttribute('aria-expanded', node.Expanded)
     if (node.Invalid) el.setAttribute('aria-invalid', 'true')
+    if (tag === 'input') { const type = node.Secret ? 'password' : 'text'; if (el.type !== type) el.type = type }
     if (node.Index) el.setAttribute('aria-rowindex', node.Index)
     if (node.Count !== undefined) el.setAttribute('aria-rowcount', node.Count)
     if (node.W > 0) Object.assign(el.style, { left: node.X + 'px', top: node.Y + 'px', width: node.W + 'px', height: node.H + 'px' })
