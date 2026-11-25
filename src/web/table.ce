@@ -54,6 +54,7 @@ defn pageRows(src, order, first, count)
   (** The rows first to first + count - 1 of a web.Pages source, missing for those not here yet, which it asks for:
       {Rows, Count}, Count missing until the app answered once. *)
   _ = Get(src.Loaded)
+  up = Get(src.Screen.Up)
   st = peek(src.Store)
   by = if value.IsMissing(order) missing else order.By end
   desc = if value.IsMissing(order) false else order.Desc end
@@ -63,7 +64,7 @@ defn pageRows(src, order, first, count)
   k0 = math.Div(first - 1, src.Chunk)
   k1 = math.Div(list.Max(first, first + count - 2), src.Chunk)
   for k in k0..k1
-    if not (k in st.Chunks) and not (k in st.Asked) and (value.IsMissing(st.Count) or k * src.Chunk < st.Count)
+    if up and not (k in st.Chunks) and not (k in st.Asked) and (value.IsMissing(st.Count) or k * src.Chunk < st.Count)
       st.Asked[k] = true
       ask(src, st.Era, by, desc, k)
     end
@@ -88,6 +89,9 @@ defn ask(src, era, by, desc, k)
       st.Count = got.Ok.Count
       put(st, src.Store)
       Set(src.Loaded, Get(src.Loaded) + 1)
+    else if st.Era == era
+      st.Asked = dict.Drop(k, st.Asked)
+      put(st, src.Store)
     end
   end)
 end

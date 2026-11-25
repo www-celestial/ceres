@@ -1,0 +1,92 @@
+== isEachKeepsWhatStays 1 (8 lines, no line end)
+page at 0,0 800x600
+  list at 24,24 752x87
+    listitem
+      text "Bo" at 24,24 14x21
+    listitem
+      text "Cy" at 24,57 14x21
+    listitem
+      text "Ana" at 24,90 21x21
+== isGraph 1 (2 lines, no line end)
+page at 0,0 500x300
+  img "Unpaid by month" at 24,24 452x240
+== isTableShowsOnlyRowsInSight 1 (34 lines, no line end)
+page at 0,0 600x300
+  table "Invoices" focused of 100000 rows at 24,24 552x200
+    row at 24,24 552x28
+      columnheader "Number"
+      columnheader "Client"
+      columnheader "Total"
+    row #99994 at 24,28 552x28
+      cell "F-099994"
+      cell "Client 6"
+      cell "149 991,00 €"
+    row #99995 at 24,56 552x28
+      cell "F-099995"
+      cell "Client 5"
+      cell "149 992,50 €"
+    row #99996 at 24,84 552x28
+      cell "F-099996"
+      cell "Client 4"
+      cell "149 994,00 €"
+    row #99997 at 24,112 552x28
+      cell "F-099997"
+      cell "Client 3"
+      cell "149 995,50 €"
+    row #99998 at 24,140 552x28
+      cell "F-099998"
+      cell "Client 2"
+      cell "149 997,00 €"
+    row #99999 at 24,168 552x28
+      cell "F-099999"
+      cell "Client 1"
+      cell "149 998,50 €"
+    row #100000 at 24,196 552x28
+      cell "F-100000"
+      cell "Client 0"
+      cell "150 000,00 €"
+== isTableSorts 1 (44 lines, no line end)
+rect 0,0 600x300 #ffffff
+rect 24,24 552x200 #ffffff
+rect 24,24 552x28 #eef1f4
+clip 24,24 201x28
+  text 32,27 "Number ↓" 14 strong #1f2328
+clip 225,24 201x28
+  text 233,27 "Client" 14 strong #1f2328
+clip 426,24 140x28
+  text 523,27 "Total" 14 strong #1f2328
+clip 24,52 552x172
+  rect 24,80 542x28 #f6f8fa
+  rect 24,136 542x28 #f6f8fa
+  rect 24,192 542x28 #f6f8fa
+  rect 24,248 542x28 #f6f8fa
+  clip 24,52 201x172
+    text 32,55 "F-100000" 14 #1f2328
+    text 32,83 "F-099999" 14 #1f2328
+    text 32,111 "F-099998" 14 #1f2328
+    text 32,139 "F-099997" 14 #1f2328
+    text 32,167 "F-099996" 14 #1f2328
+    text 32,195 "F-099995" 14 #1f2328
+    text 32,223 "F-099994" 14 #1f2328
+    text 32,251 "F-099993" 14 #1f2328
+  clip 225,52 201x172
+    text 233,55 "Client 0" 14 #1f2328
+    text 233,83 "Client 1" 14 #1f2328
+    text 233,111 "Client 2" 14 #1f2328
+    text 233,139 "Client 3" 14 #1f2328
+    text 233,167 "Client 4" 14 #1f2328
+    text 233,195 "Client 5" 14 #1f2328
+    text 233,223 "Client 6" 14 #1f2328
+    text 233,251 "Client 7" 14 #1f2328
+  clip 426,52 140x172
+    text 474,55 "150 000,00 €" 14 #1f2328
+    text 474,83 "149 998,50 €" 14 #1f2328
+    text 474,111 "149 997,00 €" 14 #1f2328
+    text 474,139 "149 995,50 €" 14 #1f2328
+    text 474,167 "149 994,00 €" 14 #1f2328
+    text 474,195 "149 992,50 €" 14 #1f2328
+    text 474,223 "149 991,00 €" 14 #1f2328
+    text 474,251 "149 989,50 €" 14 #1f2328
+rect 24,51 552x1 #d1d9e0
+rect 568,52 6x24 #aab4bf r3
+frame 24,24 552x200 #d1d9e0

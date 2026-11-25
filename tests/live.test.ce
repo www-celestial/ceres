@@ -1,0 +1,47 @@
+(* A page live from an app of std/live served on a free port: the rows of a show as they change, and an action. *)
+use src/web
+use src/headless
+use std/fiber
+use std/http
+use std/list
+use std/live
+use std/net
+use std/test
+use std/text
+
+defn served(screen, actions)
+  (** The origin of an app of std/live with this screen and these actions, served in a fiber of the test. *)
+  l = net.Listen(0).Value
+  fiber.Spawn(() -> http.Serve(http.App() then live.Route("/live", screen, actions = actions), listener = l))
+  "http://127.0.0.1:$(net.Port(l))"
+end
+
+defn page(p)
+  unpaid = web.Live("unpaid", p)
+  reply = web.Signal(missing)
+  web.Stack([
+    web.Each(unpaid, i -> i.Id, i -> web.Row([web.Text(i.Number), web.Money(i.Total)])),
+    web.Button("Pay F-2", () -> web.Set(reply, web.Act("pay", {Id: 2}, p))),
+    () -> web.Text("reply: $(if web.IsSignal(web.Get(reply)) web.Get(web.Get(reply)) else "none" end)"),
+  ])
+end
+
+has(words, p) = text.Contains(words, headless.Tree(p))
+
+defn isLiveRowsAndActions()
+  changes = fiber.Channel()
+  asked = fiber.Channel()
+  pay = defn (s, args)
+    fiber.Send(args, asked)
+    {Paid: args.Id}
+  end
+  origin = served(s -> [live.Show("unpaid", changes)], {pay: pay})
+  fiber.Send({Group: 1, Rows: [{Id: 1, Number: "F-1", Total: 10}, {Id: 2, Number: "F-2", Total: 20}]}, changes)
+  p = headless.Open(web.App([web.Route("/", page)], live = "/live"), origin = origin)
+  p = headless.Settle(p, until = q -> has("F-2", q))
+  fiber.Send({Group: 2, Added: [{Id: 3, Number: "F-3", Total: 30.5}], Removed: [{Id: 1, Number: "F-1", Total: 10}]}, changes)
+  p = headless.Settle(p, until = q -> has("F-3", q))
+  p = headless.ClickOn("Pay F-2", p)
+  p = headless.Settle(p, until = q -> has("Paid", q))
+  list.All([fiber.Receive(asked, timeout = 1).Value.Id == 2, not has("F-1", p), test.Snapshot(headless.Tree(p))])
+end

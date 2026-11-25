@@ -1,0 +1,49 @@
+(** The app's side of a page of Ceres, beside std/live: the action that gives a big table its rows a window at a
+    time, as web.Pages asks for them. The page sends only an order, a place and a count, which Pages checks; the
+    question is the app's, written with the user's values, as every question of std/live. *)
+use std/dict
+use std/list
+use std/result
+use std/value
+
+(** The most rows one window gives. *)
+Most = 500
+
+defn Pages(sorts, rows)
+  (** An action of std/live for web.Pages: rows(sort, desc, offset, limit) gives {Rows, Count}, the rows from offset + 1,
+      at most limit of them, in the order of the field sort, or as the app keeps them for missing, the other way for
+      desc, and how many rows there are in all. sorts lists the fields the page may sort by; any other, an offset that
+      isn't a whole number from 0, or a limit that isn't one from 1 to Most is an Err of the kind "pages", and rows
+      is not called.
+
+        act = Pages(["Number"], (sort, desc, offset, limit) -> {Rows: [offset + 1], Count: 10})
+        act(missing, {Sort: "Number", Desc: false, Offset: 4, Limit: 1}) --> result.Ok({Rows: [5], Count: 10})
+        act(missing, {Sort: "Secret", Desc: false, Offset: 0, Limit: 1}).Error.Message --> "No sort by Secret here." *)
+  (s, args) -> window(sorts, rows, args)
+end
+
+defn window(sorts, rows, args)
+  (** The checks of Pages, then the rows. *)
+  if not value.IsDict(args)
+    return refused("A window of rows is {Sort, Desc, Offset, Limit}.")
+  end
+  sort = dict.Get("Sort", args)
+  desc = dict.Get("Desc", args)
+  offset = dict.Get("Offset", args)
+  limit = dict.Get("Limit", args)
+  if value.IsSome(sort) and not (value.IsText(sort) and sort in sorts)
+    return refused("No sort by $sort here.")
+  end
+  if not value.IsBool(desc)
+    return refused("Desc is true or false.")
+  end
+  if not value.IsInt(offset) or offset < 0
+    return refused("Offset is a whole number from 0.")
+  end
+  if not value.IsInt(limit) or limit < 1 or limit > Most
+    return refused("Limit is a whole number from 1 to $Most.")
+  end
+  result.Ok(rows(sort, desc, offset, limit))
+end
+
+refused(message) = result.Err({Kind: "pages", Message: message})   (* An Err of the kind "pages". *)

@@ -130,6 +130,21 @@ defn moved(o, dx, dy)
   m
 end
 
+defn merged(items)
+  (** The items with each run of clipped groups of the same rectangle joined in one: a bar chart is then one clip. *)
+  out = []
+  for one in items
+    last = list.Last(out)
+    if one.Kind == "group" and value.IsSome(last) and last.Kind == "group" and last.Clip and one.Clip and last.X == one.X and last.Y == one.Y and last.W == one.W and last.H == one.H
+      last.Items = list.Concat(last.Items, one.Items)
+      out = list.Append(last, list.DropLast(1, out))
+    else
+      out = list.Append(one, out)
+    end
+  end
+  out
+end
+
 defn layPlot(id, maxW, ui)
   n = ui.Boxes[id].Node
   w = list.Min(maxW, 10000 if value.IsMissing(n.Width) else n.Width)
@@ -141,7 +156,7 @@ defn layPlot(id, maxW, ui)
   items = if result.IsErr(scene)
     [words(8, 8, scene.Error.Message, t.Size, t.Danger)]
   else
-    list.FlatMap(sh -> sceneItem(sh, t, u), scene.Value.Items)
+    merged(list.FlatMap(sh -> sceneItem(sh, t, u), scene.Value.Items))
   end
   titled = if result.IsOk(scene) list.FindFirst(sh -> dict.Get("Role", sh) == "title", scene.Value.Items) else missing end
   u.Boxes[id].Cache = {Text: if n.Label != "" n.Label else if value.IsSome(titled) titled.Text else "graph" end}

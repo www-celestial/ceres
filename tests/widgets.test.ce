@@ -1,0 +1,77 @@
+(* The widgets on the headless back-end: a keyed list that keeps what stays, a memo, a table of 100,000 rows, a graph,
+   the routes of an app. *)
+use src/web
+use src/headless
+use std/list
+use std/plot
+use std/test
+use std/text
+use std/value
+
+defn isEachKeepsWhatStays()
+  rows = web.Signal([{Id: 1, Name: "Ana"}, {Id: 2, Name: "Bo"}])
+  made = web.Signal(0)
+  item = defn (r)
+    web.Set(made, web.Get(made) + 1)
+    web.Text(r.Name)
+  end
+  p = headless.Open(web.App([web.Route("/", _ -> web.Each(rows, r -> r.Id, item))]))
+  web.Set(rows, [{Id: 2, Name: "Bo"}, {Id: 3, Name: "Cy"}, {Id: 1, Name: "Ana"}])
+  p = web.Update(p)
+  list.All([web.Get(made) == 3, test.Snapshot(headless.Tree(p))])
+end
+
+defn isMemoBeforeItsReaders()
+  n = web.Signal(2)
+  page = defn (p)
+    double = web.Memo(() -> web.Get(n) * 2)
+    web.Stack([() -> web.Text("$(web.Get(n)) and $(web.Get(double))")])
+  end
+  p = headless.Open(web.App([web.Route("/", page)]))
+  web.Set(n, 5)
+  p = web.Update(p)
+  text.Contains("\"5 and 10\"", headless.Draw(p))
+end
+
+(* 100,000 rows of invoices, made once. *)
+many = [{Number: "F-$(text.PadLeft(6, "0", value.Text(k)))", Client: "Client $(100000 - k)", Total: k * 1.5} for k in 1..100000]
+
+defn tablePage(p)
+  web.Table(many, [
+    web.Column("Number", r -> r.Number, sort = "Number"),
+    web.Column("Client", r -> r.Client, sort = "Client"),
+    web.Column("Total", r -> web.Money(r.Total), align = "right", width = 140),
+  ], height = 200, label = "Invoices")
+end
+
+defn isTableShowsOnlyRowsInSight()
+  p = headless.Open(web.App([web.Route("/", tablePage)]), width = 600, height = 300)
+  p = headless.Wheel(200, 120, -10, p)
+  p = headless.ClickOn("Invoices", p)
+  p = headless.Press("end", p)
+  test.Snapshot(headless.Tree(p))
+end
+
+defn isTableSorts()
+  p = headless.Open(web.App([web.Route("/", tablePage)]), width = 600, height = 300)
+  p = headless.Click(200, 36, headless.Click(200, 36, p))
+  list.All([text.Contains("cell \"Client 99999\"", headless.Tree(p)) == false, test.Snapshot(headless.Draw(p))])
+end
+
+defn isGraph()
+  months = web.Signal([{Month: "Sep", Total: 120}, {Month: "Oct", Total: 340}])
+  page = _ -> web.Plot(() -> plot.Of([plot.Bars([m.Month for m in web.Get(months)], [m.Total for m in web.Get(months)])], title = "Unpaid by month"), height = 240)
+  p = headless.Open(web.App([web.Route("/", page)]), width = 500, height = 300)
+  before = headless.Draw(p)
+  web.Set(months, [{Month: "Sep", Total: 120}, {Month: "Oct", Total: 340}, {Month: "Nov", Total: 80}])
+  p = web.Update(p)
+  list.All([text.Contains("\"Nov\"", headless.Draw(p)), not text.Contains("\"Nov\"", before), test.Snapshot(headless.Tree(p))])
+end
+
+defn isRoutes()
+  home = p -> web.Stack([web.Title("Home"), web.Link("Invoice 42", "/invoices/42")])
+  invoice = p -> web.Title("Invoice $(p.Params.id)")
+  app = web.App([web.Route("/", home), web.Route("/invoices/:id", invoice)])
+  p = headless.ClickOn("Invoice 42", headless.Open(app))
+  list.All([text.Contains("heading \"Invoice 42\"", headless.Tree(p)), text.Contains("Nothing here", headless.Tree(headless.Open(app, path = "/nope")))])
+end

@@ -192,7 +192,7 @@ defn semOf(id, x0, y0, ui)
   k = n.Kind
   inner = list.FlatMap(c -> semOf(c, x, y, ui), b.Kids)
   if k == "text"
-    [node(n.Role, b.Cache.Text, b, x, y, ui)]
+    if text.Trim(b.Cache.Text) == "" [] else [node(n.Role, b.Cache.Text, b, x, y, ui)] end
   else if k == "button"
     [node("button", b.Cache.Text, b, x, y, ui)]
   else if k == "link"

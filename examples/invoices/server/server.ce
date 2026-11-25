@@ -1,0 +1,165 @@
+(** The app of the invoices page: its live screen, over std/live, and its actions. Its data stands in for Cepheus, in
+    this program's memory: a store, a fiber that alone holds 10 clients and 100,000 invoices, answers each show as
+    cepheus.Watch does, {Group, Rows} then {Group, Added, Removed} at each change, and gives the table its windows. The
+    guide's chapter Live from Cepheus writes the same screen with cepheus.Watch. *)
+use examples/invoices/check
+use src/form
+use src/serve
+use std/dict
+use std/fiber
+use std/http
+use std/list
+use std/live
+use std/math
+use std/result
+use std/text
+use std/value
+
+names = ["Atelier Brun", "Boulangerie Roux", "Cave Lemoine", "Domaine Vidal", "Épicerie Faure", "Forge Morel", "Garage Petit", "Hôtel Girard", "Imprimerie Blanc", "Jardins Mercier"]
+
+defn invoiceAt(k)
+  (** The invoice number k of the 100,000 the store starts with: paid, but the last eight. *)
+  {Invoice: k, Number: "F-$(text.PadLeft(6, "0", value.Text(k)))", BillTo: names[math.Mod(k * 7, 10) + 1],
+    Total: math.Mod(k * 7919, 400000) / 100 + 20, Due: "2026-$(text.PadLeft(2, "0", value.Text(math.Mod(k, 4) + 8)))-15", Paid: k <= 99992}
+end
+
+(** The unpaid rows of a list of invoices, as the show "unpaid" gives them. *)
+unpaidRows(all) = [{Invoice: i.Invoice, Number: i.Number, BillTo: i.BillTo, Total: i.Total} for i in all if not i.Paid]
+
+defn monthRows(all)
+  (** The unpaid sum of each month, in order: the show "months". *)
+  sums = dict.Dict()
+  for i in all
+    if not i.Paid
+      m = text.Slice(1, 7, i.Due)
+      sums[m] = dict.GetOr(m, 0, sums) + i.Total
+    end
+  end
+  [{Month: m, Total: math.Round(sums[m] * 100) / 100} for m in list.Sort(dict.Keys(sums))]
+end
+
+defn Store()
+  (** Starts the store: its inbox, to give to Screen and Actions. *)
+  inbox = fiber.Channel()
+  fiber.Spawn(() -> storing(inbox))
+  inbox
+end
+
+defn rowsOf(show, st)
+  (** The rows of a show at the store's state. *)
+  if show == "clients"
+    [{Id: k, Name: names[k]} for k in 1..value.Len(names)]
+  else if show == "unpaid"
+    [{Invoice: i.Invoice, Number: i.Number, BillTo: i.BillTo, Total: i.Total} for i in st.Open]
+  else
+    monthRows(st.Open)
+  end
+end
+
+defn told(st, before)
+  (** Sends each watcher of unpaid and months what changed between the rows before and now. *)
+  for show in ["unpaid", "months"]
+    old = before[show]
+    now = rowsOf(show, st)
+    added = [r for r in now if not list.Any([value.Equal(r, o) for o in old])]
+    removed = [o for o in old if not list.Any([value.Equal(r, o) for r in now])]
+    for out in dict.Values(dict.GetOr(show, dict.Dict(), st.Watchers))
+      fiber.Send({Group: st.Group, Added: added, Removed: removed}, out)
+    end
+  end
+end
+
+defn storing(inbox)
+  (** The fiber of the store. Open holds the invoices not paid; All every invoice, in the order of their numbers. *)
+  all = [invoiceAt(k) for k in 1..100000]
+  st = {All: all, Open: [i for i in all if not i.Paid], Watchers: dict.Dict(), Group: 1, ByClient: missing}
+  while true
+    m = fiber.Receive(inbox).Value
+    if m.Op == "watch"
+      fiber.Send({Group: st.Group, Rows: rowsOf(m.Show, st)}, m.Out)
+      st.Watchers[m.Show] = dict.Put(value.Text(m.Out), m.Out, dict.GetOr(m.Show, dict.Dict(), st.Watchers))
+    else if m.Op == "unwatch"
+      for show in dict.Keys(st.Watchers)
+        st.Watchers[show] = dict.Drop(value.Text(m.Out), st.Watchers[show])
+      end
+    else if m.Op == "add" or m.Op == "pay"
+      before = {unpaid: rowsOf("unpaid", st), months: rowsOf("months", st)}
+      st.Group += 1
+      if m.Op == "add"
+        k = value.Len(st.All) + 1
+        one = {Invoice: k, Number: "F-$(text.PadLeft(6, "0", value.Text(k)))", BillTo: names[m.Fields.Client], Total: m.Fields.Amount, Due: dict.GetOr("Due", "2026-12-15", m.Fields), Paid: false}
+        st.All = list.Append(one, st.All)
+        st.Open = list.Append(one, st.Open)
+        st.ByClient = missing
+        fiber.Send(result.Ok({Number: one.Number}), m.Reply)
+      else
+        st.Open = [i for i in st.Open if i.Invoice != m.Invoice]
+      end
+      told(st, before)
+    else if m.Op == "page"
+      if m.Sort == "BillTo" and value.IsMissing(st.ByClient)
+        st.ByClient = list.SortBy(i -> i.BillTo, st.All)
+      end
+      rows = if m.Sort == "BillTo" st.ByClient else st.All end
+      n = value.Len(rows)
+      last = list.Min(n, m.Offset + m.Limit)
+      picked = if m.Offset >= n [] else if m.Desc [rows[n - j + 1] for j in (m.Offset + 1)..last] else rows[(m.Offset + 1)..last] end
+      fiber.Send({Rows: [{Invoice: i.Invoice, Number: i.Number, BillTo: i.BillTo, Total: i.Total} for i in picked], Count: n}, m.Reply)
+    end
+  end
+end
+
+defn ask(store, m)
+  (** Asks the store and waits for its reply. *)
+  reply = fiber.Channel()
+  m.Reply = reply
+  fiber.Send(m, store)
+  fiber.Receive(reply).Value
+end
+
+defn Screen(store)
+  (** The screen of the page: its three shows, each a channel the store feeds, as cepheus.Watch would. *)
+  defn (s)
+    shows = []
+    for name in ["clients", "unpaid", "months"]
+      out = fiber.Channel(size = 64)
+      fiber.Send({Op: "watch", Show: name, Out: out}, store)
+      fiber.Spawn(defn ()
+        while result.IsOk(fiber.Receive(s.Ended))
+        end
+        fiber.Send({Op: "unwatch", Out: out}, store)
+      end)
+      shows = list.Append(live.Show(name, out), shows)
+    end
+    shows
+  end
+end
+
+defn Actions(store)
+  (** The actions of the screen: addInvoice checks its fields again with the rules of the page; all gives the table
+      its windows. *)
+  {
+    addInvoice: (s, args) -> added(store, form.Checked(check.Invoice, args)),
+    all: serve.Pages(["Number", "BillTo"], (sort, desc, offset, limit) -> ask(store, {Op: "page", Sort: sort, Desc: desc, Offset: offset, Limit: limit})),
+  }
+end
+
+defn added(store, checked)
+  (** A new invoice once its fields passed, or the Err that says which ones didn't. *)
+  if result.IsErr(checked)
+    return checked
+  end
+  f = checked.Value
+  if not value.IsInt(f.Client) or f.Client < 1 or f.Client > value.Len(names)
+    return result.Err({Kind: "form", Message: "Some fields are wrong.", Errors: {Client: "Choose a client."}})
+  end
+  ask(store, {Op: "add", Fields: f})
+end
+
+(** Pays an invoice, as an accountant would elsewhere: every page that shows it unpaid sees it go. *)
+Pay(invoice, store) = fiber.Send({Op: "pay", Invoice: invoice}, store)
+
+defn Serve(store, listener)
+  (** Serves the app's live screen at /live on a listener of std/net, in this fiber. *)
+  http.Serve(http.App() then live.Route("/live", Screen(store), actions = Actions(store)), listener = listener)
+end

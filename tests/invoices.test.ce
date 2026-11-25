@@ -1,0 +1,50 @@
+(* The page of the guide, invoices, on the headless back-end, live from its app served on a free port: the form adds
+   an invoice that the live list shows, an invoice paid elsewhere goes from it, the table gets its windows from the
+   app, and the graph follows the months. *)
+use examples/invoices/page
+use examples/invoices/server
+use src/headless
+use src/web
+use std/fiber
+use std/list
+use std/net
+use std/test
+use std/text
+
+defn opened()
+  store = server.Store()
+  l = net.Listen(0).Value
+  fiber.Spawn(() -> server.Serve(store, l))
+  app = web.App([web.Route("/", page.Page)], live = "/live")
+  p = headless.Open(app, width = 1100, height = 860, origin = "http://127.0.0.1:$(net.Port(l))")
+  {Page: headless.Settle(p, until = q -> has("cell \"F-000001\"", q) and has("F-099993", q)), Store: store}
+end
+
+has(words, p) = text.Contains(words, headless.Tree(p))
+
+defn isPageLive()
+  o = opened()
+  test.Snapshot("$(headless.Tree(o.Page))\n--\n$(headless.Draw(o.Page))")
+end
+
+defn isFormAddsAndPaidGoes()
+  o = opened()
+  p = headless.ClickOn("Client", o.Page)
+  p = headless.Press("escape", p)
+  p = headless.Press("down", headless.Press("down", p))
+  p = headless.Type("2026-12-01", headless.Press("tab", p))
+  p = headless.Type("250", headless.Press("tab", p))
+  p = headless.Press("enter", p)
+  p = headless.Settle(p, until = q -> has("F-100001", q))
+  added = has("F-100001", p) and has("Added.", p) and has("250,00 €", p)
+  server.Pay(99993, o.Store)
+  p = headless.Settle(p, until = q -> not has("F-099993", q))
+  list.All([added, not has("F-099993", p), test.Snapshot(headless.Tree(p))])
+end
+
+defn isFormRefusesAWrongAmount()
+  o = opened()
+  p = headless.Type("0", headless.ClickOn("Amount", o.Page))
+  p = headless.ClickOn("Add", p)
+  list.All([has("More than zero.", headless.Settle(p)) or text.Contains("More than zero.", headless.Draw(p)), text.Contains("Choose a client.", headless.Draw(p))])
+end

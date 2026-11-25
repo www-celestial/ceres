@@ -1,0 +1,10 @@
+(** The rules of an invoice, one file for both sides: the page shows them as one types, the app checks them again
+    with form.Checked before it writes. *)
+use src/form
+
+(** The fields of a new invoice and their rules. *)
+Invoice = {
+  Client: [form.Required("Choose a client.")],
+  Due: [],
+  Amount: [form.Required("Give an amount."), form.Above(0, "More than zero.")],
+}

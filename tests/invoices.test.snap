@@ -1,0 +1,317 @@
+== isFormAddsAndPaidGoes 1 (94 lines, no line end)
+page at 0,0 1100x860
+  heading "Invoices" at 24,24 88x33
+  text "Client" at 24,69 36x18
+  combobox "Client" = "" at 24,91 220x34
+  text "Due" at 260,69 18x18
+  textbox "Due" = "" at 260,91 160x34
+  text "Amount" at 436,69 36x18
+  textbox "Amount" = "" focused at 436,91 160x34
+  button "Add" at 612,91 49x35
+  text "Added." at 612,130 36x18
+  text "Unpaid" at 36,172 42x21
+  list at 36,201 492x210
+    listitem
+      text "F-099994" at 36,201 56x21
+      text "Imprimerie Blanc" at 104,201 112x21
+      text "2 544,86 €" at 458,201 70x21
+    listitem
+      text "F-099995" at 36,228 56x21
+      text "Forge Morel" at 104,228 77x21
+      text "2 624,05 €" at 458,228 70x21
+    listitem
+      text "F-099996" at 36,255 56x21
+      text "Cave Lemoine" at 104,255 84x21
+      text "2 703,24 €" at 458,255 70x21
+    listitem
+      text "F-099997" at 36,282 56x21
+      text "Jardins Mercier" at 104,282 105x21
+      text "2 782,43 €" at 458,282 70x21
+    listitem
+      text "F-099998" at 36,309 56x21
+      text "Garage Petit" at 104,309 84x21
+      text "2 861,62 €" at 458,309 70x21
+    listitem
+      text "F-099999" at 36,336 56x21
+      text "Domaine Vidal" at 104,336 91x21
+      text "2 940,81 €" at 458,336 70x21
+    listitem
+      text "F-100000" at 36,363 56x21
+      text "Atelier Brun" at 104,363 84x21
+      text "3 020,00 €" at 458,363 70x21
+    listitem
+      text "F-100001" at 36,390 56x21
+      text "Boulangerie Roux" at 104,390 112x21
+      text "250,00 €" at 472,390 56x21
+  img "Unpaid by month" at 556,160 520x250
+  table "All invoices" of 100000 rows at 24,435 1052x300
+    row at 24,435 1052x28
+      columnheader "Number"
+      columnheader "Client"
+      columnheader "Total"
+    row #1 at 24,463 1052x28
+      cell "F-000001"
+      cell "Hôtel Girard"
+      cell "99,19 €"
+    row #2 at 24,491 1052x28
+      cell "F-000002"
+      cell "Épicerie Faure"
+      cell "178,38 €"
+    row #3 at 24,519 1052x28
+      cell "F-000003"
+      cell "Boulangerie Roux"
+      cell "257,57 €"
+    row #4 at 24,547 1052x28
+      cell "F-000004"
+      cell "Imprimerie Blanc"
+      cell "336,76 €"
+    row #5 at 24,575 1052x28
+      cell "F-000005"
+      cell "Forge Morel"
+      cell "415,95 €"
+    row #6 at 24,603 1052x28
+      cell "F-000006"
+      cell "Cave Lemoine"
+      cell "495,14 €"
+    row #7 at 24,631 1052x28
+      cell "F-000007"
+      cell "Jardins Mercier"
+      cell "574,33 €"
+    row #8 at 24,659 1052x28
+      cell "F-000008"
+      cell "Garage Petit"
+      cell "653,52 €"
+    row #9 at 24,687 1052x28
+      cell "F-000009"
+      cell "Domaine Vidal"
+      cell "732,71 €"
+    row #10 at 24,715 1052x28
+      cell "F-000010"
+      cell "Atelier Brun"
+      cell "811,90 €"
+    row #11 at 24,743 1052x28
+      cell "F-000011"
+      cell "Hôtel Girard"
+      cell "891,09 €"
+== isPageLive 1 (221 lines, no line end)
+page at 0,0 1100x860
+  heading "Invoices" at 24,24 88x33
+  text "Client" at 24,69 36x18
+  combobox "Client" = "" at 24,91 220x34
+  text "Due" at 260,69 18x18
+  textbox "Due" = "" at 260,91 160x34
+  text "Amount" at 436,69 36x18
+  textbox "Amount" = "" at 436,91 160x34
+  button "Add" at 612,91 49x35
+  text "Unpaid" at 36,172 42x21
+  list at 36,201 492x210
+    listitem
+      text "F-099993" at 36,201 56x21
+      text "Boulangerie Roux" at 104,201 112x21
+      text "2 465,67 €" at 458,201 70x21
+    listitem
+      text "F-099994" at 36,228 56x21
+      text "Imprimerie Blanc" at 104,228 112x21
+      text "2 544,86 €" at 458,228 70x21
+    listitem
+      text "F-099995" at 36,255 56x21
+      text "Forge Morel" at 104,255 77x21
+      text "2 624,05 €" at 458,255 70x21
+    listitem
+      text "F-099996" at 36,282 56x21
+      text "Cave Lemoine" at 104,282 84x21
+      text "2 703,24 €" at 458,282 70x21
+    listitem
+      text "F-099997" at 36,309 56x21
+      text "Jardins Mercier" at 104,309 105x21
+      text "2 782,43 €" at 458,309 70x21
+    listitem
+      text "F-099998" at 36,336 56x21
+      text "Garage Petit" at 104,336 84x21
+      text "2 861,62 €" at 458,336 70x21
+    listitem
+      text "F-099999" at 36,363 56x21
+      text "Domaine Vidal" at 104,363 91x21
+      text "2 940,81 €" at 458,363 70x21
+    listitem
+      text "F-100000" at 36,390 56x21
+      text "Atelier Brun" at 104,390 84x21
+      text "3 020,00 €" at 458,390 70x21
+  img "Unpaid by month" at 556,160 520x250
+  table "All invoices" of 100000 rows at 24,435 1052x300
+    row at 24,435 1052x28
+      columnheader "Number"
+      columnheader "Client"
+      columnheader "Total"
+    row #1 at 24,463 1052x28
+      cell "F-000001"
+      cell "Hôtel Girard"
+      cell "99,19 €"
+    row #2 at 24,491 1052x28
+      cell "F-000002"
+      cell "Épicerie Faure"
+      cell "178,38 €"
+    row #3 at 24,519 1052x28
+      cell "F-000003"
+      cell "Boulangerie Roux"
+      cell "257,57 €"
+    row #4 at 24,547 1052x28
+      cell "F-000004"
+      cell "Imprimerie Blanc"
+      cell "336,76 €"
+    row #5 at 24,575 1052x28
+      cell "F-000005"
+      cell "Forge Morel"
+      cell "415,95 €"
+    row #6 at 24,603 1052x28
+      cell "F-000006"
+      cell "Cave Lemoine"
+      cell "495,14 €"
+    row #7 at 24,631 1052x28
+      cell "F-000007"
+      cell "Jardins Mercier"
+      cell "574,33 €"
+    row #8 at 24,659 1052x28
+      cell "F-000008"
+      cell "Garage Petit"
+      cell "653,52 €"
+    row #9 at 24,687 1052x28
+      cell "F-000009"
+      cell "Domaine Vidal"
+      cell "732,71 €"
+    row #10 at 24,715 1052x28
+      cell "F-000010"
+      cell "Atelier Brun"
+      cell "811,90 €"
+    row #11 at 24,743 1052x28
+      cell "F-000011"
+      cell "Hôtel Girard"
+      cell "891,09 €"
+--
+rect 0,0 1100x860 #ffffff
+text 24,24 "Invoices" 22 strong #1f2328
+text 24,69 "Client" 12 strong #59636e
+rect 24,91 220x34 #ffffff r6
+frame 24,91 220x34 #d1d9e0 r6
+clip 24,91 194x34
+  text 34,97 "Choose" 14 #59636e
+rect 222,106 9x2 #59636e
+rect 224,108 5x2 #59636e
+text 260,69 "Due" 12 strong #59636e
+rect 260,91 160x34 #ffffff r6
+frame 260,91 160x34 #d1d9e0 r6
+clip 270,91 140x34
+  text 270,97 "YYYY-MM-DD" 14 #59636e
+text 436,69 "Amount" 12 strong #59636e
+rect 436,91 160x34 #ffffff r6
+frame 436,91 160x34 #d1d9e0 r6
+clip 446,91 140x34
+rect 612,91 49x35 #0969da r6
+text 626,98 "Add" 14 strong #ffffff
+frame 24,160 516x263 #d1d9e0 r6
+text 36,172 "Unpaid" 14 strong #1f2328
+text 36,201 "F-099993" 14 #1f2328
+text 104,201 "Boulangerie Roux" 14 #59636e
+text 458,201 "2 465,67 €" 14 #1f2328
+text 36,228 "F-099994" 14 #1f2328
+text 104,228 "Imprimerie Blanc" 14 #59636e
+text 458,228 "2 544,86 €" 14 #1f2328
+text 36,255 "F-099995" 14 #1f2328
+text 104,255 "Forge Morel" 14 #59636e
+text 458,255 "2 624,05 €" 14 #1f2328
+text 36,282 "F-099996" 14 #1f2328
+text 104,282 "Cave Lemoine" 14 #59636e
+text 458,282 "2 703,24 €" 14 #1f2328
+text 36,309 "F-099997" 14 #1f2328
+text 104,309 "Jardins Mercier" 14 #59636e
+text 458,309 "2 782,43 €" 14 #1f2328
+text 36,336 "F-099998" 14 #1f2328
+text 104,336 "Garage Petit" 14 #59636e
+text 458,336 "2 861,62 €" 14 #1f2328
+text 36,363 "F-099999" 14 #1f2328
+text 104,363 "Domaine Vidal" 14 #59636e
+text 458,363 "2 940,81 €" 14 #1f2328
+text 36,390 "F-100000" 14 #1f2328
+text 104,390 "Atelier Brun" 14 #59636e
+text 458,390 "3 020,00 €" 14 #1f2328
+rect 556,160 520x250 #ffffff
+line 2 points #e6eaef
+line 2 points #e6eaef
+line 2 points #e6eaef
+line 2 points #e6eaef
+clip 603,195 463x180
+  rect 614.6,203.6 92.6x171.4 #1f2328
+  rect 730.3,217.8 92.6x157.2 #1f2328
+  rect 846.1,213.1 92.6x161.9 #1f2328
+  rect 961.8,208.3 92.6x166.7 #1f2328
+line 5 points #1f2328
+line 2 points #1f2328
+text 639.5,385.7 "2026-08" 12.0 #1f2328
+line 2 points #1f2328
+text 755.5,385.7 "2026-09" 12.0 #1f2328
+line 2 points #1f2328
+text 871.5,385.7 "2026-10" 12.0 #1f2328
+line 2 points #1f2328
+text 987.5,385.7 "2026-11" 12.0 #1f2328
+line 2 points #1f2328
+text 588.5,369.9 "0" 12.0 #1f2328
+line 2 points #1f2328
+text 570.5,309.9 "2000" 12.0 #1f2328
+line 2 points #1f2328
+text 570.5,249.9 "4000" 12.0 #1f2328
+line 2 points #1f2328
+text 570.5,189.9 "6000" 12.0 #1f2328
+text 782,173.3 "Unpaid by month" 15.0 #1f2328
+rect 24,435 1052x300 #ffffff
+rect 24,435 1052x28 #eef1f4
+clip 24,435 160x28
+  text 32,438 "Number" 14 strong #1f2328
+clip 184,435 722x28
+  text 192,438 "Client" 14 strong #1f2328
+clip 906,435 160x28
+  text 1023,438 "Total" 14 strong #1f2328
+clip 24,463 1052x272
+  rect 24,491 1042x28 #f6f8fa
+  rect 24,547 1042x28 #f6f8fa
+  rect 24,603 1042x28 #f6f8fa
+  rect 24,659 1042x28 #f6f8fa
+  rect 24,715 1042x28 #f6f8fa
+  clip 24,463 160x272
+    text 32,466 "F-000001" 14 #1f2328
+    text 32,494 "F-000002" 14 #1f2328
+    text 32,522 "F-000003" 14 #1f2328
+    text 32,550 "F-000004" 14 #1f2328
+    text 32,578 "F-000005" 14 #1f2328
+    text 32,606 "F-000006" 14 #1f2328
+    text 32,634 "F-000007" 14 #1f2328
+    text 32,662 "F-000008" 14 #1f2328
+    text 32,690 "F-000009" 14 #1f2328
+    text 32,718 "F-000010" 14 #1f2328
+    text 32,746 "F-000011" 14 #1f2328
+  clip 184,463 722x272
+    text 192,466 "Hôtel Girard" 14 #1f2328
+    text 192,494 "Épicerie Faure" 14 #1f2328
+    text 192,522 "Boulangerie Roux" 14 #1f2328
+    text 192,550 "Imprimerie Blanc" 14 #1f2328
+    text 192,578 "Forge Morel" 14 #1f2328
+    text 192,606 "Cave Lemoine" 14 #1f2328
+    text 192,634 "Jardins Mercier" 14 #1f2328
+    text 192,662 "Garage Petit" 14 #1f2328
+    text 192,690 "Domaine Vidal" 14 #1f2328
+    text 192,718 "Atelier Brun" 14 #1f2328
+    text 192,746 "Hôtel Girard" 14 #1f2328
+  clip 906,463 160x272
+    text 1009,466 "99,19 €" 14 #1f2328
+    text 1002,494 "178,38 €" 14 #1f2328
+    text 1002,522 "257,57 €" 14 #1f2328
+    text 1002,550 "336,76 €" 14 #1f2328
+    text 1002,578 "415,95 €" 14 #1f2328
+    text 1002,606 "495,14 €" 14 #1f2328
+    text 1002,634 "574,33 €" 14 #1f2328
+    text 1002,662 "653,52 €" 14 #1f2328
+    text 1002,690 "732,71 €" 14 #1f2328
+    text 1002,718 "811,90 €" 14 #1f2328
+    text 1002,746 "891,09 €" 14 #1f2328
+rect 24,462 1052x1 #d1d9e0
+rect 1068,463 6x24 #aab4bf r3
+frame 24,435 1052x300 #d1d9e0
