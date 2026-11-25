@@ -1,15 +1,17 @@
 // ceres.js: the browser's glue of Ceres, hand-written, no dependency. The page's code, Ceres's and the app's, runs in
-// WebAssembly; this paints its draw list with WebGL2 in one pass, measures texts with the browser's own fonts, sends
-// it the events, keeps the hidden DOM of its semantics tree for screen readers, typing (IME, autofill) and Cmd-F, and
-// carries its WebSocket. It never decides anything about the page.
+// WebAssembly, compiled from Cesia by cesia build --target wasm; this paints its draw list with WebGL2 in one pass,
+// measures texts with the browser's own fonts, sends it the events, and keeps the hidden DOM of its semantics tree for
+// screen readers, typing (IME, autofill) and Cmd-F. It never decides anything about the page.
 //
-// The host is what the compiled page gives (docs/book/backends.md):
-//   host.event(e)        an event as web.Handle takes it: {Kind: 'mouse'|'key'|'text'|'resize', ...}
-//   host.frame()         the bytes of the draw list (web.Encode), or null when nothing changed
-//   host.semantics()     the semantics tree as JSON text (web.Semantics), or null when it didn't change
-//   host.message(id, t)  a WebSocket message for the screen id; host.closed(id) when it closed
-// and the glue gives the host: measure(text, size, font), line(size), open(url) -> id, send(id, text), close(id),
-// wake() to ask for a frame. Nothing is drawn while nothing changes: a frame is asked only by wake() or an event.
+// The page calls it by js.Call("./ceres.js", name, args), from src/browser (docs/book/backends.md); a text comes as the
+// Uint8Array of its bytes, a channel as a handle whose send(value) gives the page a value:
+//   Start(events)            the canvas of the page set up, each event sent on events as JSON text, {Kind: 'mouse'|
+//                            'key'|'text'|'resize', ...} as web.Handle takes it; gives [width, height, origin, path]
+//   Measure(text, size, font)  the width of a text in pixels, font 'body', 'strong' or 'code'; Line(size) a line's height
+//   Paint(bytes)             paints the bytes of a draw list, web.Encode's
+//   Mirror(json)             the hidden DOM of the semantics tree, as JSON text (web.Semantics)
+//   Wake()                   sends "frame" on events at the browser's next frame: the page paints then
+// Nothing is drawn while nothing changes: a frame is asked only by Wake.
 
 const FONTS = ['system-ui, sans-serif', '600 system-ui, sans-serif', 'ui-monospace, Menlo, Consolas, monospace']
 const VS = `#version 300 es
@@ -195,7 +197,7 @@ export function painter(canvas) {
   }
   function measure(text, size, f) {
     meter.font = font(['body', 'strong', 'code'].indexOf(f) < 0 ? 0 : ['body', 'strong', 'code'].indexOf(f), size)
-    return meter.measureText(text).width
+    return Math.ceil(meter.measureText(text).width) // whole pixels, as SDL3_ttf measures: the layout divides them
   }
   return { paint, resize, measure, line: size => Math.ceil(size * 1.4) }
 }
@@ -259,33 +261,36 @@ function keyName(ev, typing) {
   return typing && (ev.ctrlKey || ev.metaKey) && 'cvx'.includes(k) ? null : k
 }
 
-// Starts a page: the canvas fills its parent, the events go to the host, and a frame is painted only when the host
-// has one. Gives the glue's side for the host: measure, line, open, send, close, wake.
-export function start(canvas, host) {
+// The glue of the page: one canvas, its painter, its hidden DOM, and the channel of the page's events.
+let glue = null
+const dec = new TextDecoder()
+const text = b => typeof b === 'string' ? b : dec.decode(b)
+
+// Sets up the canvas of the page (the first <canvas> of the document): it fills its parent, the events go to the page
+// on events, as JSON text. Gives the page its width, height, origin and first path.
+export function Start(events) {
+  const canvas = document.querySelector('canvas')
   canvas.style.display = 'block'
   const p = painter(canvas)
   const layer = document.createElement('div')
   layer.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;overflow:hidden'
   canvas.parentNode.style.position = 'relative'
   canvas.parentNode.appendChild(layer)
-  let asked = false
-  const draw = () => {
-    asked = false
-    const bytes = host.frame()
-    if (bytes) p.paint(bytes)
-    const tree = host.semantics()
-    if (tree) mirrored(tree)
-  }
-  const wake = () => { if (!asked) { asked = true; requestAnimationFrame(draw) } }
-  const send = e => { host.event(e); wake() }
+  const send = e => events.send(JSON.stringify(e))
   const mirrored = mirror(layer, { event: send })
-  const fit = () => {
+  let asked = false
+  const r = canvas.parentNode.getBoundingClientRect()
+  glue = { p, mirrored, events, asked: 0, wake () { if (!asked) { asked = true; requestAnimationFrame(t => { asked = false; glue.asked = t; events.send('frame') }) } } }
+  p.resize(r.width, r.height, window.devicePixelRatio || 1)
+  Object.assign(layer.style, { width: r.width + 'px', height: r.height + 'px' })
+  let first = true
+  new ResizeObserver(() => {
+    if (first) { first = false; return }
     const r = canvas.parentNode.getBoundingClientRect()
     p.resize(r.width, r.height, window.devicePixelRatio || 1)
     Object.assign(layer.style, { width: r.width + 'px', height: r.height + 'px' })
     send({ Kind: 'resize', Width: r.width, Height: r.height })
-  }
-  new ResizeObserver(fit).observe(canvas.parentNode)
+  }).observe(canvas.parentNode)
   const at = ev => { const r = canvas.getBoundingClientRect(); return [Math.floor(ev.clientX - r.left), Math.floor(ev.clientY - r.top)] }
   canvas.addEventListener('mousedown', ev => ev.preventDefault()) // the input in focus keeps it: the page moves focus
   for (const [name, action] of [['pointerdown', 'down'], ['pointerup', 'up'], ['pointermove', 'move']])
@@ -296,19 +301,24 @@ export function start(canvas, host) {
     const k = keyName(ev, false)
     if (k) { ev.preventDefault(); send(keyOf(k, ev)) }
   })
-  const sockets = new Map()
-  let next = 1
-  fit()
-  return {
-    measure: p.measure, line: p.line, wake,
-    open(url) {
-      const id = next++, ws = new WebSocket(new URL(url, location.href).href.replace(/^http/, 'ws'))
-      ws.onmessage = e => { host.message(id, e.data); wake() }
-      ws.onclose = () => { sockets.delete(id); host.closed(id); wake() }
-      sockets.set(id, ws)
-      return id
-    },
-    send(id, text) { const ws = sockets.get(id); if (ws && ws.readyState === 1) ws.send(text) },
-    close(id) { const ws = sockets.get(id); if (ws) ws.close(1000) },
-  }
+  return [Math.floor(r.width), Math.floor(r.height), location.origin, canvas.dataset.path || '/']
 }
+
+export const Measure = (t, size, font) => glue.p.measure(text(t), size, text(font))
+export const Line = size => glue.p.line(size)
+export const Mirror = json => { tree = text(json); glue.mirrored(tree) }
+export const Wake = () => glue.wake()
+export function Paint(bytes) {
+  glue.p.paint(bytes)
+  const now = performance.now()
+  if (stats.firstPaint === null) stats.firstPaint = now
+  stats.frames.push(now - glue.asked)
+  if (stats.frames.length > 1000) stats.frames.shift()
+}
+
+// What a test reads: the last semantics tree, as JSON text, and the times of the frames: firstPaint, the time from the
+// page's start, and frames, for each, the time from the browser's frame to the page painted, in ms.
+let tree = null
+const stats = { firstPaint: null, frames: [] }
+export const Tree = () => tree
+export const Stats = () => stats

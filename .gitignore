@@ -2,3 +2,7 @@ std/
 deps/
 site/
 .cesia/
+# What cesia build --target wasm writes beside the page of the browser.
+examples/invoices/browser.js
+examples/invoices/browser.wasm
+examples/invoices/ceres.js

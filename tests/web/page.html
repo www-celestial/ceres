@@ -1,36 +1,33 @@
 <!doctype html>
 <meta charset="utf-8">
-<title>Ceres glue test</title>
+<title>Ceres page test</title>
 <style>html, body { margin: 0; } #page { width: 1100px; height: 860px; }</style>
 <div id="page"><canvas></canvas></div>
+<script type="module" src="/browser.js"></script>
 <script type="module">
-// The test of web/ceres.js without WebAssembly: a host that gives the draw list and the semantics tree that Ceres made
-// natively for the invoices page (cesia do webframe), and keeps the events it gets. Then a text typed in the first
-// input and two keys: the page must get the text and Backspace, not the space (it types), and paint again.
-import { start } from '/web/ceres.js'
-// Chrome without a window, on virtual time, gives animation frames only while the page loads: the frames come by timer.
-window.requestAnimationFrame = f => setTimeout(() => f(performance.now()), 16)
-const bytes = new Uint8Array(await (await fetch('/tests/web/invoices.bin')).arrayBuffer())
-const tree = await (await fetch('/tests/web/invoices.json')).text()
-const events = []
-let sent = false, frames = 0
-const host = {
-  event: e => events.push(e),
-  frame: () => (frames++, bytes),
-  semantics: () => (sent ? null : (sent = true, tree)),
-  message() {}, closed() {},
-}
-const glue = start(document.querySelector('canvas'), host)
-const later = () => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))
-await later()
-const layer = document.querySelector('#page > div')
-const input = layer.querySelector('input')
-const before = frames
+// The test of the invoices page in a browser, compiled from Cesia to WebAssembly (examples/invoices/browser.ce) and
+// served live by examples/invoices/serve.ce: it waits for the rows of the table in the hidden DOM, clicks into the field
+// Due, types "Brun", then Backspace and a space (which types, so the page doesn't get it as a key), and writes in the
+// title what the page shows: its rows, its fields, the text of the field, and whether it painted again.
+import { Tree, Stats, Measure } from '/ceres.js'
+const wait = ms => new Promise(r => setTimeout(r, ms))
+const until = async (f, ms = 20000) => { for (let t = 0; t < ms && !f(); t += 50) await wait(50); return f() }
+const find = (node, f) => f(node) ? node : node.Kids.map(k => find(k, f)).find(Boolean)
+const field = name => { const t = Tree(); return t && find(JSON.parse(t), n => n.Role === 'textbox' && n.Name === name) }
+const layer = () => document.querySelector('#page > div')
+await until(() => layer() && layer().querySelectorAll('[role=row]').length >= 15)
+const rows = layer().querySelectorAll('[role=row]').length, inputs = layer().querySelectorAll('input').length
+const due = field('Due'), canvas = document.querySelector('canvas'), r = canvas.getBoundingClientRect()
+for (const type of ['pointerdown', 'pointerup'])
+  canvas.dispatchEvent(new PointerEvent(type, { clientX: r.left + due.X + 10, clientY: r.top + due.Y + 5, button: 0, bubbles: true }))
+await until(() => field('Due').Focused)
+const before = Stats().frames.length
+const input = layer().querySelector('input[aria-label=Due]')
 input.value = 'Brun'
 input.dispatchEvent(new InputEvent('input', { data: 'Brun', inputType: 'insertText' }))
 for (const key of ['Backspace', ' ']) input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
-await later()
-document.title = 'done ' + layer.querySelectorAll('[role=row]').length + ' rows, ' + layer.querySelectorAll('input').length + ' inputs, typed ' +
-  events.filter(e => e.Kind === 'text').map(e => e.Text).join() + ', keys ' + events.filter(e => e.Kind === 'key').map(e => e.Key).join() +
-  ', input left ' + JSON.stringify(input.value) + ', painted again ' + (frames > before) + ', measure ' + Math.round(glue.measure('Invoices', 14, 'body'))
+await until(() => field('Due').Value === 'Bru', 5000)
+await wait(100)
+document.title = 'done ' + rows + ' rows, ' + inputs + ' inputs, field ' + field('Due').Value + ', input left ' + JSON.stringify(input.value) +
+  ', painted again ' + (Stats().frames.length > before) + ', measure ' + Math.round(Measure('Invoices', 14, 'body'))
 </script>

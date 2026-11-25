@@ -1,0 +1,26 @@
+(* The invoices page in a browser: serves examples/invoices/ (browser.html, and browser.wasm, browser.js and ceres.js
+   that cesia build --target wasm examples/invoices/browser.ce writes) with the app's live screen at /live, as
+   examples/invoices/main.ce serves it to the window of SDL3. Every 4 seconds, an accountant pays an invoice elsewhere.
+   cesia build --target wasm examples/invoices/browser.ce, cesia do web, then open http://127.0.0.1:8080/browser.html.
+   PORT changes the port. *)
+use examples/invoices/server
+use std/fiber
+use std/http
+use std/io
+use std/live
+use std/net
+use std/sys
+use std/text
+use std/value
+
+store = server.Store()
+given = sys.Env("PORT")
+l = net.Listen(if value.IsMissing(given) 8080 else text.Number(given) end).Value
+fiber.Spawn(defn ()
+  for k in 99993..100000
+    sys.Sleep(4)
+    server.Pay(k, store)
+  end
+end)
+io.Print("http://127.0.0.1:$(net.Port(l))/browser.html")
+http.Serve(http.App() then live.Route("/live", server.Screen(store), actions = server.Actions(store)) then http.Static("/tests", "tests/web") then http.Static("", "examples/invoices"), listener = l)

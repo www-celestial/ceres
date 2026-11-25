@@ -1,0 +1,71 @@
+(** The browser: a page of Ceres compiled to WebAssembly by cesia build --target wasm, painted by web/ceres.js, which
+    the build puts beside the page. Run takes the events of the page, runs the app and paints a frame when the page changed,
+    at the browser's next frame: the loop of src/sdl, its window the page's canvas. Between events it waits, and
+    nothing runs: the live screen wakes it when the app pushed something. *)
+use src/web
+use std/fiber
+use std/js
+use std/json
+use std/list
+use std/result
+use std/value
+
+defn Measure()
+  (** The texts measured by the browser's own fonts, as web.Start takes them. *)
+  {Width: (t, size, font) -> js.Call("../../web/ceres.js", "Measure", [t, size, font]), Line: size -> js.Call("../../web/ceres.js", "Line", [size])}
+end
+
+defn Run(app, origin = missing, path = missing)
+  (** Runs the app in the page's canvas, until the page closes. Its live screen, if it has one, opens at origin, the
+      page's own by default; path is the route shown first, the canvas's data-path or "/". *)
+  events = fiber.Channel()
+  page = js.Call("../../web/ceres.js", "Start", [events])
+  ui = web.Start(app, page[1], page[2], Measure(), origin = if value.IsMissing(origin) page[3] else origin end,
+    path = if value.IsMissing(path) page[4] else path end, wake = events)
+  asked = false
+  shown = ""
+  while true
+    if web.Changed(ui) and not asked
+      js.Call("../../web/ceres.js", "Wake", [])
+      asked = true
+    end
+    got = fiber.Receive(events)
+    if result.IsErr(got)
+      return missing
+    end
+    frame = false
+    for x in list.Prepend(got.Value, drain(events))
+      if x == "frame"
+        frame = true
+      else if x != "live"
+        e = json.Parse(x).Value
+        ui = web.Handle(e, ui)
+      end
+    end
+    ui = web.Update(ui)
+    if frame
+      asked = false
+      if web.Changed(ui)
+        js.Call("../../web/ceres.js", "Paint", [web.Encode(web.Frame(ui))])
+        tree = json.Text(web.Semantics(ui))
+        if tree != shown
+          js.Call("../../web/ceres.js", "Mirror", [tree])
+          shown = tree
+        end
+        ui = web.Painted(ui)
+      end
+    end
+  end
+end
+
+defn drain(ch)
+  (** The values waiting in a channel, taken out of it. *)
+  out = []
+  while true
+    got = fiber.Receive(ch, timeout = 0)
+    if result.IsErr(got)
+      return out
+    end
+    out = list.Append(got.Value, out)
+  end
+end

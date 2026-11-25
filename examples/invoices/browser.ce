@@ -1,0 +1,8 @@
+(* The invoices page of the guide in a browser: compiled to WebAssembly by cesia build --target wasm
+   examples/invoices/browser.ce, which writes browser.wasm, its loader browser.js and the glue ceres.js beside it;
+   browser.html loads it, and examples/invoices/serve.ce serves the three with the app's live screen. *)
+use examples/invoices/page
+use src/browser
+use src/web
+
+browser.Run(web.App([web.Route("/", page.Page)], live = "/live", title = "Invoices — Ceres"))

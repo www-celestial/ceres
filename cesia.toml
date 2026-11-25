@@ -14,6 +14,12 @@ timeout = "30"
 file = "examples/invoices/main.ce"
 allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1"]
 
+# The invoices page in a browser, compiled to WebAssembly (cesia build --target wasm examples/invoices/browser.ce
+# first), served with its app's live screen: http://127.0.0.1:8080/browser.html.
+[tasks.web]
+file = "examples/invoices/serve.ce"
+allow = ["net=127.0.0.1", "read=examples/invoices", "read=tests/web", "env=PORT"]
+
 # The measures of docs/book/speed.md: frame times of the invoices page and of a table of 100,000 rows.
 [tasks.bench]
 file = "bench/frames.ce"
@@ -34,7 +40,7 @@ color = "#111111"
 file = "tools/shot.ce"
 allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "write=shots"]
 
-# The draw list of the invoices page for tests/web/page.html, the test of the browser's glue.
-[tasks.webframe]
-file = "tools/webframe.ce"
-allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "write=tests/web"]
+# The test of the invoices page in a browser, compiled to WebAssembly first (tools/webshot.sh does both).
+[tasks.webshot]
+file = "tools/webshot.ce"
+allow = ["net=127.0.0.1", "read=examples/invoices", "read=tests/web", "exec", "env=CHROME", "read=/tmp/ceres-webshot", "write=/tmp/ceres-webshot", "write=shots"]

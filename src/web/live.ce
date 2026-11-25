@@ -14,13 +14,15 @@ use std/sys
 use std/value
 use std/websocket
 
-defn Connect(url, headers = [])
+defn Connect(url, headers = [], wake = missing)
   (** Opens a screen of the app at url, a ws:// URL, as web.Start does with the app's live path: its shows and actions
       for the page, a screen that comes back by itself, from 0.25 to 8 seconds after a break, with jitter, as live.js
-      does. headers go with each handshake, as the session's token of a native app. The screen is {Up, Error, ...}: Up
-      a signal, true while connected; Error a signal of the error that ended the screen, or missing. *)
+      does. headers go with each handshake, as the session's token of a native app. wake, a channel, gets "live" each
+      time the screen passes something on, for a back-end that waits on its own channel, as the browser's does. The
+      screen is {Up, Error, ...}: Up a signal, true while connected; Error a signal of the error that ended the screen,
+      or missing. *)
   s = {Url: url, Inbox: fiber.Channel(), Stop: fiber.Channel(), Out: cell(missing), Shows: cell(dict.Dict()),
-    Acts: cell(dict.Dict()), Next: cell(1), Up: Signal(false), Error: Signal(missing)}
+    Acts: cell(dict.Dict()), Next: cell(1), Up: Signal(false), Error: Signal(missing), Wake: wake}
   fiber.Spawn(() -> dialing(s, headers))
   s
 end
@@ -39,17 +41,25 @@ defn dialing(s, headers)
     if result.IsOk(got)
       conn = got.Value
       _ = websocket.Send(json.Text({Hello: 1}), conn)
-      fiber.Send({Kind: "up", Conn: conn}, s.Inbox)
+      tell({Kind: "up", Conn: conn}, s)
       wait = 0.25
       while true
         m = fiber.Receive(conn.Messages)
         break if result.IsErr(m)
-        fiber.Send({Kind: "frame", Text: m.Value}, s.Inbox)
+        tell({Kind: "frame", Text: m.Value}, s)
       end
-      fiber.Send({Kind: "down"}, s.Inbox)
+      tell({Kind: "down"}, s)
     end
     sys.Sleep(wait * (0.5 + random.Float()))
     wait = list.Min(wait * 2, 8)
+  end
+end
+
+defn tell(e, s)
+  (** Passes e on to the fiber of the page, and wakes its back-end if it asked. *)
+  fiber.Send(e, s.Inbox)
+  if value.IsSome(s.Wake)
+    fiber.Send("live", s.Wake)
   end
 end
 
