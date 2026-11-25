@@ -1,0 +1,141 @@
+(* Signals: values that the live parts which read them follow, as SolidJS's signals. A signal's value sits in a cell, a
+   channel of std/fiber of size 1 that always holds one value: the one mutable thing that every copy of a signal shares,
+   since every other value of Cesia is persistent. Only the fiber of the user interface reads and writes them. *)
+use std/bug
+use std/fiber
+use std/list
+use std/result
+use std/value
+
+defn cell(v)
+  (** A new cell that holds v. *)
+  c = fiber.Channel(size = 1)
+  fiber.Send(v, c)
+  c
+end
+
+defn peek(c)
+  (** The value of a cell. *)
+  v = fiber.Receive(c, timeout = 0).Value
+  fiber.Send(v, c)
+  v
+end
+
+defn put(v, c)
+  (** Puts v in a cell, in place of its value. *)
+  _ = fiber.Receive(c, timeout = 0)
+  fiber.Send(v, c)
+end
+
+defn drain(ch)
+  (** The values waiting in a channel, oldest first, taken out of it. *)
+  out = []
+  while true
+    got = fiber.Receive(ch, timeout = 0)
+    if result.IsErr(got)
+      return out
+    end
+    out = list.Append(got.Value, out)
+  end
+end
+
+counter = cell(0)   (* The last id given to a signal, a live part or a box. *)
+tracking = cell(false)   (* Does a live part run, whose reads count? *)
+reads = fiber.Channel()   (* The ids of the signals read while a live part runs. *)
+dirty = fiber.Channel()   (* The ids of the signals set since the last update. *)
+born = fiber.Channel()   (* The memos made since the last update, for the runtime to follow. *)
+
+defn fresh()
+  (** A new id, larger than every id before it. *)
+  n = peek(counter) + 1
+  put(n, counter)
+  n
+end
+
+struct sig { Id, Cell }   (* A signal: its id and the cell of {Value, Version}. *)
+
+isSignal(s) = match s   (* Is this value a signal? *)
+  sig(_, _) -> true
+  else -> false
+end
+
+(** Is x a signal, as web.Signal, web.Memo, web.Live and web.Act make them? *)
+IsSignal(x) = isSignal(x)
+
+defn Signal(v)
+  (** A signal that holds v: a value that changes, and that the live parts which read it follow. web.Get reads it,
+      web.Set changes it; each live part that read it runs again at the next frame, once, whatever the number of Sets.
+
+        n = Signal(1)
+        Get(n) --> 1 *)
+  sig(fresh(), cell({Value: v, Version: 0}))
+end
+
+defn Get(s)
+  (** The value of a signal. Inside a live part, a function given where a widget goes, the read is followed: the part
+      runs again when the signal changes. Anything but a signal is a bug.
+
+        Get(Signal("Ana")) --> "Ana" *)
+  if not isSignal(s)
+    bug.Panic("web.Get takes a signal, as web.Signal, web.Memo or web.Live make one, not $s.")
+  end
+  if peek(tracking)
+    fiber.Send(s.Id, reads)
+  end
+  peek(s.Cell).Value
+end
+
+defn Set(s, v)
+  (** Gives a signal a new value, at once: a Get right after reads it. The live parts that read the signal run again at
+      the next frame. A number, a text, a boolean or missing equal to the value it had changes nothing; a list or a
+      dictionary always counts as a change, since comparing two large ones would cost more than the update.
+
+        n = Signal(1)
+        Set(n, 2)
+        Get(n) --> 2 *)
+  if not isSignal(s)
+    bug.Panic("web.Set takes a signal, as web.Signal makes one, not $s.")
+  end
+  old = peek(s.Cell)
+  if same(old.Value, v)
+    return missing
+  end
+  put({Value: v, Version: old.Version + 1}, s.Cell)
+  fiber.Send(s.Id, dirty)
+  missing
+end
+
+(* Are two values the same scalar: two numbers, texts or booleans that are equal, or two missing? *)
+same(a, b) = (value.IsNumber(a) and value.IsNumber(b) or value.IsText(a) and value.IsText(b) or value.IsBool(a) and value.IsBool(b)) and a == b or value.IsMissing(a) and value.IsMissing(b)
+
+version(s) = peek(s.Cell).Version   (* How many times a signal changed. *)
+
+defn Memo(f)
+  (** A signal whose value is f(), computed now and again when a signal that f read changes, before the live parts
+      that read it: so a live part never sees a memo older than the signals it comes from. A memo reads signals and
+      memos made before it. It follows its signals inside a running page, as a window or the headless back-end runs
+      it.
+
+        n = Signal(2)
+        Get(Memo(() -> Get(n) * 10)) --> 20 *)
+  id = fresh()
+  got = track(f)
+  c = cell({Value: got.Value, Version: 0})
+  fiber.Send({Id: id, Fn: f, Cell: c, Reads: got.Reads}, born)
+  sig(id, c)
+end
+
+defn track(f)
+  (** f() with the signals it read: {Value, Reads}, the ids without repeats. The reads of a part that runs around it
+      stay its own. *)
+  before = drain(reads)
+  was = peek(tracking)
+  put(true, tracking)
+  v = f()
+  put(was, tracking)
+  mine = drain(reads)
+  for id in before
+    fiber.Send(id, reads)
+  end
+  {Value: v, Reads: list.Unique(mine)}
+end

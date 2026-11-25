@@ -1,0 +1,174 @@
+(* The page's side of std/live, in Cesia: a screen of the app over a WebSocket, its shows as signals, its actions. The
+   same protocol as live.js: {Hello: 1} first, then the app's frames, each a JSON list of messages {Show, Group, Rows},
+   {Show, Group, Added, Removed}, {Ack, Ok} or {Ack, Err}, and {Error}. A fiber reads the connection and hands each frame
+   to the fiber of the page, which alone sets the signals, at its next update. *)
+use std/bug
+use std/dict
+use std/fiber
+use std/json
+use std/list
+use std/math
+use std/random
+use std/result
+use std/sys
+use std/value
+use std/websocket
+
+defn Connect(url, headers = [])
+  (** Opens a screen of the app at url, a ws:// URL, as web.Start does with the app's live path: its shows and actions
+      for the page, a screen that comes back by itself, from 0.25 to 8 seconds after a break, with jitter, as live.js
+      does. headers go with each handshake, as the session's token of a native app. The screen is {Up, Error, ...}: Up
+      a signal, true while connected; Error a signal of the error that ended the screen, or missing. *)
+  s = {Url: url, Inbox: fiber.Channel(), Stop: fiber.Channel(), Out: cell(missing), Shows: cell(dict.Dict()),
+    Acts: cell(dict.Dict()), Next: cell(1), Up: Signal(false), Error: Signal(missing)}
+  fiber.Spawn(() -> dialing(s, headers))
+  s
+end
+
+defn stopped(s)
+  (** Did Close end the screen? *)
+  got = fiber.Receive(s.Stop, timeout = 0)
+  result.IsErr(got) and got.Error.Kind == "closed"
+end
+
+defn dialing(s, headers)
+  (** The fiber of a screen: connects, says hello, passes on each frame, and connects again after a break. *)
+  wait = 0.25
+  while not stopped(s)
+    got = websocket.Dial(s.Url, headers = headers)
+    if result.IsOk(got)
+      conn = got.Value
+      _ = websocket.Send(json.Text({Hello: 1}), conn)
+      fiber.Send({Kind: "up", Conn: conn}, s.Inbox)
+      wait = 0.25
+      while true
+        m = fiber.Receive(conn.Messages)
+        break if result.IsErr(m)
+        fiber.Send({Kind: "frame", Text: m.Value}, s.Inbox)
+      end
+      fiber.Send({Kind: "down"}, s.Inbox)
+    end
+    sys.Sleep(wait * (0.5 + random.Float()))
+    wait = list.Min(wait * 2, 8)
+  end
+end
+
+defn Close(screen)
+  (** Ends a screen: its connection closes and it doesn't come back. *)
+  fiber.Close(screen.Stop)
+  conn = peek(screen.Out)
+  if value.IsSome(conn)
+    fiber.Spawn(() -> websocket.Close(conn))
+  end
+  missing
+end
+
+defn showOf(name, screen)
+  (** The show of a name, made when first asked for: {Signal, Tally}, Tally its rows by their JSON, with their count. *)
+  shows = peek(screen.Shows)
+  if not (name in shows)
+    shows[name] = {Signal: Signal([]), Tally: dict.Dict()}
+    put(shows, screen.Shows)
+  end
+  shows[name]
+end
+
+defn Live(name, p)
+  (** The rows of the show name of the page's screen, as a signal kept up to date as the app pushes its changes: the
+      answer of a question that the app's screen asks, as cepheus.Watch keeps one. An empty list until the first answer.
+      The page never writes the question: it names a show, the app writes it with the user's values. *)
+  if value.IsMissing(p.Screen)
+    bug.Panic("This page has no live screen: web.App(..., live = \"/live\") gives it one, with the origin of the app.")
+  end
+  showOf(name, p.Screen).Signal
+end
+
+defn Act(name, args, p)
+  (** Asks the app for the action name with args: a signal of the reply, missing until it comes, then the Ok of what
+      the action gave or its Err. The app checks args again: the page is never trusted. *)
+  out = Signal(missing)
+  actThen(name, args, p.Screen, m -> Set(out, result.Err(m.Err) if "Err" in m else result.Ok(m.Ok)))
+  out
+end
+
+defn actThen(name, args, screen, reply)
+  (** Sends an action, and calls reply(m) with its reply, {Ack, Ok} or {Ack, Err}, on the page's fiber. *)
+  conn = peek(screen.Out)
+  if value.IsMissing(conn)
+    reply({Err: {Kind: "live", Message: "This page is not connected to its app."}})
+    return missing
+  end
+  id = peek(screen.Next)
+  put(id + 1, screen.Next)
+  acts = peek(screen.Acts)
+  acts[id] = reply
+  put(acts, screen.Acts)
+  sent = websocket.Send(json.Text({Act: name, Id: id, Args: args}), conn)
+  if result.IsErr(sent)
+    answered(id, {Err: {Kind: "live", Message: "The connection to the app broke before it answered."}}, screen)
+  end
+  missing
+end
+
+defn answered(id, m, screen)
+  (** Calls the function that waits for the reply id, once. *)
+  acts = peek(screen.Acts)
+  f = dict.Get(id, acts)
+  if value.IsSome(f)
+    put(dict.Drop(id, acts), screen.Acts)
+    f(m)
+  end
+end
+
+defn tallied(tally, rows, sign)
+  (** The tally of rows with rows added (sign 1) or taken away (sign -1). *)
+  t = tally
+  for r in rows
+    k = json.Text(r)
+    n = dict.GetOr(k, {Row: r, N: 0}, t).N + sign
+    t = if n > 0 dict.Put(k, {Row: r, N: n}, t) else dict.Drop(k, t) end
+  end
+  t
+end
+
+defn heard(m, screen)
+  (** One message of the app. *)
+  if "Show" in m
+    sh = showOf(m.Show, screen)
+    t = if "Rows" in m tallied(dict.Dict(), m.Rows, 1) else tallied(tallied(sh.Tally, m.Added, 1), m.Removed, -1) end
+    shows = peek(screen.Shows)
+    shows[m.Show].Tally = t
+    put(shows, screen.Shows)
+    Set(sh.Signal, list.FlatMap(e -> list.Fill(e.Row, e.N), dict.Values(t)))
+  else if "Ack" in m
+    answered(m.Ack, m, screen)
+  else if "Error" in m
+    Set(screen.Error, m.Error)
+    Close(screen)
+  end
+end
+
+defn pump(screen)
+  (** Takes in what the fiber of a screen passed on since the last update. *)
+  for e in drain(screen.Inbox)
+    if e.Kind == "up"
+      put(e.Conn, screen.Out)
+      Set(screen.Up, true)
+    else if e.Kind == "down"
+      put(missing, screen.Out)
+      Set(screen.Up, false)
+      for id in dict.Keys(peek(screen.Acts))
+        answered(id, {Err: {Kind: "live", Message: "The connection to the app broke before it answered: the action may have run or not."}}, screen)
+      end
+    else
+      got = json.Parse(e.Text)
+      if result.IsOk(got) and value.IsArray(got.Value)
+        for m in got.Value
+          if value.IsDict(m)
+            heard(m, screen)
+          end
+        end
+      end
+    end
+  end
+end

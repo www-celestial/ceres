@@ -1,0 +1,251 @@
+(** Forms and their rules, one set of rules for both sides: the page shows them as one types, and the app checks them
+    again with Checked before it writes, since it never trusts the page. A draft holds the values of a form being
+    filled, View shows its fields, and Values gives what to send. A rule is Required, Above, Below or Length; the rules
+    of a form are a dictionary of the names of its fields to their lists of rules. *)
+use src/web
+use std/dict
+use std/list
+use std/result
+use std/text
+use std/value
+
+(* ---- Rules: {Check, Message}, Check(v) true when the value v of a field passes. *)
+
+defn Required(message)
+  (** A field that must be filled: missing and a text of spaces fail.
+
+        Required("Give a name.").Check("Ana") --> true
+        Required("Give a name.").Check(" ") --> false *)
+  {Check: v -> value.IsSome(v) and not (value.IsText(v) and text.Trim(v) == ""), Message: message}
+end
+
+defn Above(n, message)
+  (** A number larger than n. An empty field passes: Required says that it must be filled.
+
+        Above(0, "More than zero.").Check(0) --> false
+        Above(0, "More than zero.").Check(12.5) --> true *)
+  {Check: v -> value.IsMissing(v) or value.IsNumber(v) and v > n, Message: message}
+end
+
+defn Below(n, message)
+  (** A number smaller than n. An empty field passes.
+
+        Below(1000000, "Less than a million.").Check(5) --> true *)
+  {Check: v -> value.IsMissing(v) or value.IsNumber(v) and v < n, Message: message}
+end
+
+defn Length(least, most, message)
+  (** A text of least to most characters. An empty field passes.
+
+        Length(2, 40, "From 2 to 40 letters.").Check("A") --> false *)
+  {Check: v -> value.IsMissing(v) or value.IsText(v) and value.Len(v) >= least and value.Len(v) <= most, Message: message}
+end
+
+defn errorsOf(rules, values)
+  (** The message of the first rule that each field breaks: a dictionary of field names to messages, empty when all
+      pass. A value that a number field couldn't read is the error "number". *)
+  out = {}
+  for name in dict.Keys(rules)
+    v = dict.Get(name, values)
+    for r in rules[name]
+      if not r.Check(v)
+        out[name] = r.Message
+        break
+      end
+    end
+  end
+  out
+end
+
+defn Checked(rules, args)
+  (** The app's side: an Ok of the fields of args that the rules name, all of them passing, or an Err of the kind
+      "form" with Errors, the message of each field that breaks a rule, as the page shows them. A field that the
+      rules don't name is left out, so a page can't send more than the form has.
+
+        Checked({Amount: [Above(0, "More than zero.")]}, {Amount: 5, Admin: true}) --> result.Ok({Amount: 5})
+        Checked({Amount: [Above(0, "More than zero.")]}, {Amount: -1}).Error.Errors --> {Amount: "More than zero."} *)
+  if not value.IsDict(args)
+    return result.Err({Kind: "form", Message: "The form sent no fields.", Errors: {}})
+  end
+  bad = errorsOf(rules, args)
+  if not value.IsEmpty(bad)
+    return result.Err({Kind: "form", Message: "Some fields are wrong.", Errors: bad})
+  end
+  kept = {}
+  for name in dict.Keys(rules)
+    if name in args
+      kept[name] = args[name]
+    end
+  end
+  result.Ok(kept)
+end
+
+(* ---- Drafts *)
+
+defn New(initial, rules)
+  (** A draft of a form: a signal for each field of initial, holding its first value, and the rules it follows. *)
+  {Fields: dict.MapValues(v -> web.Signal(v), initial), Initial: initial, Rules: rules, Tried: web.Signal(false),
+    Reply: web.Signal(missing), Kinds: web.Signal({})}
+end
+
+defn read(kind, v)
+  (** The value of a field as a page sends it: a number field's text as a number, missing when empty, the text itself
+      when it isn't one, so that the rules catch it. *)
+  if value.IsText(v) and text.Trim(v) == ""
+    missing
+  else if kind == "number" and value.IsText(v)
+    n = text.Number(text.Replace(",", ".", text.Trim(v)))
+    if value.IsMissing(n) v else n end
+  else
+    v
+  end
+end
+
+defn Values(draft)
+  (** The values of a draft as the form sends them: a dictionary of its fields, a number field's as a number. *)
+  kinds = web.Get(draft.Kinds)
+  out = {}
+  for name in dict.Keys(draft.Fields)
+    out[name] = read(dict.GetOr(name, "text", kinds), web.Get(draft.Fields[name]))
+  end
+  out
+end
+
+defn Errors(draft)
+  (** The messages of the fields of a draft that break a rule, as Checked gives them, read live. *)
+  errorsOf(draft.Rules, Values(draft))
+end
+
+defn Reset(draft)
+  (** Puts back the first values of a draft, and hides its messages until the next change. *)
+  for name in dict.Keys(draft.Fields)
+    web.Set(draft.Fields[name], draft.Initial[name])
+  end
+  web.Set(draft.Tried, false)
+end
+
+(* ---- Fields: what View shows for each, made once the draft is known. *)
+
+(** A field of text, with its label above it. *)
+Text(name, label = missing, placeholder = "") = {Field: name, Kind: "text", Label: label, Placeholder: placeholder}
+
+(** A field of a number: the page sends it as a number. *)
+Number(name, label = missing, placeholder = "") = {Field: name, Kind: "number", Label: label, Placeholder: placeholder}
+
+(** A field of a date, written as 2026-11-25, which it checks. *)
+Date(name, label = missing) = {Field: name, Kind: "date", Label: label, Placeholder: "YYYY-MM-DD"}
+
+(** A choice among the rows of options, a signal or a list: key(o) is what the field holds, label(o) what it shows. *)
+Choice(name, options, key, label, title = missing) = {Field: name, Kind: "choice", Label: title, Options: options, Key: key, Show: label, Placeholder: "Choose"}
+
+(** The button that sends the form, when no field breaks a rule. *)
+Submit(label) = {Kind: "submit", Label: label}
+
+defn dateOk(s)
+  (** Is s a date written as 2026-11-25? *)
+  if not value.IsText(s) or value.Len(s) != 10 or text.Slice(5, 5, s) != "-" or text.Slice(8, 8, s) != "-"
+    return false
+  end
+  y = text.Number(text.Slice(1, 4, s))
+  m = text.Number(text.Slice(6, 7, s))
+  d = text.Number(text.Slice(9, 10, s))
+  value.IsInt(y) and value.IsInt(m) and value.IsInt(d) and m >= 1 and m <= 12 and d >= 1 and d <= 31
+end
+
+defn shownError(draft, name, kind)
+  (** The message under a field, once it changed or the form was sent: the server's, a rule's, or the field's own. *)
+  v = web.Get(draft.Fields[name])
+  if not web.Get(draft.Tried) and value.Equal(v, draft.Initial[name])
+    return missing
+  end
+  reply = web.Get(draft.Reply)
+  got = if value.IsSome(reply) web.Get(reply) else missing end
+  if value.IsSome(got) and result.IsErr(got) and value.IsDict(dict.GetOr("Errors", missing, got.Error)) and name in got.Error.Errors
+    return got.Error.Errors[name]
+  end
+  r = read(kind, v)
+  if kind == "number" and value.IsText(r)
+    return "Write a number, as 12.50."
+  end
+  if kind == "date" and value.IsSome(r) and not dateOk(r)
+    return "Write a date, as 2026-11-25."
+  end
+  dict.Get(name, Errors(draft))
+end
+
+defn fieldView(draft, f)
+  (** A field with its label above and its message under it. *)
+  name = f.Field
+  label = if value.IsMissing(f.Label) name else f.Label end
+  bad = () -> value.IsSome(shownError(draft, name, f.Kind))
+  widget = if f.Kind == "choice"
+    web.Select(draft.Fields[name], f.Options, f.Key, f.Show, placeholder = f.Placeholder, name = label, width = 220)
+  else
+    web.Input(draft.Fields[name], label = label, placeholder = f.Placeholder, width = 220 if f.Kind == "text" else 160, invalid = bad)
+  end
+  web.Stack([
+    web.Text(label, size = 12, color = 0x59636e, strong = true),
+    widget,
+    () -> message(shownError(draft, name, f.Kind)),
+  ], gap = 4)
+end
+
+(** The message under a field, or a blank line that keeps its place. *)
+message(m) = web.Text(" " if value.IsMissing(m) else m, size = 12, color = 0xd1242f)
+
+defn sent(draft, onSubmit)
+  (** What the button of a form does: shows the messages, and sends the form when no field breaks a rule. *)
+  web.Set(draft.Tried, true)
+  bad = Errors(draft)
+  kinds = web.Get(draft.Kinds)
+  wrong = list.Any([value.IsSome(shownError(draft, name, dict.GetOr(name, "text", kinds))) for name in dict.Keys(draft.Fields)])
+  if value.IsEmpty(bad) and not wrong
+    got = onSubmit()
+    web.Set(draft.Reply, got if web.IsSignal(got) else missing)
+  end
+end
+
+defn replyView(draft)
+  (** The line beside the button: sending, sent, or why the app refused; a sent form starts again empty. *)
+  reply = web.Get(draft.Reply)
+  if value.IsMissing(reply)
+    return web.Text(" ", size = 12)
+  end
+  got = web.Get(reply)
+  if value.IsMissing(got)
+    web.Text("Sending…", size = 12, color = 0x59636e)
+  else if result.IsOk(got)
+    Reset(draft)
+    web.Text("Added.", size = 12, color = 0x1a7f37)
+  else
+    web.Text(got.Error.Message, size = 12, color = 0xd1242f)
+  end
+end
+
+defn View(draft, onSubmit, fields, across = true)
+  (** The fields of a draft, side by side, or one under the other with across = false, each with its label and its
+      message, and the button of Submit: onSubmit() runs when it is pressed and no field breaks a rule. When onSubmit
+      gives the reply of web.Act, the line beside the button says how it went, an Err's messages go under their
+      fields, and an Ok empties the form. Enter in a field sends it too. *)
+  kinds = {}
+  for f in fields
+    if "Field" in f
+      kinds[f.Field] = f.Kind
+    end
+  end
+  web.Set(draft.Kinds, kinds)
+  send = () -> sent(draft, onSubmit)
+  items = []
+  for f in fields
+    if f.Kind == "submit"
+      items = list.Append(web.Stack([web.Text(" ", size = 12), web.Button(f.Label, send), () -> replyView(draft)], gap = 4), items)
+    else
+      one = fieldView(draft, f)
+      if f.Kind != "choice"
+        one.Kids[2].OnEnter = send
+      end
+      items = list.Append(one, items)
+    end
+  end
+  if across web.Row(items, align = "start", gap = 16) else web.Stack(items) end
+end

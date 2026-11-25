@@ -1,0 +1,223 @@
+(* The runtime: the mounted page as boxes, the live parts that follow signals, and the update that runs only those whose
+   signals changed. A box is a dictionary {Id, Parent, Node, Kids, W, H, X, Y, Cw, Fit, Dirty, Items, Cache}: its widget,
+   its children's ids, its size, its place in its parent, the width it was laid out for, and its draw items in its own
+   coordinates. A box that changed is Dirty, and so are all the boxes above it. *)
+use std/bug
+use std/dict
+use std/list
+use std/value
+
+defn newUi(width, height, measure, theme)
+  (** An empty page of this size. *)
+  {Boxes: dict.Dict(), Root: 0, Comps: dict.Dict(), Deps: dict.Dict(), Subs: dict.Dict(), Width: width, Height: height,
+    Measure: measure, Theme: theme, Focus: 0, Ring: false, Caret: 0, Pressed: 0, Popup: 0, Drag: missing, ScrollY: 0, Changed: true,
+    Screens: [], Nav: missing, Memos: dict.Dict()}
+end
+
+defn mount(node, parent, ui)
+  (** Mounts a widget under the box parent: {Id, Ui}. A live part runs once here, its reads followed. *)
+  n = kid(node)
+  id = fresh()
+  u = ui
+  u.Boxes[id] = {Id: id, Parent: parent, Node: n, Kids: [], W: 0, H: 0, X: 0, Y: 0, Cw: -1, Fit: false, Dirty: true, Items: [], Cache: missing}
+  k = n.Kind
+  if k == "stack" or k == "row"
+    ids = []
+    for c in n.Kids
+      got = mount(c, id, u)
+      u = got.Ui
+      ids = list.Append(got.Id, ids)
+    end
+    u.Boxes[id].Kids = ids
+  else if k == "live"
+    u = remount(id, u)
+  else if k == "each"
+    u = rediff(id, u)
+  end
+  {Id: id, Ui: u}
+end
+
+defn partNode(v)
+  (** What a live part gave, as one widget: a list is stacked, missing is an empty stack. *)
+  if value.IsMissing(v)
+    Stack([], pad = 0, gap = 0)
+  else if value.IsArray(v)
+    Stack(v)
+  else
+    kid(v)
+  end
+end
+
+defn remount(id, ui)
+  (** Runs the live part of box id again, and mounts what it gives in place of what it gave before. *)
+  u = dropKids(id, ui)
+  got = track(u.Boxes[id].Node.Fn)
+  u = follow(id, "part", got.Reads, u)
+  made = mount(partNode(got.Value), id, u)
+  u = made.Ui
+  u.Boxes[id].Kids = [made.Id]
+  touch(id, u)
+end
+
+defn rediff(id, ui)
+  (** The rows of an each box again: keeps the boxes of the keys that stay with the same row, mounts the others, drops
+      those gone. Cache holds {Keys: key -> box, Rows: key -> row}. *)
+  u = ui
+  b = u.Boxes[id]
+  n = b.Node
+  got = track(() -> if isSignal(n.Source) Get(n.Source) else n.Source end)
+  u = follow(id, "each", got.Reads, u)
+  old = if value.IsMissing(b.Cache) {Keys: dict.Dict(), Rows: dict.Dict()} else b.Cache end
+  keys = dict.Dict()
+  rows = dict.Dict()
+  ids = []
+  for row in got.Value
+    k = n.Key(row)
+    if k in keys
+      bug.Panic("Two rows of a web.Each have the key $k.")
+    end
+    kept = dict.Get(k, old.Keys)
+    if value.IsSome(kept) and value.Equal(old.Rows[k], row)
+      keys[k] = kept
+    else
+      made = mount(n.Item(row), id, u)
+      u = made.Ui
+      keys[k] = made.Id
+    end
+    rows[k] = row
+    ids = list.Append(keys[k], ids)
+  end
+  for k in dict.Keys(old.Keys)
+    if not (k in keys) or keys[k] != old.Keys[k]
+      u = unmount(old.Keys[k], u)
+    end
+  end
+  u.Boxes[id].Kids = ids
+  u.Boxes[id].Cache = {Keys: keys, Rows: rows}
+  touch(id, u)
+end
+
+defn dropKids(id, ui)
+  (** Unmounts the children of a box. *)
+  u = ui
+  for c in u.Boxes[id].Kids
+    u = unmount(c, u)
+  end
+  u.Boxes[id].Kids = []
+  u
+end
+
+defn unmount(id, ui)
+  (** Removes a box, its children and what they followed. *)
+  u = dropKids(id, ui)
+  u = unfollow(id, u)
+  if u.Focus == id
+    u.Focus = 0
+  end
+  if u.Popup == id
+    u.Popup = 0
+  end
+  u.Boxes = dict.Drop(id, u.Boxes)
+  u
+end
+
+defn follow(id, kind, ids, ui)
+  (** Records that the part id, of a kind ("part", "each", "box" or "memo"), read the signals ids: a change of one of
+      them runs it again. *)
+  u = unfollow(id, ui)
+  u.Comps[id] = kind
+  u.Deps[id] = ids
+  for s in ids
+    u.Subs[s] = dict.Put(id, true, dict.GetOr(s, dict.Dict(), u.Subs))
+  end
+  u
+end
+
+defn unfollow(id, ui)
+  (** Forgets what the part id read. *)
+  u = ui
+  for s in dict.GetOr(id, [], u.Deps)
+    if s in u.Subs
+      u.Subs[s] = dict.Drop(id, u.Subs[s])
+    end
+  end
+  u.Deps = dict.Drop(id, u.Deps)
+  u.Comps = dict.Drop(id, u.Comps)
+  u
+end
+
+defn touch(id, ui)
+  (** Marks a box and the boxes above it to be laid out and drawn again. *)
+  u = ui
+  at = id
+  while at != 0 and at in u.Boxes and not u.Boxes[at].Dirty
+    u.Boxes[at].Dirty = true
+    at = u.Boxes[at].Parent
+  end
+  u.Changed = true
+  u
+end
+
+defn adopt(ui)
+  (** Follows the memos made since the last update. *)
+  u = ui
+  for m in drain(born)
+    u.Memos[m.Id] = m
+    u = follow(m.Id, "memo", m.Reads, u)
+  end
+  u
+end
+
+defn subsOf(ids, ui)
+  (** The parts that follow one of the signals ids. *)
+  out = []
+  for s in ids
+    if s in ui.Subs
+      out = list.Concat(out, dict.Keys(ui.Subs[s]))
+    end
+  end
+  out
+end
+
+defn flush(ui)
+  (** Runs the parts whose signals changed, each once, in the order of their ids: memos before what reads them, a part
+      before the parts inside it, which it may drop. Gives the page with the boxes they touched dirty. *)
+  u = adopt(ui)
+  work = dict.Dict()
+  for c in subsOf(drain(dirty), u)
+    work[c] = true
+  end
+  turns = 0
+  while not value.IsEmpty(work)
+    c = list.Min(dict.Keys(work))
+    work = dict.Drop(c, work)
+    kind = dict.Get(c, u.Comps)
+    if kind == "memo"
+      m = u.Memos[c]
+      got = track(m.Fn)
+      u = follow(c, "memo", got.Reads, u)
+      old = peek(m.Cell)
+      if not same(old.Value, got.Value)
+        put({Value: got.Value, Version: old.Version + 1}, m.Cell)
+        for d in subsOf([c], u)
+          work[d] = true
+        end
+      end
+    else if kind == "part"
+      u = remount(c, u)
+    else if kind == "each"
+      u = rediff(c, u)
+    else if kind == "box"
+      u = touch(c, u)
+    end
+    u = adopt(u)
+    for d in subsOf(drain(dirty), u)
+      work[d] = true
+    end
+    turns += 1
+    if turns > 100000
+      bug.Panic("The live parts of this page keep setting signals that they read: a part must not set what it reads.")
+    end
+  end
+  u
+end

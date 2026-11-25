@@ -1,0 +1,236 @@
+(* The app: its routes, its start, and what a back-end calls: Handle for each event of the window, Frame for the draw
+   list, Semantics for the tree a screen reader reads. A back-end paints a frame only when Changed says so: a page that
+   nothing changes costs nothing. *)
+use std/bug
+use std/dict
+use std/list
+use std/math
+use std/text
+use std/value
+
+(** An app: its routes, web.Route, and the path of its live screens on the server, as live.Route serves them, or
+    missing for an app without. title names its window. *)
+App(routes, live = missing, title = "Ceres") = {Routes: routes, Live: live, Title: title}
+
+(** A route of an app: a path, where :name takes one part of it into p.Params, and the page, a function of p. *)
+Route(pattern, page) = {Pattern: pattern, Page: page}
+
+defn matched(pattern, path)
+  (** The params of a path for a pattern, as {id: "42"} for "/invoices/:id" and "/invoices/42", or missing. *)
+  bare = text.Split("?", path)[1]
+  ps = text.Split("/", pattern)
+  xs = text.Split("/", bare)
+  if value.Len(ps) != value.Len(xs)
+    return missing
+  end
+  params = {}
+  for k in 1..value.Len(ps)
+    if text.StartsWith(":", ps[k]) and xs[k] != ""
+      params[text.Slice(2, value.Len(ps[k]), ps[k])] = xs[k]
+    else if ps[k] != xs[k]
+      return missing
+    end
+  end
+  params
+end
+
+defn routed(app, nav, screen)
+  (** The live part of the whole app: the page of the route of the current path. *)
+  () -> pageAt(app, Get(nav), nav, screen)
+end
+
+defn pageAt(app, path, nav, screen)
+  (** The page of the first route that a path matches, or a page that says there is none. *)
+  for r in app.Routes
+    params = matched(r.Pattern, path)
+    if value.IsSome(params)
+      return r.Page({Path: path, Params: params, Screen: screen, Nav: nav})
+    end
+  end
+  Stack([Title("Nothing here"), Text("No page of this app is at $path.")])
+end
+
+(** Goes to another route of the app, as a link does. *)
+Go(path, p) = Set(p.Nav, path)
+
+defn Start(app, width, height, measure, origin = missing, path = "/", theme = Theme, headers = [])
+  (** Mounts an app in a window of width by height pixels, at a path: the state that a back-end keeps and gives to
+      Handle and Frame. measure is the back-end's {Width: (text, size, strong) -> pixels, Line: size -> pixels}. With
+      origin, as "http://127.0.0.1:8080", an app with live opens its screen there, sending headers with it. *)
+  ui = newUi(width, height, measure, theme)
+  screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers) else missing end
+  nav = Signal(path)
+  ui.Nav = nav
+  ui.Screens = if value.IsSome(screen) [screen] else [] end
+  made = mount(Stack([routed(app, nav, screen)], pad = theme.Page), 0, ui)
+  u = made.Ui
+  u.Root = made.Id
+  Update(u)
+end
+
+defn Update(ui)
+  (** Takes in what the app's screens pushed, runs the live parts whose signals changed, and lays the page out
+      again where it changed. A back-end calls it once each turn of its loop, events or not. *)
+  for s in ui.Screens
+    pump(s)
+  end
+  u = flush(ui)
+  if u.Boxes[u.Root].Dirty
+    u = layout(u.Root, u.Width, false, u)
+    u = scrolled(u.ScrollY, u)
+  end
+  u
+end
+
+Changed(ui) = ui.Changed   (** Does the window need a new frame? *)
+
+defn Painted(ui)
+  (** The page once a back-end painted its frame: Changed is false until something changes. *)
+  u = ui
+  u.Changed = false
+  u
+end
+
+defn scrolled(y, ui)
+  (** The page scrolled to y, within its height. *)
+  u = ui
+  u.ScrollY = list.Max(0, list.Min(y, u.Boxes[u.Root].H - u.Height))
+  u.Changed = true
+  u
+end
+
+defn Frame(ui)
+  (** The draw list of the page: items painted in order, each in pixels from the top left of the window, colors as
+      0xRRGGBB. {Kind: "rect", X, Y, W, H, Color, Radius} fills a rectangle, round at its corners when Radius > 0, with
+      Alpha from 0 to 255 when it has one; "frame" is the same rectangle's edge, one pixel wide; "text" {X, Y, Text,
+      Size, Color, Strong} a line of text, X, Y the top left of its line, Angle -90 for one written upward; "line"
+      {Points, Color, Width, Dash} a line through the points x1, y1, x2, y2...; "tris" {Points, Color, Alpha} filled
+      triangles, three points each; "group" {X, Y, W, H, Clip, Items} items moved by X, Y, cut to W by H when Clip is
+      true: a back-end may skip a group that is out of sight. *)
+  t = ui.Theme
+  root = ui.Boxes[ui.Root]
+  page = [rect(0, 0, ui.Width, ui.Height, t.Back), group(0, -ui.ScrollY, root.W, root.H, false, root.Items)]
+  if root.H > ui.Height
+    bar = list.Max(24, math.Div(ui.Height * ui.Height, root.H))
+    y = math.Div((ui.Height - bar) * ui.ScrollY, root.H - ui.Height)
+    page = list.Append(rect(ui.Width - 8, y, 6, bar, 0xaab4bf, 3), page)
+  end
+  list.Concat(page, popupItems(ui))
+end
+
+defn at(id, ui)
+  (** The place of a box in the window: {X, Y}. *)
+  x = 0
+  y = -ui.ScrollY
+  k = id
+  while k != 0
+    b = ui.Boxes[k]
+    x += b.X
+    y += b.Y
+    k = b.Parent
+  end
+  {X: x, Y: y}
+end
+
+defn popup(ui)
+  (** The open list of a select: {Box, X, Y, W, Row, Options}, or missing. *)
+  if ui.Popup == 0 or not (ui.Popup in ui.Boxes)
+    return missing
+  end
+  b = ui.Boxes[ui.Popup]
+  p = at(ui.Popup, ui)
+  shown = list.Take(10, optionsOf(b.Node))
+  {Box: ui.Popup, X: p.X, Y: p.Y + b.H + 2, W: b.W, Row: ui.Theme.Row + 4, Options: shown}
+end
+
+defn popupItems(ui)
+  (** The items of the open list of a select, over the page. *)
+  o = popup(ui)
+  if value.IsMissing(o)
+    return []
+  end
+  t = ui.Theme
+  n = ui.Boxes[o.Box].Node
+  chosen = Get(n.Value)
+  h = o.Row * value.Len(o.Options)
+  out = [rect(o.X + 2, o.Y + 3, o.W, h, 0xd0d7de, t.Radius), rect(o.X, o.Y, o.W, h, t.Paper, t.Radius), frame(o.X, o.Y, o.W, h, t.Line, t.Radius)]
+  lh = lineOf(t.Size, ui)
+  for k in 1..value.Len(o.Options)
+    opt = o.Options[k]
+    y = o.Y + (k - 1) * o.Row
+    if n.Key(opt) == chosen
+      out = list.Append(rect(o.X + 1, y + 1, o.W - 2, o.Row - 2, 0xdbeafe, t.Radius), out)
+    end
+    out = list.Append(words(o.X + 10, y + math.Div(o.Row - lh, 2), value.Text(n.Label(opt)), t.Size, t.Ink), out)
+  end
+  out
+end
+
+(* ---- Semantics *)
+
+defn Semantics(ui)
+  (** The semantics tree of the page: what a screen reader reads and what the web back-end mirrors in a hidden DOM.
+      Each node is {Role, Name, Value, X, Y, W, H, Focused, Kids}, in pixels of the window: Role "page", "heading",
+      "text", "button", "link" (with Href), "textbox" (with Invalid), "combobox" (with Expanded), "table" (with Count,
+      the number of rows in all, and Kids, its header and the rows in sight, "row" with Index, of "cell"), "img" for a
+      graph, "list" of "listitem". The boxes that only place others, stacks and rows, give their children. *)
+  root = ui.Boxes[ui.Root]
+  {Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: semOf(ui.Root, 0, -ui.ScrollY, ui)}
+end
+
+defn node(role, name, b, x, y, ui, kids = [], v = missing)
+  (** A node of the semantics tree. *)
+  {Role: role, Name: name, Value: v, X: x, Y: y, W: b.W, H: b.H, Focused: ui.Focus == b.Id, Kids: kids}
+end
+
+defn semOf(id, x0, y0, ui)
+  (** The semantic nodes of a box whose parent is at x0, y0. *)
+  b = ui.Boxes[id]
+  n = b.Node
+  x = x0 + b.X
+  y = y0 + b.Y
+  k = n.Kind
+  inner = list.FlatMap(c -> semOf(c, x, y, ui), b.Kids)
+  if k == "text"
+    [node(n.Role, b.Cache.Text, b, x, y, ui)]
+  else if k == "button"
+    [node("button", b.Cache.Text, b, x, y, ui)]
+  else if k == "link"
+    one = node("link", n.Label, b, x, y, ui)
+    one.Href = n.To
+    [one]
+  else if k == "input"
+    one = node("textbox", n.Label, b, x, y, ui, v = b.Cache.Text)
+    one.Invalid = value.IsFunction(n.Invalid) and n.Invalid()
+    [one]
+  else if k == "select"
+    one = node("combobox", n.Name, b, x, y, ui, v = b.Cache.Text)
+    one.Expanded = ui.Popup == id
+    [one]
+  else if k == "plot"
+    [node("img", b.Cache.Text, b, x, y, ui)]
+  else if k == "table"
+    [tableSem(b, x, y, ui)]
+  else if k == "each"
+    [node("list", "", b, x, y, ui, kids = [{Role: "listitem", Name: "", Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: semOf(c, x, y, ui)} for c in b.Kids])]
+  else
+    inner
+  end
+end
+
+defn tableSem(b, x, y, ui)
+  (** The semantics of a table: its header and the rows in sight. *)
+  c = b.Cache
+  n = b.Node
+  head = {Role: "row", Name: "", Value: missing, X: x, Y: y, W: b.W, H: c.Row, Focused: false, Index: 0,
+    Kids: [{Role: "columnheader", Name: col.Title, Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for col in n.Columns]}
+  rows = []
+  for k in 1..value.Len(c.Texts)
+    i = c.First + k - 1
+    rows = list.Append({Role: "row", Name: "", Value: missing, X: x, Y: y + c.Row + (i - 1) * c.Row - c.Offset, W: b.W, H: c.Row, Focused: false, Index: i,
+      Kids: [{Role: "cell", Name: s, Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for s in c.Texts[k]]}, rows)
+  end
+  one = node("table", n.Label, b, x, y, ui, kids = list.Prepend(head, rows))
+  one.Count = c.Count
+  one
+end

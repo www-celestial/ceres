@@ -1,0 +1,176 @@
+(** The headless back-end: a page of Ceres run without a window, for tests. Its text has a fixed width, half its size a
+    character, so the place of every item is known in advance; Draw gives the draw list as text, a line for each item,
+    and Tree the semantics tree, which test.Snapshot keeps. Click, Press, Type and Wheel send the events a window would;
+    ClickOn clicks the widget of a name, as a person who reads the page does. Each function gives the page back. *)
+use src/web
+use std/bug
+use std/dict
+use std/fiber
+use std/list
+use std/math
+use std/sys
+use std/text
+use std/value
+
+(** The measures of the headless text: a character is half the size wide, a line one size and a half high. *)
+Measure = {Width: (s, size, strong) -> value.Len(s) * math.Div(size, 2), Line: size -> size + math.Div(size, 2)}
+
+(** An app mounted in a page of width by height pixels at path, its live screen at origin if it has one. *)
+Open(app, width = 800, height = 600, origin = missing, path = "/") = web.Start(app, width, height, Measure, origin = origin, path = path)
+
+defn Click(x, y, page)
+  (** A click of the left button at x, y of the window: down, then up. *)
+  e = {Kind: "mouse", X: x, Y: y, Button: 1, Amount: 0}
+  down = e
+  down.Action = "down"
+  up = e
+  up.Action = "up"
+  web.Handle(up, web.Handle(down, page))
+end
+
+(** A key, as "tab", "enter", "down" or "backspace", with Shift if shift. *)
+Press(name, page, shift = false) = web.Handle({Kind: "key", Key: name, Ctrl: false, Shift: shift, Alt: false}, page)
+
+Type(words, page) = web.Handle({Kind: "text", Text: words}, page)   (** A text typed, as the keyboard sends it. *)
+
+(** The wheel turned at x, y: amount notches, up when it is above 0. *)
+Wheel(x, y, amount, page) = web.Handle({Kind: "mouse", Action: "wheel", X: x, Y: y, Button: 0, Amount: amount}, page)
+
+(** A drag of the left button from x, y to x2, y2, as on the scroll bar of a table. *)
+Drag(x, y, x2, y2, page) = web.Handle({Kind: "mouse", Action: "up", X: x2, Y: y2, Button: 1, Amount: 0}, web.Handle({Kind: "mouse", Action: "move", X: x2, Y: y2, Button: 1, Amount: 0}, web.Handle({Kind: "mouse", Action: "down", X: x, Y: y, Button: 1, Amount: 0}, page)))
+
+defn Settle(page, until = missing, timeout = 3)
+  (** Lets the live screen of the page bring what the app pushed: the page updated once nothing came for 50 ms, or
+      once until(page) is true, at most timeout seconds. *)
+  p = page
+  start = sys.Now()
+  quiet = sys.Now()
+  while sys.Now() - start < timeout
+    sys.Sleep(0.005)
+    before = p.Changed
+    p = web.Update(p)
+    if value.IsSome(until) and until(p)
+      return p
+    end
+    if p.Changed and not before
+      quiet = sys.Now()
+      p = web.Painted(p)
+    end
+    if value.IsMissing(until) and sys.Now() - quiet > 0.05
+      return p
+    end
+  end
+  p
+end
+
+defn number(x)
+  (** A coordinate as text: an integer, or one digit after the point. *)
+  r = math.Round(x * 10) / 10
+  if r == math.Round(r) value.Text(math.Div(math.Round(r), 1)) else text.Decimals(1, r) end
+end
+
+defn color(c)
+  (** A color 0xRRGGBB as #rrggbb. *)
+  digits = "0123456789abcdef"
+  out = ""
+  n = c
+  for k in 1..6
+    d = math.Mod(n, 16)
+    out = "$(text.Slice(d + 1, d + 1, digits))$out"
+    n = math.Div(n, 16)
+  end
+  "#$out"
+end
+
+defn lines(items, dx, dy, w, h, pad)
+  (** The text of items moved by dx, dy, those of groups outside the view 0, 0, w, h left out. *)
+  out = []
+  for one in items
+    k = one.Kind
+    x = one.X + dx if k != "line" and k != "tris" else 0
+    y = one.Y + dy if k != "line" and k != "tris" else 0
+    if k == "group"
+      if x + one.W > 0 and y + one.H > 0 and x < w and y < h
+        if one.Clip
+          out = list.Append("$(pad)clip $(number(x)),$(number(y)) $(number(one.W))x$(number(one.H))", out)
+          out = list.Concat(out, lines(one.Items, x, y, w, h, "$pad  "))
+        else
+          out = list.Concat(out, lines(one.Items, x, y, w, h, pad))
+        end
+      end
+    else if k == "rect" or k == "frame"
+      round = if dict.GetOr("Radius", 0, one) > 0 " r$(number(one.Radius))" else "" end
+      alpha = if dict.GetOr("Alpha", 255, one) < 255 " a$(one.Alpha)" else "" end
+      out = list.Append("$pad$k $(number(x)),$(number(y)) $(number(one.W))x$(number(one.H)) $(color(one.Color))$round$alpha", out)
+    else if k == "text"
+      strong = if one.Strong " strong" else "" end
+      turned = if dict.GetOr("Angle", 0, one) != 0 " turned" else "" end
+      out = list.Append("$(pad)text $(number(x)),$(number(y)) \"$(one.Text)\" $(one.Size)$strong$turned $(color(one.Color))", out)
+    else if k == "line" or k == "tris"
+      n = math.Div(value.Len(one.Points), 2)
+      out = list.Append("$pad$k $n points $(color(one.Color))", out)
+    else
+      bug.Panic("The draw list has no item kind $k.")
+    end
+  end
+  out
+end
+
+(** The draw list of the page as text, a line for each item, the groups out of sight left out. *)
+Draw(page) = text.Join("\n", lines(web.Frame(page), 0, 0, page.Width, page.Height, ""))
+
+defn treeLines(n, pad)
+  (** The text of a node of the semantics tree and of its children. *)
+  name = if n.Name == "" "" else " \"$(n.Name)\"" end
+  v = if value.IsSome(n.Value) " = \"$(n.Value)\"" else "" end
+  more = ""
+  if dict.GetOr("Focused", false, n)
+    more = "$more focused"
+  end
+  if dict.GetOr("Invalid", false, n)
+    more = "$more invalid"
+  end
+  if dict.GetOr("Expanded", false, n)
+    more = "$more expanded"
+  end
+  if "Href" in n
+    more = "$more href $(n.Href)"
+  end
+  if "Count" in n
+    more = "$more of $(n.Count) rows"
+  end
+  if "Index" in n and n.Index > 0
+    more = "$more #$(n.Index)"
+  end
+  place = if n.W > 0 " at $(number(n.X)),$(number(n.Y)) $(number(n.W))x$(number(n.H))" else "" end
+  list.Prepend("$pad$(n.Role)$name$v$more$place", list.FlatMap(c -> treeLines(c, "$pad  "), n.Kids))
+end
+
+(** The semantics tree of the page as text, a line for each node, its children under one. *)
+Tree(page) = text.Join("\n", treeLines(web.Semantics(page), ""))
+
+defn find(name, n, roles)
+  (** The first node of the tree with this name, of one of these roles, or of any for missing. *)
+  if n.Name == name and n.W > 0 and (value.IsMissing(roles) or n.Role in roles)
+    return n
+  end
+  for c in n.Kids
+    got = find(name, c, roles)
+    return got if value.IsSome(got)
+  end
+  missing
+end
+
+defn ClickOn(name, page)
+  (** A click in the middle of the widget whose name is name in the semantics tree: a button's label, a field's; a
+      widget that takes the mouse before a text of the same name. *)
+  tree = web.Semantics(page)
+  n = find(name, tree, ["button", "link", "textbox", "combobox", "table"])
+  if value.IsMissing(n)
+    n = find(name, tree, missing)
+  end
+  if value.IsMissing(n)
+    bug.Panic("The page has no widget named \"$name\".")
+  end
+  Click(n.X + math.Div(n.W, 2), n.Y + math.Div(n.H, 2), page)
+end

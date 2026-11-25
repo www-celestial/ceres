@@ -1,0 +1,149 @@
+(* Graphs: std/plot gives the shapes of a graph in pixels, its scene, and this turns them into draw items. M4, which
+   std/plot applies to long lines, keeps a line of a million points as a few per column of pixels. *)
+use std/dict
+use std/list
+use std/math
+use std/plot
+use std/result
+use std/text
+use std/value
+
+defn Plot(graph, height = 280, width = missing, label = "")
+  (** A graph of std/plot: graph is a function that gives one, a live part, drawn again when a signal it read changes
+      or when its width does. label names it for a screen reader, the graph's title otherwise.
+
+        Plot(() -> plot.Of([plot.Bars(["a"], [1])])).Kind --> "plot" *)
+  {Kind: "plot", Graph: graph, Height: height, Width: width, Label: label}
+end
+
+defn colorOf(c, t)
+  (** A color of a scene as 0xRRGGBB: "#rrggbb", or the names of the theme. *)
+  if c == "ink" or value.IsMissing(c)
+    t.Ink
+  else if c == "grid"
+    0xe6eaef
+  else if c == "paper"
+    t.Paper
+  else
+    hex(text.Slice(2, 7, c))
+  end
+end
+
+defn hex(s)
+  (** The number that six hexadecimal digits write. *)
+  n = 0
+  for ch in text.Chars(text.Lower(s))
+    n = n * 16 + text.Find(ch, "0123456789abcdef") - 1
+  end
+  n
+end
+
+alphaOf(o) = if value.IsMissing(o) 255 else math.Div(math.Round(o * 255), 1) end   (* An opacity from 0 to 1 as 0 to 255. *)
+
+defn flat(xs, ys)
+  (** The points x1, y1, x2, y2... of two lists. *)
+  out = []
+  for k in 1..value.Len(xs)
+    out = list.Append(ys[k], list.Append(xs[k], out))
+  end
+  out
+end
+
+defn band(xs, ys)
+  (** The triangles that fill a band, its top from left to right then its bottom back: two for each step. *)
+  n = math.Div(value.Len(xs), 2)
+  out = []
+  for k in 1..(n - 1)
+    a = [xs[k], ys[k]]
+    b = [xs[k + 1], ys[k + 1]]
+    c = [xs[2 * n - k], ys[2 * n - k]]
+    d = [xs[2 * n + 1 - k], ys[2 * n + 1 - k]]
+    out = list.Concat(out, list.Concat(list.Concat(a, b), list.Concat(c, list.Concat(a, list.Concat(c, d)))))
+  end
+  out
+end
+
+defn sceneItem(sh, t, u)
+  (** One item of a scene as draw items. *)
+  k = sh.Kind
+  out = if k == "line"
+    [{Kind: "line", Points: flat(sh.Xs, sh.Ys), Color: colorOf(sh.Color, t), Width: dict.GetOr("Width", 1, sh), Dash: dict.Get("Dash", sh)}]
+  else if k == "rect"
+    [{Kind: "rect", X: sh.X, Y: sh.Y, W: sh.W, H: sh.H, Color: colorOf(sh.Color, t), Radius: 0, Alpha: alphaOf(dict.Get("Opacity", sh))}]
+  else if k == "area"
+    [{Kind: "tris", Points: band(sh.Xs, sh.Ys), Color: colorOf(sh.Color, t), Alpha: alphaOf(dict.Get("Opacity", sh))}]
+  else if k == "marks"
+    s = dict.GetOr("Size", 6, sh)
+    r = 0 if dict.Get("Shape", sh) == "square" else math.Div(s, 2)
+    [{Kind: "rect", X: sh.Xs[j] - s / 2, Y: sh.Ys[j] - s / 2, W: s, H: s, Color: colorOf(sh.Color, t), Radius: r} for j in 1..value.Len(sh.Xs)]
+  else if k == "cells"
+    cells(sh, t)
+  else if k == "text"
+    size = dict.GetOr("Size", 12, sh)
+    w = widthOf(sh.Text, size, false, u)
+    anchor = dict.GetOr("Anchor", "start", sh)
+    angle = dict.GetOr("Angle", 0, sh)
+    x = sh.X - (0 if anchor == "start" else w / 2 if anchor == "middle" else w)
+    top = sh.Y - math.Round(size * 0.8)
+    one = words(x, top, sh.Text, size, colorOf(sh.Color, t))
+    if angle != 0
+      one = words(sh.X - math.Round(size * 0.8), sh.Y + (0 if anchor == "start" else w / 2 if anchor == "middle" else w), sh.Text, size, colorOf(sh.Color, t))
+      one.Angle = angle
+    end
+    [one]
+  else
+    []
+  end
+  clip = dict.Get("Clip", sh)
+  if value.IsSome(clip) and value.Len(out) > 0
+    [group(clip[1], clip[2], clip[3], clip[4], true, [moved(o, -clip[1], -clip[2]) for o in out])]
+  else
+    out
+  end
+end
+
+defn cells(sh, t)
+  (** The cells of a heatmap, a rectangle each. *)
+  out = []
+  cols = value.Len(sh.Xs) - 1
+  for r in 1..(value.Len(sh.Ys) - 1)
+    for c in 1..cols
+      color = sh.Colors[(r - 1) * cols + c]
+      if value.IsSome(color)
+        y0 = list.Min(sh.Ys[r], sh.Ys[r + 1])
+        out = list.Append({Kind: "rect", X: sh.Xs[c], Y: y0, W: sh.Xs[c + 1] - sh.Xs[c], H: math.Abs(sh.Ys[r + 1] - sh.Ys[r]), Color: colorOf(color, t), Radius: 0}, out)
+      end
+    end
+  end
+  out
+end
+
+defn moved(o, dx, dy)
+  (** A draw item moved by dx, dy. *)
+  m = o
+  if o.Kind == "line" or o.Kind == "tris"
+    m.Points = [o.Points[j] + (dx if math.Mod(j, 2) == 1 else dy) for j in 1..value.Len(o.Points)]
+  else
+    m.X = o.X + dx
+    m.Y = o.Y + dy
+  end
+  m
+end
+
+defn layPlot(id, maxW, ui)
+  n = ui.Boxes[id].Node
+  w = list.Min(maxW, 10000 if value.IsMissing(n.Width) else n.Width)
+  h = n.Height
+  got = watched(id, n.Graph, ui)
+  u = got.Ui
+  t = u.Theme
+  scene = plot.Scene(got.Value, w, h)
+  items = if result.IsErr(scene)
+    [words(8, 8, scene.Error.Message, t.Size, t.Danger)]
+  else
+    list.FlatMap(sh -> sceneItem(sh, t, u), scene.Value.Items)
+  end
+  titled = if result.IsOk(scene) list.FindFirst(sh -> dict.Get("Role", sh) == "title", scene.Value.Items) else missing end
+  u.Boxes[id].Cache = {Text: if n.Label != "" n.Label else if value.IsSome(titled) titled.Text else "graph" end}
+  sized(id, w, h, list.Prepend(rect(0, 0, w, h, t.Paper), items), u)
+end

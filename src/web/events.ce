@@ -1,0 +1,349 @@
+(* Events: a back-end gives each one to Handle as {Kind: "mouse", Action: "down", "up", "move" or "wheel", X, Y,
+   Amount}, {Kind: "key", Key, Ctrl, Shift, Alt}, {Kind: "text", Text} or {Kind: "resize", Width, Height}, the same on
+   every platform. A move does nothing unless the mouse drags a scroll bar: a mouse that moves over a page costs no frame. *)
+use std/dict
+use std/list
+use std/math
+use std/text
+use std/value
+
+defn Handle(e, ui)
+  (** The page after an event, updated and laid out: a click on a widget, a key for the widget that has the focus,
+      a text typed, the wheel, a new size of the window. *)
+  u = if e.Kind == "mouse" mouse(e, ui)
+  else if e.Kind == "key" key(e, ui)
+  else if e.Kind == "text" typed(e.Text, ui)
+  else if e.Kind == "resize" resized(e, ui)
+  else ui end
+  Update(u)
+end
+
+defn resized(e, ui)
+  u = ui
+  u.Width = e.Width
+  u.Height = e.Height
+  touch(u.Root, u)
+end
+
+active = ["button", "link", "input", "select", "table"]   (* The kinds of widgets that take the mouse. *)
+
+defn hitIn(id, x, y, ui)
+  (** The deepest box under x, y, given in the box's own coordinates, or 0. *)
+  b = ui.Boxes[id]
+  if x < 0 or y < 0 or x >= b.W or y >= b.H
+    return 0
+  end
+  for c in list.Reverse(b.Kids)
+    cb = ui.Boxes[c]
+    got = hitIn(c, x - cb.X, y - cb.Y, ui)
+    return got if got != 0
+  end
+  id
+end
+
+defn hit(x, y, ui)
+  (** The widget that takes the mouse at x, y of the window: {Id, X, Y}, X and Y in its own coordinates, or missing. *)
+  root = ui.Boxes[ui.Root]
+  k = hitIn(ui.Root, x - root.X, y + ui.ScrollY - root.Y, ui)
+  while k != 0 and not (ui.Boxes[k].Node.Kind in active)
+    k = ui.Boxes[k].Parent
+  end
+  if k == 0
+    return missing
+  end
+  p = at(k, ui)
+  {Id: k, X: x - p.X, Y: y - p.Y}
+end
+
+defn focus(id, ui, ring = false)
+  (** Gives the focus to the box id, 0 for none, its caret at the end of its text. ring is true when the keyboard
+      moved it: only then a button or a table shows a ring around it, as a browser's :focus-visible. *)
+  u = ui
+  if u.Ring != ring and id != 0
+    u.Ring = ring
+    u = touch(id, u)
+  end
+  if u.Focus == id
+    return u
+  end
+  was = u.Focus
+  u.Focus = id
+  if was != 0 and was in u.Boxes
+    u = touch(was, u)
+  end
+  if id != 0
+    n = u.Boxes[id].Node
+    if n.Kind == "input"
+      v = Get(n.Value)
+      u.Caret = if value.IsMissing(v) 0 else value.Len(value.Text(v)) end
+    end
+    u = touch(id, u)
+  end
+  u
+end
+
+defn mouse(e, ui)
+  u = ui
+  if e.Action == "wheel"
+    return wheel(e, u)
+  else if e.Action == "move"
+    return dragged(e, u)
+  else if e.Action == "up"
+    return released(e, u)
+  end
+  o = popup(u)
+  if value.IsSome(o)
+    return picked(e, o, u)
+  end
+  h = hit(e.X, e.Y, u)
+  if value.IsMissing(h)
+    return focus(0, u)
+  end
+  n = u.Boxes[h.Id].Node
+  k = n.Kind
+  if k == "button" or k == "link"
+    u.Pressed = h.Id
+    u = touch(h.Id, u)
+    return if k == "button" focus(h.Id, u) else u end
+  else if k == "input"
+    u = focus(h.Id, u)
+    u.Caret = caretAt(h.X - 10 + dict.GetOr("Shift", 0, u.Boxes[h.Id].Cache), h.Id, u)
+    return touch(h.Id, u)
+  else if k == "select"
+    u = focus(h.Id, u)
+    u.Popup = h.Id
+    u.Changed = true
+    return u
+  else if k == "table"
+    return tableDown(h, focus(h.Id, u))
+  end
+  u
+end
+
+defn picked(e, o, ui)
+  (** A click while the list of a select is open: an option is chosen, and the list closes. *)
+  u = ui
+  u.Popup = 0
+  u.Changed = true
+  inside = e.X >= o.X and e.X < o.X + o.W and e.Y >= o.Y and e.Y < o.Y + o.Row * value.Len(o.Options)
+  if inside
+    opt = o.Options[math.Div(e.Y - o.Y, o.Row) + 1]
+    n = u.Boxes[o.Box].Node
+    Set(n.Value, n.Key(opt))
+  end
+  u
+end
+
+defn released(e, ui)
+  (** The button of the mouse comes up: a press on a button or a link that ends on it is a click. *)
+  u = ui
+  u.Drag = missing
+  if u.Pressed == 0
+    return u
+  end
+  was = u.Pressed
+  u.Pressed = 0
+  u = touch(was, u)
+  h = hit(e.X, e.Y, u)
+  if value.IsSome(h) and h.Id == was
+    u = clicked(was, u)
+  end
+  u
+end
+
+defn clicked(id, ui)
+  (** Runs what a click on a button or a link does. *)
+  n = ui.Boxes[id].Node
+  if n.Kind == "button"
+    n.On()
+  else if n.Kind == "link"
+    Set(ui.Nav, n.To)
+  end
+  ui
+end
+
+defn wheel(e, ui)
+  (** The wheel scrolls the table under the mouse, or else the page. *)
+  by = math.Round(-e.Amount * 48)
+  h = hit(e.X, e.Y, ui)
+  if value.IsSome(h) and ui.Boxes[h.Id].Node.Kind == "table"
+    return scrollTable(h.Id, by, ui)
+  end
+  scrolled(ui.ScrollY + by, ui)
+end
+
+defn tableDown(h, ui)
+  (** A press on a table: on a title it sorts, on the scroll bar it starts a drag, on a row it chooses it. *)
+  u = ui
+  b = u.Boxes[h.Id]
+  n = b.Node
+  c = b.Cache
+  if h.Y < c.Row
+    x = 0
+    for k in 1..value.Len(n.Columns)
+      col = n.Columns[k]
+      if h.X >= x and h.X < x + c.Widths[k] and value.IsSome(col.Sort)
+        old = Get(n.Sort)
+        Set(n.Sort, {By: col.Sort, Desc: value.IsSome(old) and old.By == col.Sort and not old.Desc})
+        Set(n.Offset, 0)
+      end
+      x += c.Widths[k]
+    end
+  else if h.X >= b.W - scrollBar
+    u.Drag = {Box: h.Id, Y: h.Y, Offset: Get(n.Offset)}
+  else
+    i = math.Div(h.Y - c.Row + c.Offset, c.Row) + 1
+    if i <= c.Count
+      Set(n.Chosen, i)
+    end
+  end
+  u
+end
+
+defn dragged(e, ui)
+  (** The mouse moves while it drags the scroll bar of a table. *)
+  d = ui.Drag
+  if value.IsMissing(d) or not (d.Box in ui.Boxes)
+    return ui
+  end
+  b = ui.Boxes[d.Box]
+  c = b.Cache
+  body = b.H - c.Row
+  thumb = list.Max(24, math.Div(body * body, list.Max(1, c.Count * c.Row)))
+  p = at(d.Box, ui)
+  moved = e.Y - p.Y - d.Y
+  Set(b.Node.Offset, list.Max(0, list.Min(c.Most, d.Offset + math.Div(moved * c.Most, list.Max(1, body - thumb)))))
+  ui
+end
+
+defn caretAt(x, id, ui)
+  (** The place of the caret nearest x pixels into the text of an input. *)
+  s = value.Text(dict.GetOr("Text", "", ui.Boxes[id].Cache))
+  size = ui.Theme.Size
+  for k in 0..value.Len(s)
+    w = widthOf(head(s, k), size, false, ui)
+    next = widthOf(head(s, k + 1), size, false, ui)
+    return k if x < (w + next) / 2
+  end
+  value.Len(s)
+end
+
+defn focusables(id, ui)
+  (** The boxes that take the focus, in the order of the page. *)
+  b = ui.Boxes[id]
+  k = b.Node.Kind
+  own = if k == "input" or k == "select" or k == "button" or k == "table" [id] else [] end
+  list.Concat(own, list.FlatMap(c -> focusables(c, ui), b.Kids))
+end
+
+defn tabbed(back, ui)
+  (** Moves the focus to the next widget that takes it, or the one before. *)
+  all = focusables(ui.Root, ui)
+  if value.IsEmpty(all)
+    return ui
+  end
+  i = list.IndexOf(ui.Focus, all)
+  j = if value.IsMissing(i) (value.Len(all) if back else 1) else math.Mod(i - 1 + (-1 if back else 1) + value.Len(all), value.Len(all)) + 1 end
+  focus(all[j], ui, ring = true)
+end
+
+defn key(e, ui)
+  u = ui
+  if e.Key == "tab"
+    u.Popup = 0
+    return tabbed(dict.GetOr("Shift", false, e), u)
+  end
+  if u.Focus == 0 or not (u.Focus in u.Boxes)
+    return pageKey(e, u)
+  end
+  n = u.Boxes[u.Focus].Node
+  k = n.Kind
+  if k == "input"
+    edited(e, u)
+  else if k == "button"
+    if e.Key == "enter" or e.Key == "space" clicked(u.Focus, u) else u end
+  else if k == "select"
+    selectKey(e, u)
+  else if k == "table"
+    tableKey(e, u)
+  else
+    u
+  end
+end
+
+defn pageKey(e, ui)
+  (** Keys with no widget in focus scroll the page. *)
+  by = if e.Key == "down" 48 else if e.Key == "up" (-48) else if e.Key == "pagedown" ui.Height - 48 else if e.Key == "pageup" 48 - ui.Height else if e.Key == "home" (-ui.ScrollY) else if e.Key == "end" 1000000000 else 0 end
+  if by == 0 ui else scrolled(ui.ScrollY + by, ui) end
+end
+
+defn tableKey(e, ui)
+  (** Keys of a table in focus scroll it. *)
+  b = ui.Boxes[ui.Focus]
+  c = b.Cache
+  body = b.H - c.Row
+  by = if e.Key == "down" c.Row else if e.Key == "up" (-c.Row) else if e.Key == "pagedown" body else if e.Key == "pageup" (-body) else if e.Key == "home" (-1000000000) else if e.Key == "end" 1000000000 else 0 end
+  if by == 0 ui else scrollTable(ui.Focus, by, ui) end
+end
+
+defn selectKey(e, ui)
+  (** Keys of a select in focus: Up and Down change the choice, Enter and Space open or close its list, Escape
+      closes it. *)
+  u = ui
+  n = u.Boxes[u.Focus].Node
+  opts = optionsOf(n)
+  if e.Key == "enter" or e.Key == "space"
+    u.Popup = 0 if u.Popup == u.Focus else u.Focus
+    u.Changed = true
+  else if e.Key == "escape"
+    u.Popup = 0
+    u.Changed = true
+  else if (e.Key == "down" or e.Key == "up") and not value.IsEmpty(opts)
+    keys = [n.Key(o) for o in opts]
+    i = list.IndexOf(Get(n.Value), keys)
+    j = if value.IsMissing(i) 1 else list.Max(1, list.Min(value.Len(keys), i + (1 if e.Key == "down" else -1))) end
+    Set(n.Value, keys[j])
+  end
+  u
+end
+
+defn edited(e, ui)
+  (** The keys that edit the text of an input in focus. *)
+  u = ui
+  n = u.Boxes[u.Focus].Node
+  v = Get(n.Value)
+  s = if value.IsMissing(v) "" else value.Text(v) end
+  c = list.Min(u.Caret, value.Len(s))
+  if e.Key == "backspace" and c > 0
+    Set(n.Value, "$(head(s, c - 1))$(tail(s, c + 1))")
+    u.Caret = c - 1
+  else if e.Key == "delete" and c < value.Len(s)
+    Set(n.Value, "$(head(s, c))$(tail(s, c + 2))")
+  else if e.Key == "left"
+    u.Caret = list.Max(0, c - 1)
+  else if e.Key == "right"
+    u.Caret = list.Min(value.Len(s), c + 1)
+  else if e.Key == "home"
+    u.Caret = 0
+  else if e.Key == "end"
+    u.Caret = value.Len(s)
+  else if e.Key == "enter" and value.IsFunction(n.OnEnter)
+    n.OnEnter()
+  end
+  touch(u.Focus, u)
+end
+
+defn typed(words, ui)
+  (** A text typed goes into the input in focus, at its caret. *)
+  u = ui
+  if u.Focus == 0 or not (u.Focus in u.Boxes) or u.Boxes[u.Focus].Node.Kind != "input"
+    return u
+  end
+  n = u.Boxes[u.Focus].Node
+  v = Get(n.Value)
+  s = if value.IsMissing(v) "" else value.Text(v) end
+  c = list.Min(u.Caret, value.Len(s))
+  Set(n.Value, "$(head(s, c))$words$(tail(s, c + 1))")
+  u.Caret = c + value.Len(words)
+  touch(u.Focus, u)
+end

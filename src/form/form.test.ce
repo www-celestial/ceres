@@ -1,0 +1,33 @@
+(* A form on the headless back-end: its messages as one types, the button that sends only a valid form. *)
+use src/web
+use src/headless
+use std/list
+use std/test
+use std/value
+
+rules = {Name: [Required("Give a name.")], Amount: [Required("Give an amount."), Above(0, "More than zero.")]}
+
+defn page(sentTo)
+  defn (p)
+    draft = New({Name: missing, Amount: missing}, rules)
+    View(draft, () -> web.Set(sentTo, list.Append(Values(draft), web.Get(sentTo))), [Text("Name"), Number("Amount"), Submit("Add")])
+  end
+end
+
+defn isMessagesAsOneTypes()
+  sentTo = web.Signal([])
+  p = headless.Open(web.App([web.Route("/", page(sentTo))]))
+  p = headless.Type("-3", headless.ClickOn("Amount", p))
+  p = headless.ClickOn("Add", p)
+  test.Snapshot(headless.Draw(p)) and value.Equal(web.Get(sentTo), [])
+end
+
+defn isSentWhenValid()
+  sentTo = web.Signal([])
+  p = headless.Open(web.App([web.Route("/", page(sentTo))]))
+  p = headless.Type("Ana", headless.ClickOn("Name", p))
+  p = headless.Press("tab", p)
+  p = headless.Type("12,5", p)
+  p = headless.Press("enter", p)
+  value.Equal(web.Get(sentTo), [{Name: "Ana", Amount: 12.5}])
+end

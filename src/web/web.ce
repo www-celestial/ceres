@@ -1,0 +1,119 @@
+(** Ceres: the user interface of an app in Cesia, one API for every platform. A page is a function that gives widgets,
+    values made by the functions of this package: web.Stack and web.Row place them, web.Text, web.Button, web.Input,
+    web.Select, web.Each, web.Table and web.Plot are them. Data that changes lives in signals (web.Signal, web.Memo,
+    web.Live); a function given where a widget goes is a live part, run again when a signal it read changes, and only
+    it: no virtual DOM, no work when nothing changes. The page is laid out and drawn by Ceres itself into a draw list,
+    rectangles, texts, lines and clips that every back-end paints, and a semantics tree, the roles, names and focus that
+    a screen reader and the hidden DOM of the web read. src/headless runs a page without a window, for tests; src/sdl
+    shows it in a window of SDL3; web/ceres.js is the glue of the browser. *)
+use std/bug
+use std/list
+use std/value
+
+(* ---- Widgets: each is a dictionary with a Kind, which the runtime mounts as a box. *)
+
+defn kid(x)
+  (** A child as the runtime takes it: a function is a live part, a text or a number a web.Text, missing nothing. *)
+  if value.IsFunction(x)
+    {Kind: "live", Fn: x}
+  else if value.IsText(x) or value.IsNumber(x) or isSignal(x)
+    Text(x)
+  else if value.IsDict(x) and "Kind" in x
+    x
+  else
+    bug.Panic("This is no widget: $x. A widget is made by a function of web, as web.Text; a live part is a function.")
+  end
+end
+
+kids(xs) = [kid(x) for x in xs if value.IsSome(x)]   (* The children of a list, missing left out. *)
+
+defn Text(x, size = missing, color = missing, strong = false)
+  (** A text: a value shown as print shows it, a signal shown as it changes, or a function, a live text. A long text
+      breaks between words at the width it is given. size is in pixels, the theme's by default; color 0xRRGGBB;
+      strong = true, the bold face.
+
+        Text("Invoices").Kind --> "text" *)
+  {Kind: "text", Text: x, Size: size, Color: color, Strong: strong, Role: "text"}
+end
+
+defn Title(x)
+  (** The title of a page or of a part, larger and strong: a heading for a screen reader.
+
+        Title("Invoices").Role --> "heading" *)
+  t = Text(x, strong = true)
+  t.Role = "heading"
+  t.Size = "title"
+  t
+end
+
+defn Stack(items, gap = missing, pad = 0, fill = missing, border = missing, radius = 0, width = missing, height = missing, align = "start")
+  (** Widgets one under the other, gap pixels apart, the theme's gap by default, inside a padding of pad. A stack takes
+      the width it is given, or width; fill paints its background, border its edge, both 0xRRGGBB, with round corners
+      of radius. align places each child across: "start", "center" or "end". Inside a web.Row, a stack is as wide as
+      its widest child.
+
+        value.Len(Stack(["a", "b"]).Kids) --> 2 *)
+  {Kind: "stack", Kids: kids(items), Gap: gap, Pad: pad, Fill: fill, Border: border, Radius: radius, Width: width, Height: height, Align: align, Grow: 0}
+end
+
+defn Row(items, gap = missing, pad = 0, fill = missing, border = missing, radius = 0, width = missing, height = missing, align = "center")
+  (** Widgets side by side, gap pixels apart. Each child is as wide as it needs, and those that web.Grow marks share
+      what is left; align places them up and down: "start", "center" or "end". The other options are those of
+      web.Stack.
+
+        Row(["a", Spacer(), "b"]).Kind --> "row" *)
+  {Kind: "row", Kids: kids(items), Gap: gap, Pad: pad, Fill: fill, Border: border, Radius: radius, Width: width, Height: height, Align: align, Grow: 0}
+end
+
+defn Grow(item, share = 1)
+  (** A child of a web.Row that takes a share of the width left, beside the other shares.
+
+        Grow(Stack(["a"])).Grow --> 1 *)
+  w = kid(item)
+  w.Grow = share
+  w
+end
+
+(** Space: in a web.Row it takes what is left, in a web.Stack size pixels. *)
+Spacer(size = 0) = {Kind: "spacer", Size: size, Grow: 1}
+
+(** A thin line across, between parts. *)
+Divider() = {Kind: "divider"}
+
+defn Button(label, onClick, primary = true)
+  (** A button: onClick() runs when it is clicked, or pressed with Enter or Space while it has the focus. A primary
+      button is filled with the accent of the theme, the others are outlined.
+
+        Button("Add", () -> missing).Kind --> "button" *)
+  {Kind: "button", Label: label, On: onClick, Primary: primary}
+end
+
+defn Input(v, label = "", placeholder = "", width = missing, onEnter = missing, invalid = missing)
+  (** A field of one line of text, bound to a signal of a text, v: typing changes it, and a change of it shows. label
+      names it for a screen reader, placeholder shows while it is empty; onEnter() runs on Enter. invalid is a function
+      that tells whether to draw it as wrong, as a form does.
+
+        Input(Signal("")).Kind --> "input" *)
+  {Kind: "input", Value: v, Label: label, Placeholder: placeholder, Width: width, OnEnter: onEnter, Invalid: invalid}
+end
+
+defn Select(v, options, key, label, placeholder = "Choose", name = "", width = missing)
+  (** A choice among options, bound to a signal v that holds the key of the chosen one, or missing. options is a
+      signal of a list or a list; key(o) gives the key of an option, label(o) its text. A click opens the list under
+      it, Up and Down change the choice while it has the focus. name names it for a screen reader.
+
+        Select(Signal(missing), [1, 2], o -> o, o -> "n$o").Kind --> "select" *)
+  {Kind: "select", Value: v, Options: options, Key: key, Label: label, Placeholder: placeholder, Name: name, Width: width}
+end
+
+defn Each(source, key, item, gap = missing)
+  (** A list that follows a signal of rows, one widget for each, item(row), one under the other. key(row) tells the
+      rows apart: when the rows change, the widgets of the rows that stay are kept as they are, those of new rows are
+      made, and those of rows gone are dropped. A row whose key stays but whose values changed is made again.
+
+        Each(Signal([]), r -> r.Id, r -> Text(r.Name)).Kind --> "each" *)
+  {Kind: "each", Source: source, Key: key, Item: item, Gap: gap, Pad: 0, Fill: missing, Border: missing, Radius: 0, Width: missing, Height: missing, Align: "start"}
+end
+
+(** A link to a route of the app: a click goes there, as web.Go does. *)
+Link(label, to) = {Kind: "link", Label: label, To: to}

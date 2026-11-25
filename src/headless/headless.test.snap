@@ -1,0 +1,11 @@
+== isCounter 1 (10 lines, no line end)
+rect 0,0 800x600 #ffffff
+text 24,24 "Counter" 22 strong #1f2328
+rect 24,69 49x35 #0969da r6
+text 38,76 "Add" 14 strong #ffffff
+text 85,76 "Count: 2" 14 #1f2328
+--
+page at 0,0 800x600
+  heading "Counter" at 24,24 77x33
+  button "Add" focused at 24,69 49x35
+  text "Count: 2" at 85,76 56x21

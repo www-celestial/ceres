@@ -1,0 +1,42 @@
+(* Numbers as a page shows them. *)
+use std/list
+use std/math
+use std/text
+use std/value
+
+defn Grouped(x, decimals = 2, decimal = ",", group = " ")
+  (** A number with decimals digits after the point, its thousands apart: the text a page shows. missing gives "".
+
+        Grouped(1234567.891) --> "1 234 567,89"
+        Grouped(-5, decimals = 0) --> "-5"
+        Grouped(1234.5, decimal = ".", group = ",") --> "1,234.50" *)
+  if value.IsMissing(x)
+    return ""
+  end
+  s = text.Decimals(decimals, math.Abs(x * 1.0))
+  parts = text.Split(".", s)
+  whole = parts[1]
+  out = ""
+  n = value.Len(whole)
+  for k in 1..n
+    out = "$out$(text.Slice(k, k, whole))"
+    if k < n and math.Mod(n - k, 3) == 0
+      out = "$out$group"
+    end
+  end
+  sign = "-" if x < 0 and text.Trim(text.Replace("0", "", s)) != "." else ""
+  if decimals > 0 "$sign$out$decimal$(parts[2])" else "$sign$out" end
+end
+
+defn Money(x, currency = "€", decimal = ",", group = " ")
+  (** An amount as a text widget, two digits after the point and the currency after it, as a French page writes
+      it; decimal and group give another way.
+
+        Money(1234.5).Text --> "1 234,50 €"
+        Money(9.99, currency = "$", decimal = ".", group = ",").Text --> "9.99 $" *)
+  Text("$(Grouped(x, decimal = decimal, group = group)) $currency")
+end
+
+(* The first k characters of a text, and those from the k-th on: empty outside it. *)
+head(s, k) = "" if k <= 0 else text.Slice(1, k, s) if k < value.Len(s) else s
+tail(s, k) = "" if k > value.Len(s) else text.Slice(list.Max(1, k), value.Len(s), s)

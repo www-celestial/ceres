@@ -1,0 +1,24 @@
+[project]
+name = "ceres"
+cesia = "1.3"
+
+# The tests run the pages without a window, on the headless back-end, and serve their live screens themselves on a
+# free port of 127.0.0.1. tests/sdl draws the page of the guide with SDL3 under SDL's dummy driver, which needs no
+# screen: it passes without a word on a machine that has no SDL3.
+[test]
+allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts"]
+timeout = "30"
+
+# The invoices page of the guide in a window, with its app served in the same program.
+[tasks.demo]
+file = "examples/invoices/main.ce"
+allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1"]
+
+# The measures of docs/book/speed.md: frame times of the invoices page and of a table of 100,000 rows.
+[tasks.bench]
+file = "bench/frames.ce"
+allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "write=shots"]
+
+[site]
+title = "Ceres"
+color = "#2f6f4e"

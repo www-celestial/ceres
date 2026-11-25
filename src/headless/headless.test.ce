@@ -1,0 +1,19 @@
+(* The headless back-end on small pages: a counter, a field, a select. *)
+use src/web
+use std/test
+
+defn counter(p)
+  n = web.Signal(0)
+  web.Stack([
+    web.Title("Counter"),
+    web.Row([web.Button("Add", () -> web.Set(n, web.Get(n) + 1)), () -> web.Text("Count: $(web.Get(n))")]),
+  ])
+end
+
+app = web.App([web.Route("/", counter)])
+
+defn isCounter()
+  p = Open(app)
+  p = ClickOn("Add", ClickOn("Add", p))
+  test.Snapshot("$(Draw(p))\n--\n$(Tree(p))")
+end

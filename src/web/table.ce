@@ -1,0 +1,194 @@
+(* Big tables: only the rows in sight are drawn, so a million rows cost as thirty. The rows come from a signal of a list,
+   sorted here, or from the app, a window of rows at a time (web.Pages). *)
+use std/dict
+use std/list
+use std/math
+use std/value
+
+defn Table(source, columns, height = 400, rowHeight = missing, width = missing, label = "")
+  (** A table of rows under a header, with a scroll bar: source is a signal of a list of rows, a list, or web.Pages,
+      the rows the app gives a window at a time; columns are web.Column. Only the rows in sight are drawn. A click on
+      the title of a column that sorts sorts by it, a second click the other way. The wheel scrolls it, and so do Up,
+      Down, Page Up, Page Down, Home and End while it has the focus; a click chooses a row. label names it for a screen
+      reader.
+
+        Table([{N: 1}], [Column("N", r -> r.N)]).Kind --> "table" *)
+  {Kind: "table", Source: source, Columns: columns, Height: height, RowHeight: rowHeight, Width: width, Label: label,
+    Offset: Signal(0), Sort: Signal(missing), Chosen: Signal(missing)}
+end
+
+defn Column(title, cell, sort = missing, align = "left", width = missing)
+  (** A column of a web.Table: its title, and cell(row), what it shows of a row: a value, or a text widget as
+      web.Money gives. sort is the field the rows are sorted by when its title is clicked, missing for a column that
+      doesn't sort; align is "left" or "right"; width in pixels, else the columns share the width left.
+
+        Column("Total", r -> r.Total, align = "right").Align --> "right" *)
+  {Title: title, Cell: cell, Sort: sort, Align: align, Width: width}
+end
+
+defn Pages(name, p, chunk = 100)
+  (** The rows of a table that the app gives a window at a time: the action name of the app's screen, called with
+      {Sort, Desc, Offset, Limit}, gives {Rows, Count}, the rows from Offset + 1, at most Limit of them, in the order of
+      the field Sort, and how many there are in all. The table asks for chunk rows at a time, those in sight, once each
+      until the order changes. src/serve makes such an action: serve.Pages. *)
+  {Kind: "pages", Name: name, Screen: p.Screen, Chunk: chunk, Loaded: Signal(0),
+    Store: cell({Sort: missing, Desc: false, Count: missing, Chunks: dict.Dict(), Asked: dict.Dict(), Era: 0})}
+end
+
+isPages(s) = value.IsDict(s) and dict.Get("Kind", s) == "pages"   (* Is this a source of web.Pages? *)
+
+defn sortedRows(id, n, order, u)
+  (** The rows of a local table in the order asked, sorted once for each version of the rows and each order. *)
+  rows = if isSignal(n.Source) Get(n.Source) else n.Source end
+  ver = if isSignal(n.Source) version(n.Source) else 0 end
+  c = u.Boxes[id].Cache
+  kept = if value.IsDict(c) dict.Get("Sorted", c) else missing end
+  if value.IsSome(kept) and kept.Ver == ver and value.Equal(kept.Order, order)
+    return {Rows: kept.Rows, Count: value.Len(kept.Rows), Ver: ver}
+  end
+  done = if value.IsMissing(order) rows else list.SortBy(r -> r[order.By], rows) end
+  {Rows: list.Reverse(done) if value.IsSome(order) and order.Desc else done, Count: value.Len(done), Ver: ver}
+end
+
+defn pageRows(src, order, first, count)
+  (** The rows first to first + count - 1 of a web.Pages source, missing for those not here yet, which it asks for:
+      {Rows, Count}, Count missing until the app answered once. *)
+  _ = Get(src.Loaded)
+  st = peek(src.Store)
+  by = if value.IsMissing(order) missing else order.By end
+  desc = if value.IsMissing(order) false else order.Desc end
+  if st.Sort != by or st.Desc != desc
+    st = {Sort: by, Desc: desc, Count: st.Count, Chunks: dict.Dict(), Asked: dict.Dict(), Era: st.Era + 1}
+  end
+  k0 = math.Div(first - 1, src.Chunk)
+  k1 = math.Div(list.Max(first, first + count - 2), src.Chunk)
+  for k in k0..k1
+    if not (k in st.Chunks) and not (k in st.Asked) and (value.IsMissing(st.Count) or k * src.Chunk < st.Count)
+      st.Asked[k] = true
+      ask(src, st.Era, by, desc, k)
+    end
+  end
+  put(st, src.Store)
+  out = []
+  for r in first..(first + count - 1)
+    k = math.Div(r - 1, src.Chunk)
+    rows = dict.Get(k, st.Chunks)
+    i = r - k * src.Chunk
+    out = list.Append(if value.IsSome(rows) and i <= value.Len(rows) rows[i] else missing end, out)
+  end
+  {Rows: out, Count: st.Count}
+end
+
+defn ask(src, era, by, desc, k)
+  (** Asks the app for the chunk k of a web.Pages source; its reply is kept if the order didn't change since. *)
+  actThen(src.Name, {Sort: by, Desc: desc, Offset: k * src.Chunk, Limit: src.Chunk}, src.Screen, defn (got)
+    st = peek(src.Store)
+    if st.Era == era and value.IsDict(got) and "Ok" in got and value.IsDict(got.Ok)
+      st.Chunks[k] = got.Ok.Rows
+      st.Count = got.Ok.Count
+      put(st, src.Store)
+      Set(src.Loaded, Get(src.Loaded) + 1)
+    end
+  end)
+end
+
+defn colWidths(cols, w)
+  (** The width of each column: its own, or a share of what is left. *)
+  fixed = list.Sum([c.Width for c in cols if value.IsSome(c.Width)])
+  free = value.Len([c for c in cols if value.IsMissing(c.Width)])
+  share = if free > 0 math.Div(list.Max(0, w - fixed), free) else 0 end
+  [share if value.IsMissing(c.Width) else c.Width for c in cols]
+end
+
+scrollBar = 10   (* The width of a table's scroll bar, in pixels. *)
+
+defn tableGeometry(n, u)
+  (** The row height and the height of a table's body. *)
+  rh = u.Theme.Row if value.IsMissing(n.RowHeight) else n.RowHeight
+  {Row: rh, Body: n.Height - rh}
+end
+
+defn layTable(id, maxW, ui)
+  n = ui.Boxes[id].Node
+  w = list.Min(maxW, 10000 if value.IsMissing(n.Width) else n.Width)
+  got = watched(id, () -> tableView(id, n, w, ui), ui)
+  u = got.Ui
+  u.Boxes[id].Cache = got.Value.Cache
+  sized(id, w, n.Height, got.Value.Items, u)
+end
+
+defn tableView(id, n, w, u)
+  (** The items of a table at its scroll, and what its box keeps: {Items, Cache}. *)
+  t = u.Theme
+  g = tableGeometry(n, u)
+  rh = g.Row
+  order = Get(n.Sort)
+  data = if isPages(n.Source) missing else sortedRows(id, n, order, u) end
+  count0 = if value.IsMissing(data) dict.Get("Count", peek(n.Source.Store)) else data.Count end
+  count = 0 if value.IsMissing(count0) else count0
+  most = list.Max(0, count * rh - g.Body)
+  offset = list.Max(0, list.Min(Get(n.Offset), most))
+  first = math.Div(offset, rh) + 1
+  seen = list.Min(math.Div(g.Body, rh) + 2, list.Max(0, count - first + 1))
+  slice = if seen <= 0 [] else if value.IsMissing(data) pageRows(n.Source, order, first, seen).Rows else data.Rows[first..(first + seen - 1)] end
+  if value.IsMissing(count0) and isPages(n.Source)
+    _ = pageRows(n.Source, order, 1, 1)
+  end
+  chosen = Get(n.Chosen)
+  cw = colWidths(n.Columns, w - scrollBar)
+  items = [rect(0, 0, w, n.Height, t.Paper), rect(0, 0, w, rh, t.Head)]
+  rows = []
+  for k in 1..value.Len(slice)
+    i = first + k - 1
+    y = (i - 1) * rh - offset
+    if i == chosen
+      rows = list.Append(rect(0, y, w - scrollBar, rh, 0xdbeafe), rows)
+    else if math.Mod(i, 2) == 0
+      rows = list.Append(rect(0, y, w - scrollBar, rh, t.Stripe), rows)
+    end
+  end
+  x = 0
+  texts = [[] for k in 1..value.Len(slice)]
+  lh = lineOf(t.Size, u)
+  ty = math.Div(rh - lh, 2)
+  for c in 1..value.Len(n.Columns)
+    col = n.Columns[c]
+    mark = if value.IsSome(order) and value.IsSome(col.Sort) and order.By == col.Sort (" ↓" if order.Desc else " ↑") else "" end
+    head = "$(col.Title)$mark"
+    hx = if col.Align == "right" cw[c] - 8 - widthOf(head, t.Size, true, u) else 8 end
+    items = list.Append(group(x, 0, cw[c], rh, true, [words(hx, ty, head, t.Size, t.Ink, true)]), items)
+    cells = []
+    for k in 1..value.Len(slice)
+      row = slice[k]
+      y = (first + k - 2) * rh - offset + ty
+      s = if value.IsMissing(row) "…" else shown(col.Cell(row)) end
+      cx = if col.Align == "right" cw[c] - 8 - widthOf(s, t.Size, false, u) else 8 end
+      cells = list.Append(words(cx, y, s, t.Size, t.Ink), cells)
+      texts[k] = list.Append(s, texts[k])
+    end
+    rows = list.Append(group(x, 0, cw[c], g.Body, true, cells), rows)
+    x += cw[c]
+  end
+  items = list.Append(group(0, rh, w, g.Body, true, rows), items)
+  items = list.Append(rect(0, rh - 1, w, 1, t.Line), items)
+  if most > 0
+    thumb = list.Max(24, math.Div(g.Body * g.Body, count * rh))
+    ty0 = rh + math.Div((g.Body - thumb) * offset, most)
+    items = list.Append(rect(w - scrollBar + 2, ty0, scrollBar - 4, thumb, 0xaab4bf, 3), items)
+  end
+  items = list.Append(frame(0, 0, w, n.Height, t.Line, 0), items)
+  if u.Focus == id and u.Ring
+    items = list.Append(frame(-1, -1, w + 2, n.Height + 2, t.Accent, 0), items)
+  end
+  keep = if value.IsMissing(data) missing else {Ver: data.Ver, Order: order, Rows: data.Rows} end
+  {Items: items, Cache: {Sorted: keep, First: first, Seen: seen, Count: count, Most: most, Offset: offset, Widths: cw, Row: rh, Texts: texts}}
+end
+
+defn scrollTable(id, by, ui)
+  (** Scrolls the table of box id by some pixels, within its rows. *)
+  b = ui.Boxes[id]
+  c = b.Cache
+  most = if value.IsDict(c) and "Most" in c c.Most else 0 end
+  Set(b.Node.Offset, list.Max(0, list.Min(Get(b.Node.Offset) + by, most)))
+  ui
+end
