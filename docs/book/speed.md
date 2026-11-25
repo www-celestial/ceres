@@ -65,22 +65,30 @@ the example serves its app itself.
 ## In the browser
 
 The invoices page compiled to WebAssembly ([Ceres in a web page](web.md)), live from its app, measured by
-`tests/web/frames.html` in Chrome 158 and Firefox 160 without a window, on the machine above (load 2 to 3), 2 to 3
-rounds: the time from the browser's frame to the page painted, its work in WebAssembly and WebGL's, while the wheel
-scrolls the table 200 notches, one every 16 ms, and while a field is typed in. WebGL took 1.0 to 1.4 ms of it:
+`tests/web/frames.html` in Chrome 158 and Firefox 160 without a window, on the machine above (load 4.1 to 5.6, other
+work running), 3 rounds, each a new browser, while the wheel scrolls the table 200 notches, one every 16 ms, and while a
+field is typed in. For each frame: the time from the browser's frame to the page painted, and its two parts, the wait
+before the browser calls the page (`Stats().waits` of `ceres.js`) and the page's own work, WebAssembly and WebGL. Chrome
+draws without a GPU, as headless Chrome does by default, and with the GPU of the machine (`--use-angle=gl`):
 
-| | Chrome 158 | Firefox 160 |
-|---|---|---|
-| First paint, from the start of the page | 462 to 600 ms | 175 to 231 ms |
-| A frame while scrolling, p50 / p99 | 8.2 to 9.7 / 19 to 35 ms | 1.7 to 2.2 / 7 to 19 ms |
-| A frame while typing, p50 / p99 | 1.2 to 1.6 / 2.2 to 18 ms | 1.3 to 1.7 / 2.0 to 18 ms |
-| Frames of the browser while scrolling, p50 / p99 apart | 16.7 / 33 to 50 ms | 17.1 / 17.1 to 17.2 ms |
+| | Chrome 158, no GPU | Chrome 158, GPU | Firefox 160 |
+|---|---|---|---|
+| A frame while scrolling, p50 / p99 | 8.7 to 9.5 / 18 to 26.5 ms | 1.4 to 1.5 / 3.6 to 7.2 ms | 1.8 to 2.5 / 4.5 to 19.6 ms |
+| Of it, the page's work, p50 / p99 | 1.7 to 2.6 / 7.9 to 11.4 ms | 1.1 to 1.2 / 3.2 to 5.8 ms | 1.6 to 2.1 / 3.1 to 4.9 ms |
+| Of it, the wait for the browser's call, p50 | 5.7 to 7.2 ms | 0.3 ms | 0.2 to 0.8 ms |
+| A frame while typing, the page's work, p50 / p99 | 1.0 to 1.5 / 1.3 to 2.5 ms | 0.9 to 5.0 / 1.6 to 25 ms | 1.1 to 1.3 / 3.2 to 3.6 ms |
+| Frames painted for the 200 notches | 128 to 154 | 199 to 200 | 175 to 200 |
+| First paint, the next pages of a running browser | 157 to 286 ms | 80 to 137 ms | 100 to 157 ms |
 
-Firefox keeps every frame; Chrome, whose engine runs this page 4 times slower than Firefox's (not for its first
-compiler: without it, 7.2 to 7.8 ms), misses one now and then while scrolling. The window of SDL3 does a frame in 0.9 to
-1.9 ms. What the browser loads: the module, 1,023,363 bytes, 177,562 in brotli, of which `std/plot`, with every kind of
-graph, is most; its loader, 3.7 KB in brotli; `ceres.js`, 5.8 KB in brotli. A still page runs nothing: its loop waits on
-its channel, which an event or the live screen wakes.
+The page's own work is the same in both engines. Chrome stamps a frame with its start, before it runs it, and without a
+GPU it draws with SwiftShader, WebGL in software, whose compositor backs up: its frames wait 6 to 7 ms before the page is
+called, and it misses frames while scrolling. With the GPU, it keeps every frame, as Firefox does. A first paint in
+Chrome without a GPU is mostly the setting up of WebGL, 117 to 431 ms, which `ceres.js` starts as it loads, while the
+module compiles. What the browser loads: the module, 388,054 bytes, 103,145 in brotli, of which `std/plot`, with the
+code of bars alone, is 38 % (the kinds of graph that a program doesn't make aren't in it); its loader, 3.8 KB in brotli;
+`ceres.js`, 6.1 KB in brotli. The chapter Compiling to WebAssembly of Cesia's book weighs each part, beside the
+frameworks of JavaScript. A still page runs nothing: its loop waits on its channel, which an event or the live screen
+wakes. The window of SDL3 does a frame in 0.9 to 1.9 ms.
 
 ## Beside Flutter and SolidJS
 

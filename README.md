@@ -63,7 +63,7 @@ mirrors one **semantics tree** (roles, names, values, places, focus), which Cere
   would (`headless.ClickOn("Name", page)`, `headless.Type("Ana", page)`), the live screen against a real server;
 - **SDL3**, a window on Linux, Windows and macOS, as Cemacs draws: `sdl.Run(App, origin = "http://127.0.0.1:8090")`;
 - **the browser**: the page's code compiled from Cesia to WebAssembly (`cesia build --target wasm`), in Chrome 137,
-  Firefox 153 and Safari 27 or later; `web/ceres.js`, 5.8 KB in brotli, paints the draw list with WebGL2 and keeps the
+  Firefox 153 and Safari 27 or later; `web/ceres.js`, 6.1 KB in brotli, paints the draw list with WebGL2 and keeps the
   tree as a hidden DOM for screen readers, typing and find. See [Ceres in a web page](docs/book/web.md).
 
 ## Install
