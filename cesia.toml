@@ -17,11 +17,17 @@ allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1"]
 # The measures of docs/book/speed.md: frame times of the invoices page and of a table of 100,000 rows.
 [tasks.bench]
 file = "bench/frames.ce"
-allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "write=shots"]
+allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "read=/proc/self"]
+
+# The cost of the invoices page at rest: CPU and memory of sdl.Run while nothing changes.
+[tasks.still]
+file = "bench/still.ce"
+allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "read=/proc/self"]
 
 [site]
 title = "Ceres"
-color = "#2f6f4e"
+source = "https://github.com/www-celestial/ceres/blob/main/"
+color = "#111111"
 
 # The pictures of shots/, drawn by the SDL3 back-end without a screen.
 [tasks.shots]

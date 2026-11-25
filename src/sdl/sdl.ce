@@ -16,6 +16,7 @@ use std/value
 
 InitVideo = 0x20   (** SDL's flag that starts its video part. *)
 Resizable = 0x20   (** SDL's flag of a window that can change its size. *)
+Hidden = 0x8   (** SDL's flag of a window not shown. *)
 Blend = 1   (** SDL's blend mode that mixes by alpha. *)
 Rgba = 0x16762004   (** SDL's format of 4 bytes a pixel, red, green, blue and alpha. *)
 Rgb24 = 0x17101803   (** SDL's format of 3 bytes a pixel, which a PNG without alpha takes. *)
@@ -83,20 +84,21 @@ end
 
 failed(w) = result.Err({Kind: "sdl", Message: w.Sdl.Error()})   (* An Err with the last reason SDL gave. *)
 
-defn Open(title, width, height, fonts = missing, vsync = true, driver = missing)
+defn Open(title, width, height, fonts = missing, vsync = true, driver = missing, hidden = false)
   (** A window of width by height pixels: an Ok of it, or an Err of the kind "sdl". fonts is {Body, Strong, Code}, the
-      paths of the three fonts, Ceres's own by default; driver, as "dummy", the video driver of SDL, for a window that no screen
-      shows. Until Close, a TERM or an INT is a "quit" event of Events, as Cemacs takes them, so that --watch ends the
+      paths of the three fonts, Ceres's own by default; driver, as "dummy", the video driver of SDL, for a window without
+      a screen; hidden, a window of the screen's own driver, drawn by its GPU, that the screen doesn't show, for
+      measures. Until Close, a TERM or an INT is a "quit" event of Events, as Cemacs takes them, so that --watch ends the
       window the way closing it does. *)
   sys.TakeStops(true)
-  made = opened(title, width, height, fonts, vsync, driver)
+  made = opened(title, width, height, fonts, vsync, driver, hidden)
   if result.IsErr(made)
     sys.TakeStops(false)
   end
   made
 end
 
-defn opened(title, width, height, fonts, vsync, driver)
+defn opened(title, width, height, fonts, vsync, driver, hidden)
   api = bound(c.Open("SDL3", version = 0)?, sdlSpecs)?
   ttf = bound(c.Open("SDL3_ttf", version = 0)?, ttfSpecs)?
   if api.Version() < 3002000
@@ -109,7 +111,7 @@ defn opened(title, width, height, fonts, vsync, driver)
   if not api.Init(InitVideo) or not ttf.Init()
     return failed(w)
   end
-  win = api.Window(title, width, height, Resizable)
+  win = api.Window(title, width, height, Resizable + (Hidden if hidden else 0))
   if value.IsMissing(win)
     return failed(w)
   end
@@ -458,12 +460,12 @@ defn Events(w)
   if sys.StopAsked() list.Append({Kind: "quit"}, out) else out end
 end
 
-defn Run(app, origin = missing, title = missing, width = 1100, height = 860, path = "/", fonts = missing)
+defn Run(app, origin = missing, title = missing, width = 1100, height = 860, path = "/", fonts = missing, driver = missing, hidden = false)
   (** Opens a window and runs the app in it until the window is closed: an Ok of missing, or an Err of the kind "sdl".
       Its live screen, if it has one, opens at origin, as "http://127.0.0.1:8080". A frame is drawn only when the page
       changed or the window asks for one; a still page waits in SDL, waking every 50 ms with a live screen, so that
-      what the app pushes is drawn, and every 250 ms without. *)
-  w = Open(if value.IsMissing(title) app.Title else title end, width, height, fonts = fonts)?
+      what the app pushes is drawn, and every 250 ms without. driver and hidden are as for Open. *)
+  w = Open(if value.IsMissing(title) app.Title else title end, width, height, fonts = fonts, driver = driver, hidden = hidden)?
   ui = web.Start(app, width, height, Measure(w), origin = origin, path = path)
   rest = 50 if value.IsSome(app.Live) and value.IsSome(origin) else 250
   while true

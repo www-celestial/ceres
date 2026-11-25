@@ -1,0 +1,49 @@
+(* The test of the tutorial, docs/book/guide.md: the page of clients against a server of std/live on a free port, whose
+   show stands in for the Watch of Cepheus. *)
+use src/form
+use src/headless
+use src/web
+use std/fiber
+use std/http
+use std/live
+use std/net
+use std/text
+
+Client = {
+  Name: [form.Required("Give a name."), form.Length(2, 60, "From 2 to 60 letters.")],
+  City: [form.Required("Give a city.")],
+}
+
+defn Page(p)
+  latest = web.Live("latest", p)
+  draft = form.New({Name: missing, City: missing}, Client)
+  web.Stack([
+    web.Title("Clients"),
+    form.View(draft, () -> web.Act("addClient", form.Values(draft), p), [form.Text("Name"), form.Text("City"), form.Submit("Add")]),
+    web.Text("Latest", font = "strong"),
+    web.Each(latest, c -> c.Id, c -> web.Row([web.Text(c.Name), web.Text(c.City)], gap = 16), gap = 2),
+    web.Table(web.Pages("all", p), [web.Column("Name", c -> c.Name, sort = "Name"), web.Column("City", c -> c.City, sort = "City")], height = 300, label = "All clients"),
+  ])
+end
+
+App = web.App([web.Route("/clients", Page)], live = "/live", title = "Clients")
+
+defn isNewClientShows()
+  latest = fiber.Channel()
+  added = fiber.Channel()
+  addClient = defn (s, args)
+    fiber.Send(args, added)
+    {Id: 2}
+  end
+  l = net.Listen(0).Value
+  fiber.Spawn(() -> http.Serve(http.App() then live.Route("/live", s -> [live.Show("latest", latest)], actions = {addClient: addClient}), listener = l))
+  fiber.Send({Group: 1, Rows: [{Id: 1, Name: "Atelier Brun", City: "Lyon"}]}, latest)
+  p = headless.Open(App, origin = "http://127.0.0.1:$(net.Port(l))", path = "/clients")
+  p = headless.Type("Cave Lemoine", headless.ClickOn("Name", headless.Settle(p)))
+  p = headless.Type("Nice", headless.ClickOn("City", p))
+  p = headless.Press("enter", p)
+  got = fiber.Receive(added, timeout = 2).Value
+  fiber.Send({Group: 2, Added: [{Id: 2, Name: got.Name, City: got.City}], Removed: []}, latest)
+  p = headless.Settle(p, until = q -> text.Contains("Cave Lemoine\"", headless.Tree(q)) and text.Contains("Sent.", headless.Tree(q)))
+  text.Contains("Sent.", headless.Tree(p)) and text.Contains("text \"Cave Lemoine\"", headless.Tree(p))
+end

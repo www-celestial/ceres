@@ -1,0 +1,46 @@
+(* The cost of a page at rest, for docs/book/speed.md: the invoices page in sdl.Run, live from its app served in this
+   program, which changes nothing. After 4 seconds, it reads the CPU time and the memory of this process from /proc
+   (Linux), waits 20 seconds, and reads them again. cesia do still [hidden | window | dummy]: a window hidden by
+   default, of the screen's own driver, which waits for events as a shown one does. *)
+use examples/invoices/page
+use examples/invoices/server
+use src/sdl
+use src/web
+use std/fiber
+use std/io
+use std/net
+use std/sys
+use std/text
+use std/value
+
+defn cpu()
+  (** The CPU time of this process, user and system, in seconds: fields 14 and 15 of /proc/self/stat, in 1/100 s. *)
+  f = text.Split(" ", text.Split(") ", sys.Read("/proc/self/stat").Value)[2])
+  (text.Number(f[12]) + text.Number(f[13])) / 100
+end
+
+defn memory(name)
+  (** A line of /proc/self/status, as "VmRSS", in MB. *)
+  for l in text.Lines(sys.Read("/proc/self/status").Value)
+    if text.StartsWith("$name:", l)
+      return text.Number(text.Trim(text.Replace("kB", "", text.Replace("$name:", "", l)))) / 1024
+    end
+  end
+  0
+end
+
+mode = if value.Len(sys.Args) > 0 sys.Args[1] else "hidden" end
+store = server.Store()
+l = net.Listen(0).Value
+fiber.Spawn(() -> server.Serve(store, l))
+fiber.Spawn(defn ()
+  sys.Sleep(4)
+  c0 = cpu()
+  t0 = sys.Now()
+  sys.Sleep(20)
+  used = cpu() - c0
+  io.Print("at rest: $(text.Decimals(3, used)) s of CPU in $(text.Decimals(1, sys.Now() - t0)) s, $(text.Decimals(2, used / (sys.Now() - t0) * 100)) % of a core; memory $(text.Decimals(1, memory("VmRSS"))) MB, peak $(text.Decimals(1, memory("VmHWM"))) MB")
+  sys.Exit(0)
+end)
+app = web.App([web.Route("/", page.Page)], live = "/live", title = "Ceres at rest")
+io.Print(sdl.Run(app, origin = "http://127.0.0.1:$(net.Port(l))", driver = ("dummy" if mode == "dummy" else missing), hidden = mode == "hidden"))

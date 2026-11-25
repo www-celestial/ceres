@@ -1,7 +1,9 @@
-(* The measures of docs/book/speed.md, in a window of SDL3 with vsync off: frames of the invoices page live from its
+(* The measures of docs/book/speed.md, in a window of SDL3 with vsync off, hidden by default (drawn by the GPU, not
+   shown; "window" shows it, "dummy" draws without a screen, by the CPU): frames of the invoices page live from its
    app served in this program, a live change, typing, and a table of 100,000 rows scrolled, sorted and dragged, from
    the app a window at a time and from a list in the page. Each line gives the p50 and the p99 in ms over its runs, and
-   splits the time of Ceres (events, update, layout, draw list) from the painting of SDL. cesia do bench. *)
+   splits the time of Ceres (events, update, layout, draw list) from the painting of SDL. Memory from /proc (Linux).
+   cesia do bench [hidden | window | dummy]. *)
 use examples/invoices/page
 use examples/invoices/server
 use src/sdl
@@ -66,19 +68,41 @@ defn settle(ui, ok)
   u
 end
 
+defn memory(name)
+  (** A line of /proc/self/status, as "VmRSS", in MB. *)
+  for l in text.Lines(sys.Read("/proc/self/status").Value)
+    if text.StartsWith("$name:", l)
+      return text.Number(text.Trim(text.Replace("kB", "", text.Replace("$name:", "", l)))) / 1024
+    end
+  end
+  0
+end
+
 key(name) = {Kind: "key", Key: name, Ctrl: false, Alt: false, Shift: false}
 mouse(action, x, y, amount = 0) = {Kind: "mouse", Action: action, X: x, Y: y, Button: 1, Amount: amount}
 
+base = memory("VmRSS")
 store = server.Store()
 l = net.Listen(0).Value
 fiber.Spawn(() -> server.Serve(store, l))
+sys.Sleep(1)   (* the store makes its invoices *)
+served = memory("VmRSS")
 app = web.App([web.Route("/", page.Page)], live = "/live", title = "Ceres bench")
-w = sdl.Open("Ceres bench", 1100, 860, vsync = false).Value
+mode = if value.Len(sys.Args) > 0 sys.Args[1] else "hidden" end
+w = sdl.Open("Ceres bench", 1100, 860, vsync = false, driver = ("dummy" if mode == "dummy" else missing), hidden = mode == "hidden").Value
+opened = memory("VmRSS")
 t0 = sys.Now()
 ui = web.Start(app, 1100, 860, sdl.Measure(w), origin = "http://127.0.0.1:$(net.Port(l))")
 started = sys.Now() - t0
 ui = settle(ui, u -> has("F-000001", u) and has("F-099993", u))
 io.Print("start of the page, mounted and laid out: $(ms(started)) ms; with its live data: $(ms(sys.Now() - t0)) ms")
+mb = x -> text.Decimals(1, x)
+io.Print("memory: Cesia $(mb(base)) MB, + the app's 100,000 invoices $(mb(served - base)) MB, + SDL and its renderer $(mb(opened - served)) MB, + the page live $(mb(memory("VmRSS") - opened)) MB")
+t = sys.Now()
+for k in 1..1000
+  ui = web.Update(ui)
+end
+io.Print("a look at a page where nothing changed (web.Update): $(text.Decimals(1, (sys.Now() - t) * 1000)) us")
 ui = runs("repaint of the invoices page", w, ui, 200, u -> web.Update(u))
 
 (* A live change: an invoice paid elsewhere, from the moment the page takes it in, its message already there. *)
@@ -112,5 +136,6 @@ t = sys.Now()
 lu = web.Handle(mouse("up", 300, 20), web.Handle(mouse("down", 300, 20), lu))
 io.Print("sort of the 100,000 rows of a list by Client, a click: $(ms(sys.Now() - t)) ms")
 lu = runs("table of a list sorted, one notch of the wheel", w, lu, 300, u -> web.Handle(mouse("wheel", 500, 400, amount = -1), u))
+io.Print("memory of the process at the end: $(text.Decimals(1, memory("VmRSS"))) MB, peak $(text.Decimals(1, memory("VmHWM"))) MB")
 sdl.Close(w)
 sys.Exit(0)
