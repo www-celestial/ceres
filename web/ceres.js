@@ -280,7 +280,7 @@ export function Start(events) {
   const mirrored = mirror(layer, { event: send })
   let asked = false
   const r = canvas.parentNode.getBoundingClientRect()
-  glue = { p, mirrored, events, asked: 0, wake () { if (!asked) { asked = true; requestAnimationFrame(t => { asked = false; glue.asked = t; events.send('frame') }) } } }
+  glue = { p, mirrored, events, asked: 0, called: 0, wake () { if (!asked) { asked = true; requestAnimationFrame(t => { asked = false; glue.asked = t; glue.called = performance.now(); events.send('frame') }) } } }
   p.resize(r.width, r.height, window.devicePixelRatio || 1)
   Object.assign(layer.style, { width: r.width + 'px', height: r.height + 'px' })
   let first = true
@@ -314,14 +314,16 @@ export function Paint(bytes) {
   const now = performance.now()
   if (stats.firstPaint === null) stats.firstPaint = now
   stats.frames.push(now - glue.asked)
+  stats.waits.push(glue.called - glue.asked)
   stats.paints.push(now - start)
-  if (stats.frames.length > 1000) { stats.frames.shift(); stats.paints.shift() }
+  if (stats.frames.length > 1000) { stats.frames.shift(); stats.waits.shift(); stats.paints.shift() }
 }
 
 // What a test reads: the last semantics tree, as JSON text, and the times of the frames: firstPaint, the time from the
-// page's start, frames, for each, the time from the browser's frame to the page painted, and paints, the part of it
-// that WebGL took, in ms.
+// page's start, frames, for each, the time from the browser's frame to the page painted, waits, the part of it before
+// the browser called the page (the time of requestAnimationFrame's callback is the frame's start, which Chrome takes
+// before it runs the frame), and paints, the part that WebGL took, in ms.
 let tree = null
-const stats = { firstPaint: null, frames: [], paints: [] }
+const stats = { firstPaint: null, frames: [], waits: [], paints: [] }
 export const Tree = () => tree
 export const Stats = () => stats

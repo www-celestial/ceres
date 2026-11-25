@@ -7,8 +7,9 @@
 <script type="module">
 // The measures of docs/book/speed.md in a browser: the invoices page compiled from Cesia to WebAssembly, its first
 // paint, then 200 notches of the wheel over its table of 100,000 rows, one every 16 ms, and 30 letters typed in a
-// field: for each frame, the time from the browser's frame to the page painted (ceres.js Stats), the part of it that
-// WebGL took, and the time between two frames of the browser. The title gives them as JSON: p50, p99 and the largest, in ms.
+// field: for each frame, the time from the browser's frame to the page painted (ceres.js Stats), the page's own work in
+// it, from the browser's call to the page painted (Work), the wait before that call (Wait), the part that WebGL took,
+// and the time between two frames of the browser. The title gives them as JSON: p50, p99 and the largest, in ms.
 import { Stats, Tree } from '/ceres.js'
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const until = async (f, ms = 30000) => { for (let t = 0; t < ms && !f(); t += 20) await wait(20); return f() }
@@ -30,7 +31,7 @@ for (let k = 0; k < 200; k++) {
   await wait(16)
 }
 await wait(300)
-const scroll = Stats().frames.slice(f0), scrollPaints = Stats().paints.slice(f0), scrollTicks = ticks.slice(t0)
+const scroll = Stats().frames.slice(f0), scrollWaits = Stats().waits.slice(f0), scrollPaints = Stats().paints.slice(f0), scrollTicks = ticks.slice(t0)
 const due = (function find(n) { return n.Role === 'textbox' && n.Name === 'Amount' ? n : n.Kids.map(find).find(Boolean) })(JSON.parse(Tree()))
 for (const type of ['pointerdown', 'pointerup'])
   canvas.dispatchEvent(new PointerEvent(type, { clientX: r.left + due.X + 10, clientY: r.top + due.Y + 5, button: 0, bubbles: true }))
@@ -44,6 +45,7 @@ for (let k = 0; k < 30; k++) {
 }
 await wait(300)
 ticking = false
-const typing = Stats().frames.slice(f1), typingTicks = ticks.slice(t1)
-document.title = 'done ' + JSON.stringify({ firstPaint: +first.toFixed(1), scroll: sum(scroll), scrollPaint: sum(scrollPaints), scrollGaps: sum(gaps(scrollTicks)), typing: sum(typing), typingGaps: sum(gaps(typingTicks)) })
+const typing = Stats().frames.slice(f1), typingWaits = Stats().waits.slice(f1), typingTicks = ticks.slice(t1)
+const work = (fs, ws) => fs.map((f, i) => f - ws[i])
+document.title = 'done ' + JSON.stringify({ firstPaint: +first.toFixed(1), scroll: sum(scroll), scrollWork: sum(work(scroll, scrollWaits)), scrollWait: sum(scrollWaits), scrollPaint: sum(scrollPaints), scrollGaps: sum(gaps(scrollTicks)), typing: sum(typing), typingWork: sum(work(typing, typingWaits)), typingGaps: sum(gaps(typingTicks)) })
 </script>
