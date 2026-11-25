@@ -56,7 +56,7 @@ A browser runs a module only from a server. `examples/hello/serve.ce` serves the
 (* The files of examples/hello on port 8080 of this machine: cesia do hello, then open http://127.0.0.1:8080/. *)
 use std/http
 
-http.Serve(http.App() then http.Static("", "examples/hello"))
+http.Serve(http.App() then http.Static("", "examples/hello"))!
 ```
 
 Open <http://127.0.0.1:8080/>. Two clicks on Add one and "Ana" typed in the field give "Clicked 2 times" and "Hello,

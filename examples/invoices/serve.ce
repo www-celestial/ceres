@@ -23,4 +23,5 @@ fiber.Spawn(defn ()
   end
 end)
 io.Print("http://127.0.0.1:$(net.Port(l))/browser.html")
-http.Serve(http.App() then live.Route("/live", server.Screen(store), actions = server.Actions(store)) then http.Static("/tests", "tests/web") then http.Static("", "examples/invoices"), listener = l)
+app = http.App() then live.Route("/live", server.Screen(store), actions = server.Actions(store)) then http.Static("/tests", "tests/web") then http.Static("", "examples/invoices")
+http.Serve(app, listener = l)!

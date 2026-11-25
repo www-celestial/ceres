@@ -1,4 +1,4 @@
 (* The files of examples/hello on port 8080 of this machine: cesia do hello, then open http://127.0.0.1:8080/. *)
 use std/http
 
-http.Serve(http.App() then http.Static("", "examples/hello"))
+http.Serve(http.App() then http.Static("", "examples/hello"))!
