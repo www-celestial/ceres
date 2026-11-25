@@ -13,9 +13,10 @@ what they concern. The theme changes all of it.
 2. [Widgets](widgets.md): signals and live parts, then each widget with a page that uses it.
 3. [Forms](forms.md): one set of rules for the page and for the app.
 4. [Live data](live.md): shows, actions and big tables from the app's server, over `std/live`.
-5. [Back-ends](backends.md): the draw list and the semantics tree; headless for tests, SDL3 in a window, and the glue of
-   the browser.
-6. [Speed](speed.md): what a frame costs, a live change, a table of 100,000 rows, the memory and the time at rest,
-   beside Flutter and SolidJS.
+5. [Ceres in a web page](web.md): a page compiled to WebAssembly, in Chrome and Firefox, then the invoices page live.
+6. [Back-ends](backends.md): the draw list and the semantics tree; headless for tests, SDL3 in a window, and the
+   browser.
+7. [Speed](speed.md): what a frame costs, a live change, a table of 100,000 rows, the memory and the time at rest, in a
+   window and in a browser, beside Flutter and SolidJS.
 
 The reference of the packages, every public name with its parameters, is under [Reference](ref/index.html).

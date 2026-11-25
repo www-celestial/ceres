@@ -309,16 +309,19 @@ export const Line = size => glue.p.line(size)
 export const Mirror = json => { tree = text(json); glue.mirrored(tree) }
 export const Wake = () => glue.wake()
 export function Paint(bytes) {
+  const start = performance.now()
   glue.p.paint(bytes)
   const now = performance.now()
   if (stats.firstPaint === null) stats.firstPaint = now
   stats.frames.push(now - glue.asked)
-  if (stats.frames.length > 1000) stats.frames.shift()
+  stats.paints.push(now - start)
+  if (stats.frames.length > 1000) { stats.frames.shift(); stats.paints.shift() }
 }
 
 // What a test reads: the last semantics tree, as JSON text, and the times of the frames: firstPaint, the time from the
-// page's start, and frames, for each, the time from the browser's frame to the page painted, in ms.
+// page's start, frames, for each, the time from the browser's frame to the page painted, and paints, the part of it
+// that WebGL took, in ms.
 let tree = null
-const stats = { firstPaint: null, frames: [] }
+const stats = { firstPaint: null, frames: [], paints: [] }
 export const Tree = () => tree
 export const Stats = () => stats

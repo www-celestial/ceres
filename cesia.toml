@@ -14,6 +14,12 @@ timeout = "30"
 file = "examples/invoices/main.ce"
 allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1"]
 
+# The page of examples/hello in a browser, compiled to WebAssembly first (cesia build --target wasm
+# examples/hello/hello.ce): http://127.0.0.1:8080/.
+[tasks.hello]
+file = "examples/hello/serve.ce"
+allow = ["net=:8080", "read=examples/hello"]
+
 # The invoices page in a browser, compiled to WebAssembly (cesia build --target wasm examples/invoices/browser.ce
 # first), served with its app's live screen: http://127.0.0.1:8080/browser.html.
 [tasks.web]

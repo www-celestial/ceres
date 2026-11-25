@@ -1,0 +1,17 @@
+(* A page of Ceres in a browser: a counter and a field that greets, compiled to WebAssembly by
+   cesia build --target wasm examples/hello/hello.ce, served by examples/hello/serve.ce. *)
+use src/browser
+use src/web
+
+n = web.Signal(0)
+name = web.Signal("")
+defn greeter(p)
+  (** A button that counts, a field, and a greeting that follows both. *)
+  web.Stack([
+    web.Title("Hello"),
+    web.Row([web.Button("Add one", () -> web.Set(n, web.Get(n) + 1), key = "C-a"), () -> web.Text("Clicked $(web.Get(n)) times")]),
+    web.Row([web.Text("Your name"), web.Input(name, label = "Your name", width = 200)]),
+    () -> web.Text(if web.Get(name) == "" "Type your name." else "Hello, $(web.Get(name))!" end),
+  ])
+end
+browser.Run(web.App([web.Route("/", greeter)], title = "Hello — Ceres"))

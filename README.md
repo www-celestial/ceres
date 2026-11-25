@@ -62,9 +62,9 @@ mirrors one **semantics tree** (roles, names, values, places, focus), which Cere
 - **headless**, for tests: the draw list and the tree as text, checked with `test.Snapshot`, events sent as a person
   would (`headless.ClickOn("Name", page)`, `headless.Type("Ana", page)`), the live screen against a real server;
 - **SDL3**, a window on Linux, Windows and macOS, as Cemacs draws: `sdl.Run(App, origin = "http://127.0.0.1:8090")`;
-- **the browser**: `web/ceres.js`, 314 lines written by hand, 5.5 KB in brotli, paints the draw list with WebGL2 and
-  keeps the tree as a hidden DOM for screen readers, typing and find. The page's code runs in WebAssembly once Cesia
-  compiles to it, which is under way; the glue is tested today on the draw list that Ceres makes natively.
+- **the browser**: the page's code compiled from Cesia to WebAssembly (`cesia build --target wasm`), in Chrome 137,
+  Firefox 153 and Safari 27 or later; `web/ceres.js`, 5.8 KB in brotli, paints the draw list with WebGL2 and keeps the
+  tree as a hidden DOM for screen readers, typing and find. See [Ceres in a web page](docs/book/web.md).
 
 ## Install
 
@@ -92,10 +92,11 @@ still do better.
 
 - [The tutorial](docs/book/guide.md): a client list with a form, live from Cepheus, from the project to its test.
 - [Widgets](docs/book/widgets.md), [Forms](docs/book/forms.md), [Live data](docs/book/live.md),
-  [Back-ends](docs/book/backends.md), [Speed](docs/book/speed.md).
+  [Ceres in a web page](docs/book/web.md), [Back-ends](docs/book/backends.md), [Speed](docs/book/speed.md).
 - `cesia do demo` opens the invoices page in a window, live from its app served in the same program; `cesia do shots`
-  draws the pictures of `shots/` without a screen; `cesia do bench` and `cesia do still` take the measures.
-- Not yet: animations, images, text right to left, a screen reader on the desktop, the page's code in the browser
-  (it waits for the compiler of Cesia to WebAssembly), `live.Pages` in `std/live` (a table kept live while it scrolls).
+  draws the pictures of `shots/` without a screen; `cesia do bench` and `cesia do still` take the measures;
+  `tools/webshot.sh` plays the invoices page compiled to WebAssembly in Chrome without a window.
+- Not yet: animations, images, text right to left, a screen reader on the desktop, `live.Pages` in `std/live` (a table
+  kept live while it scrolls).
 
 MIT licence.

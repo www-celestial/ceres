@@ -64,9 +64,23 @@ the example serves its app itself.
 
 ## In the browser
 
-`web.Encode` turns the draw list of the invoices page into the bytes that the glue paints: 8.9 KB, in 0.43 ms
-(`cesia do webframe`). The glue, `web/ceres.js`, is 16.3 KB as written and 5.5 KB in brotli. The rest waits for the
-compiler of Cesia to WebAssembly: the size of the page's module and its time in the browser are not known yet.
+The invoices page compiled to WebAssembly ([Ceres in a web page](web.md)), live from its app, measured by
+`tests/web/frames.html` in Chrome 158 and Firefox 160 without a window, on the machine above (load 2 to 3), 2 to 3
+rounds: the time from the browser's frame to the page painted, its work in WebAssembly and WebGL's, while the wheel
+scrolls the table 200 notches, one every 16 ms, and while a field is typed in. WebGL took 1.0 to 1.4 ms of it:
+
+| | Chrome 158 | Firefox 160 |
+|---|---|---|
+| First paint, from the start of the page | 462 to 600 ms | 175 to 231 ms |
+| A frame while scrolling, p50 / p99 | 8.2 to 9.7 / 19 to 35 ms | 1.7 to 2.2 / 7 to 19 ms |
+| A frame while typing, p50 / p99 | 1.2 to 1.6 / 2.2 to 18 ms | 1.3 to 1.7 / 2.0 to 18 ms |
+| Frames of the browser while scrolling, p50 / p99 apart | 16.7 / 33 to 50 ms | 17.1 / 17.1 to 17.2 ms |
+
+Firefox keeps every frame; Chrome, whose engine runs this page 4 times slower than Firefox's (not for its first
+compiler: without it, 7.2 to 7.8 ms), misses one now and then while scrolling. The window of SDL3 does a frame in 0.9 to
+1.9 ms. What the browser loads: the module, 1,023,363 bytes, 177,562 in brotli, of which `std/plot`, with every kind of
+graph, is most; its loader, 3.7 KB in brotli; `ceres.js`, 5.8 KB in brotli. A still page runs nothing: its loop waits on
+its channel, which an event or the live screen wakes.
 
 ## Beside Flutter and SolidJS
 

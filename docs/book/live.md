@@ -4,8 +4,8 @@ A page of Ceres takes its data from the app's server through `std/live`, the liv
 *shows* it wants, the server writes the questions, with the values of the user its session names, and pushes their
 changes over a WebSocket. The page never writes a question, so no user can ask for the facts of another: the question
 isn't in the page at all. Ceres speaks the protocol of `live.js` (the page's side that `std/live` serves), rewritten in
-Cesia: it is the same on every platform, in a window of SDL3 today, in WebAssembly in the browser when Cesia compiles
-to it.
+Cesia: it is the same on every platform, in a window of SDL3 and in WebAssembly in the browser, where its WebSocket is
+the browser's ([Ceres in a web page](web.md)).
 
 ## The page: Live, Act, Pages
 

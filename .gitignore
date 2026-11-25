@@ -7,3 +7,7 @@ examples/invoices/browser.js
 examples/invoices/browser.wasm
 examples/invoices/ceres.js
 examples/invoices/browser.sites
+examples/hello/hello.js
+examples/hello/hello.wasm
+examples/hello/hello.sites
+examples/hello/ceres.js

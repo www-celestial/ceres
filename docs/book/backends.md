@@ -2,7 +2,7 @@
 
 Ceres lays a page out and draws it itself, into a *draw list*: rectangles, frames, texts, lines, filled triangles, and
 groups that move and clip them. Every back-end paints that list, and nothing else: so a page has the same pixels in a
-window, in a test and, once Cesia compiles to WebAssembly, in a browser. Beside it, the *semantics tree* says what each
+window, in a test and in a browser, compiled to WebAssembly. Beside it, the *semantics tree* says what each
 widget is for a screen reader: its role, its name, its value, its place, the focus.
 
 A back-end keeps the page's state and calls four functions of `web`:
@@ -62,39 +62,44 @@ in the same program, where an accountant pays an invoice elsewhere every 4 secon
 
 ![The invoices page in a window of SDL3: the form, the unpaid invoices live, the graph of the unpaid sum by month, and the table of 100,000 invoices.](images/invoices.png)
 
-## The browser: web/ceres.js
+## The browser: src/browser and web/ceres.js
 
-In the browser, the page's code, Ceres's and the app's, runs in WebAssembly, compiled by Cesia (the job that makes
-that compiler is under way). What WebAssembly can't reach, the canvas, WebGL2, the events, the WebSocket and the DOM,
-goes through `web/ceres.js`: 314 lines written by hand, no dependency, 16.3 KB as written and 5.5 KB in brotli. It
-never decides anything about the page:
+In the browser, the page's code, Ceres's and the app's, runs in WebAssembly, compiled by `cesia build --target wasm`:
+[Ceres in a web page](web.md) is the tutorial. `browser.Run(app, origin = ..., path = ...)` is the loop of a window,
+its window the page's first `<canvas>`: it waits for the page's events on a channel, handles them, and paints at the
+browser's next frame when the page changed. Its live screen opens at the page's own origin unless `origin` names
+another, and its first route is the canvas's `data-path`, or `/`.
 
-- it paints the bytes of `web.Encode(web.Frame(page))` with WebGL2, in one buffer of vertices and one draw call for
-  each clip: one shader, whose rounded corners are a distance function; texts are drawn once by the browser's own text
-  engine into an atlas, a texture that the GPU copies, so no font is downloaded;
-- it keeps the hidden DOM of `web.Semantics(page)`, an element for each node, kept by its `Id`, transparent, over the
-  canvas: screen readers read it, Cmd-F finds its texts, and each field is a real `<input>`, where typing, IME, paste
-  and autofill happen, the text going to the page as it comes;
-- it sends the events, measures the texts with the browser's fonts, and carries the WebSocket of the live screen;
-- it asks for a frame only when the page has one: nothing runs while nothing changes.
+What WebAssembly can't reach, the canvas, WebGL2, the events and the DOM, goes through `web/ceres.js`: 330 lines written
+by hand, no dependency, 5.8 KB in brotli, which `cesia build` copies beside the page's module. It never decides anything
+about the page. The page calls it by `js.Call("../../web/ceres.js", name, args)` of `std/js`, five functions:
+
+- `Start(events)` sets the canvas up and sends each event on `events`, a channel of `std/fiber`, as the JSON of what
+  `web.Handle` takes, `{Kind: "mouse", Action, X, Y, Button, Amount}`, `{Kind: "key", Key, Ctrl, Alt, Shift}`,
+  `{Kind: "text", Text}` or `{Kind: "resize", Width, Height}`; it gives `[width, height, origin, path]`;
+- `Measure(text, size, font)` and `Line(size)`, the width of a text in whole pixels and the height of a line, by the
+  browser's own fonts;
+- `Paint(bytes)` paints the bytes of `web.Encode(web.Frame(page))` with WebGL2, in one buffer of vertices and one draw
+  call for each clip: one shader, whose rounded corners are a distance function; texts are drawn once by the browser's
+  own text engine into an atlas, a texture that the GPU copies, so no font is downloaded;
+- `Mirror(json)` keeps the hidden DOM of `web.Semantics(page)`, an element for each node, kept by its `Id`, transparent,
+  over the canvas: screen readers read it, Cmd-F finds its texts, and each field is a real `<input>`, where typing, IME,
+  paste and autofill happen, the text going to the page as it comes;
+- `Wake()` sends `"frame"` on the channel at the browser's next frame, the time to paint.
 
 The bytes of the draw list: two u32, the count of f32 numbers and of bytes of text, the numbers, then the texts in
 UTF-8. Each item is a code and its numbers: 1 rect and 2 frame (X Y W H Color Alpha Radius), 3 text (X Y Size Color
 Alpha Font Start Length Angle), 4 line (n Width Color Alpha, then n points), 5 tris (n Color Alpha, then n points), 6 a
 group (X Y W H Clip) whose items follow up to 7, its end.
 
-The page plugs into it through a *host*: `start(canvas, host)` takes `host.event(e)`, `host.frame()` (the bytes, or
-null when nothing changed), `host.semantics()` (the tree as JSON, or null) and `host.message(id, text)`,
-`host.closed(id)` for the WebSocket; it gives the host `measure(text, size, font)`, `line(size)`, `open(url)`,
-`send(id, text)`, `close(id)` and `wake()`. Once Cesia compiles Ceres, the host is the compiled page: its exports
-called through this interface, a few lines that follow the compiler's way of passing texts.
+The live screen is a WebSocket of the page: `std/websocket`, in a program compiled to WebAssembly, is the browser's. It
+wakes the loop when it brings something (`web.Start(..., wake = events)`), so a still page runs nothing.
 
-`tools/webshot.sh` tests the glue today without WebAssembly: Chrome without a window paints the draw list that Ceres
-made natively for the invoices page, keeps its hidden DOM, types a text and two keys in its first field, and writes
-`shots/invoices-webgl.png`. It prints what the host got:
+`tools/webshot.sh` tests it all in Chrome without a window: it builds the invoices page, serves it live, plays a person
+in `tests/web/page.html`, and prints what the page showed:
 
 ```text
-done 17 rows, 2 inputs, typed Brun, keys backspace, input left "", painted again true, measure 54
+done 17 rows, 2 inputs, field Bru, input left "", painted again true, measure 54
 ```
 
-![The same page painted by web/ceres.js with WebGL2 in Chrome, from the draw list that Ceres made natively.](images/invoices-webgl.png)
+![The invoices page compiled from Cesia to WebAssembly, painted by web/ceres.js with WebGL2 in Chrome.](images/invoices-webgl.png)
