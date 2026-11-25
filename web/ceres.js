@@ -3,7 +3,7 @@
 // it the events, keeps the hidden DOM of its semantics tree for screen readers, typing (IME, autofill) and Cmd-F, and
 // carries its WebSocket. It never decides anything about the page.
 //
-// The host is what the compiled page gives (docs/book/web.md):
+// The host is what the compiled page gives (docs/book/backends.md):
 //   host.event(e)        an event as web.Handle takes it: {Kind: 'mouse'|'key'|'text'|'resize', ...}
 //   host.frame()         the bytes of the draw list (web.Encode), or null when nothing changed
 //   host.semantics()     the semantics tree as JSON text (web.Semantics), or null when it didn't change
@@ -201,7 +201,7 @@ export function painter(canvas) {
 }
 
 // The hidden DOM: one element for each node of the semantics tree, kept by its Id, at its place over the canvas,
-// transparent; the textbox in focus is a real <input>, where the browser's typing, IME and autofill happen.
+// transparent; a textbox is a real <input>, where the browser's typing, IME, paste and autofill happen.
 const TAGS = { heading: 'h2', button: 'button', link: 'a', textbox: 'input', list: 'ul', listitem: 'li' }
 export function mirror(layer, host) {
   const kept = new Map()
@@ -212,8 +212,12 @@ export function mirror(layer, host) {
       el = document.createElement(tag)
       el.style.cssText = 'position:absolute;margin:0;padding:0;border:0;color:transparent;background:none;caret-color:transparent;font-size:1px'
       if (tag === 'input') {
-        el.addEventListener('input', ev => { if (ev.data) host.event({ Kind: 'text', Text: ev.data }); el.value = '' })
-        el.addEventListener('keydown', ev => { const k = KEYS[ev.key]; if (k) { ev.preventDefault(); host.event(keyOf(k, ev)) } })
+        // Typed text, a paste or an autofill lands in the input, goes to the page and leaves it empty; while an IME
+        // composes, the input keeps the text and the page gets it whole at the end.
+        const take = () => { if (el.value) host.event({ Kind: 'text', Text: el.value }); el.value = '' }
+        el.addEventListener('input', ev => { if (!ev.isComposing) take() })
+        el.addEventListener('compositionend', take)
+        el.addEventListener('keydown', ev => { const k = keyName(ev, true); if (k && !ev.isComposing) { ev.preventDefault(); host.event(keyOf(k, ev)) } })
       }
       kept.set(node.Id, el)
     }
@@ -244,6 +248,16 @@ export function mirror(layer, host) {
 
 const KEYS = { Enter: 'enter', Escape: 'escape', Backspace: 'backspace', Tab: 'tab', ' ': 'space', Delete: 'delete', Home: 'home', End: 'end', PageUp: 'pageup', PageDown: 'pagedown', ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down' }
 const keyOf = (k, ev) => ({ Kind: 'key', Key: k, Ctrl: ev.ctrlKey || ev.metaKey, Alt: ev.altKey, Shift: ev.shiftKey })
+// The name of a key as Ceres takes it ('enter', 'f5', 's' with Ctrl...), or null for a key that types. In an input the
+// space types, and Ctrl-C, Ctrl-V and Ctrl-X stay the browser's; AltGr types too.
+function keyName(ev, typing) {
+  if (ev.key === ' ' && typing) return null
+  if (KEYS[ev.key]) return KEYS[ev.key]
+  if (/^F\d\d?$/.test(ev.key)) return ev.key.toLowerCase()
+  if (ev.key.length !== 1 || ev.getModifierState('AltGraph') || !(ev.ctrlKey || ev.metaKey || ev.altKey)) return null
+  const k = ev.key.toLowerCase()
+  return typing && (ev.ctrlKey || ev.metaKey) && 'cvx'.includes(k) ? null : k
+}
 
 // Starts a page: the canvas fills its parent, the events go to the host, and a frame is painted only when the host
 // has one. Gives the glue's side for the host: measure, line, open, send, close, wake.
@@ -254,7 +268,6 @@ export function start(canvas, host) {
   layer.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;overflow:hidden'
   canvas.parentNode.style.position = 'relative'
   canvas.parentNode.appendChild(layer)
-  const mirrored = mirror(layer, host)
   let asked = false
   const draw = () => {
     asked = false
@@ -265,6 +278,7 @@ export function start(canvas, host) {
   }
   const wake = () => { if (!asked) { asked = true; requestAnimationFrame(draw) } }
   const send = e => { host.event(e); wake() }
+  const mirrored = mirror(layer, { event: send })
   const fit = () => {
     const r = canvas.parentNode.getBoundingClientRect()
     p.resize(r.width, r.height, window.devicePixelRatio || 1)
@@ -273,12 +287,13 @@ export function start(canvas, host) {
   }
   new ResizeObserver(fit).observe(canvas.parentNode)
   const at = ev => { const r = canvas.getBoundingClientRect(); return [Math.floor(ev.clientX - r.left), Math.floor(ev.clientY - r.top)] }
+  canvas.addEventListener('mousedown', ev => ev.preventDefault()) // the input in focus keeps it: the page moves focus
   for (const [name, action] of [['pointerdown', 'down'], ['pointerup', 'up'], ['pointermove', 'move']])
     canvas.addEventListener(name, ev => { const [x, y] = at(ev); send({ Kind: 'mouse', Action: action, X: x, Y: y, Button: ev.button + 1, Amount: 0 }) })
   canvas.addEventListener('wheel', ev => { ev.preventDefault(); const [x, y] = at(ev); send({ Kind: 'mouse', Action: 'wheel', X: x, Y: y, Button: 0, Amount: -Math.sign(ev.deltaY) }) }, { passive: false })
   window.addEventListener('keydown', ev => {
     if (ev.target.tagName === 'INPUT') return
-    const k = KEYS[ev.key] || (ev.key.length === 1 && (ev.ctrlKey || ev.metaKey || ev.altKey) ? ev.key.toLowerCase() : null)
+    const k = keyName(ev, false)
     if (k) { ev.preventDefault(); send(keyOf(k, ev)) }
   })
   const sockets = new Map()

@@ -5,21 +5,32 @@
 <div id="page"><canvas></canvas></div>
 <script type="module">
 // The test of web/ceres.js without WebAssembly: a host that gives the draw list and the semantics tree that Ceres made
-// natively for the invoices page (cesia do webframe), and counts the events it gets.
+// natively for the invoices page (cesia do webframe), and keeps the events it gets. Then a text typed in the first
+// input and two keys: the page must get the text and Backspace, not the space (it types), and paint again.
 import { start } from '/web/ceres.js'
+// Chrome without a window, on virtual time, gives animation frames only while the page loads: the frames come by timer.
+window.requestAnimationFrame = f => setTimeout(() => f(performance.now()), 16)
 const bytes = new Uint8Array(await (await fetch('/tests/web/invoices.bin')).arrayBuffer())
 const tree = await (await fetch('/tests/web/invoices.json')).text()
 const events = []
-let sent = false
+let sent = false, frames = 0
 const host = {
   event: e => events.push(e),
-  frame: () => bytes,
+  frame: () => (frames++, bytes),
   semantics: () => (sent ? null : (sent = true, tree)),
   message() {}, closed() {},
 }
 const glue = start(document.querySelector('canvas'), host)
-requestAnimationFrame(() => requestAnimationFrame(() => {
-  const layer = document.querySelector('#page > div')
-  document.title = 'done ' + layer.querySelectorAll('[role=row]').length + ' rows, ' + layer.querySelectorAll('input').length + ' inputs, ' + events.length + ' events, measure ' + Math.round(glue.measure('Invoices', 14, 'body'))
-}))
+const later = () => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))
+await later()
+const layer = document.querySelector('#page > div')
+const input = layer.querySelector('input')
+const before = frames
+input.value = 'Brun'
+input.dispatchEvent(new InputEvent('input', { data: 'Brun', inputType: 'insertText' }))
+for (const key of ['Backspace', ' ']) input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }))
+await later()
+document.title = 'done ' + layer.querySelectorAll('[role=row]').length + ' rows, ' + layer.querySelectorAll('input').length + ' inputs, typed ' +
+  events.filter(e => e.Kind === 'text').map(e => e.Text).join() + ', keys ' + events.filter(e => e.Kind === 'key').map(e => e.Key).join() +
+  ', input left ' + JSON.stringify(input.value) + ', painted again ' + (frames > before) + ', measure ' + Math.round(glue.measure('Invoices', 14, 'body'))
 </script>
