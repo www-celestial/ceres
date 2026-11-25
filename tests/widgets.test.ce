@@ -54,8 +54,9 @@ end
 
 defn isTableSorts()
   p = headless.Open(web.App([web.Route("/", tablePage)]), width = 600, height = 300)
-  p = headless.Click(200, 36, headless.Click(200, 36, p))
-  list.All([text.Contains("cell \"Client 99999\"", headless.Tree(p)) == false, test.Snapshot(headless.Draw(p))])
+  p = headless.Click(100, 20, headless.Click(100, 20, p))
+  tree = headless.Tree(p)
+  list.All([text.Contains("cell \"F-100000\"", tree), not text.Contains("cell \"F-000001\"", tree), test.Snapshot(headless.Draw(p))])
 end
 
 defn isGraph()

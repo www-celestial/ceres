@@ -1,0 +1,35 @@
+(* The pictures of shots/: the invoices page of the guide drawn by the SDL3 back-end under SDL's dummy driver, live
+   from its app served in this program. cesia do shots. *)
+use examples/invoices/page
+use examples/invoices/server
+use src/sdl
+use src/web
+use std/fiber
+use std/io
+use std/net
+use std/sys
+use std/text
+use std/value
+
+store = server.Store()
+l = net.Listen(0).Value
+fiber.Spawn(() -> server.Serve(store, l))
+app = web.App([web.Route("/", page.Page)], live = "/live", title = "Invoices")
+loaded = ui -> text.Contains("F-000001", "$(web.Semantics(ui))") and text.Contains("F-099993", "$(web.Semantics(ui))")
+origin = "http://127.0.0.1:$(net.Port(l))"
+io.Print(sdl.Shot(app, "shots/invoices.png", origin = origin, settle = loaded))
+
+key(name) = {Kind: "key", Key: name, Ctrl: false, Alt: false, Shift: false}
+click(x, y, ui) = web.Handle({Kind: "mouse", Action: "up", X: x, Y: y, Button: 1, Amount: 0}, web.Handle({Kind: "mouse", Action: "down", X: x, Y: y, Button: 1, Amount: 0}, ui))
+
+defn filling(ui)
+  (** The form half filled: a wrong amount sent, its message beside it, then the list of clients open. *)
+  u = click(170, 121, ui)
+  u = web.Handle({Kind: "text", Text: "-40"}, u)
+  u = web.Handle(key("enter"), u)
+  u = web.Handle({Kind: "text", Text: "2026-13-01"}, click(170, 89, u))
+  click(200, 57, u)
+end
+
+io.Print(sdl.Shot(app, "shots/invoices-form.png", origin = origin, settle = loaded, steps = filling))
+sys.Exit(0)

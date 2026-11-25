@@ -20,15 +20,15 @@ defn Page(p)
     ]),
     web.Row([
       web.Grow(web.Stack([
-        web.Text("Unpaid", strong = true),
-        web.Each(unpaid, i -> i.Invoice, i -> web.Row([web.Text(i.Number), web.Text(i.BillTo, color = 0x59636e), web.Spacer(), web.Money(i.Total)]), gap = 6),
-      ], gap = 8, pad = 12, border = 0xd1d9e0, radius = 6)),
-      web.Plot(() -> plot.Of([plot.Bars([m.Month for m in web.Get(months)], [m.Total for m in web.Get(months)])], title = "Unpaid by month"), width = 520, height = 250),
-    ], align = "start", gap = 16),
+        web.Text("Unpaid", font = "strong"),
+        web.Each(unpaid, i -> i.Invoice, i -> web.Row([web.Text(i.Number, font = "code"), web.Text(i.BillTo), web.Spacer(), web.Money(i.Total)]), gap = 2),
+      ], gap = 4)),
+      web.Plot(() -> plot.Of([plot.Bars([m.Month for m in web.Get(months)], [m.Total for m in web.Get(months)])], title = "Unpaid by month"), width = 480, height = 220),
+    ], align = "start", gap = 24),
     web.Table(web.Pages("all", p), [
-      web.Column("Number", i -> i.Number, sort = "Number", width = 160),
+      web.Column("Number", i -> i.Number, sort = "Number", width = 120),
       web.Column("Client", i -> i.BillTo, sort = "BillTo"),
-      web.Column("Total", i -> web.Money(i.Total), align = "right", width = 160),
-    ], height = 300, label = "All invoices"),
+      web.Column("Total", i -> web.Money(i.Total), width = 140),
+    ], height = 330, label = "All invoices"),
   ])
 end

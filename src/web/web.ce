@@ -27,20 +27,21 @@ end
 
 kids(xs) = [kid(x) for x in xs if value.IsSome(x)]   (* The children of a list, missing left out. *)
 
-defn Text(x, size = missing, color = missing, strong = false)
+defn Text(x, size = missing, color = missing, font = missing)
   (** A text: a value shown as print shows it, a signal shown as it changes, or a function, a live text. A long text
-      breaks between words at the width it is given. size is in pixels, the theme's by default; color 0xRRGGBB;
-      strong = true, the bold face.
+      breaks between words at the width it is given. size is in pixels, the theme's by default; color 0xRRGGBB; font
+      is "body", "strong", the bold face, or "code", the face of code, whose figures line up: a number is in it by
+      default, and so are amounts.
 
         Text("Invoices").Kind --> "text" *)
-  {Kind: "text", Text: x, Size: size, Color: color, Strong: strong, Role: "text"}
+  {Kind: "text", Text: x, Size: size, Color: color, Font: font, Role: "text"}
 end
 
 defn Title(x)
   (** The title of a page or of a part, larger and strong: a heading for a screen reader.
 
         Title("Invoices").Role --> "heading" *)
-  t = Text(x, strong = true)
+  t = Text(x, font = "strong")
   t.Role = "heading"
   t.Size = "title"
   t
@@ -80,12 +81,13 @@ Spacer(size = 0) = {Kind: "spacer", Size: size, Grow: 1}
 (** A thin line across, between parts. *)
 Divider() = {Kind: "divider"}
 
-defn Button(label, onClick, primary = true)
-  (** A button: onClick() runs when it is clicked, or pressed with Enter or Space while it has the focus. A primary
-      button is filled with the accent of the theme, the others are outlined.
+defn Button(label, onClick, key = missing)
+  (** A plain button: onClick() runs when it is clicked, pressed with Enter or Space while it has the focus, or, with
+      key, when that key is typed anywhere in the page: "C-s" for Ctrl and s, "M-n" for Alt and n, "f5". The button
+      shows its key beside its label, and the band of keys lists it: every action is in sight, with its key.
 
-        Button("Add", () -> missing).Kind --> "button" *)
-  {Kind: "button", Label: label, On: onClick, Primary: primary}
+        Button("Save", () -> missing, key = "C-s").Key --> "C-s" *)
+  {Kind: "button", Label: label, On: onClick, Key: key}
 end
 
 defn Input(v, label = "", placeholder = "", width = missing, onEnter = missing, invalid = missing)

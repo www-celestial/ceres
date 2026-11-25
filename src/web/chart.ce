@@ -80,7 +80,7 @@ defn sceneItem(sh, t, u)
     cells(sh, t)
   else if k == "text"
     size = dict.GetOr("Size", 12, sh)
-    w = widthOf(sh.Text, size, false, u)
+    w = widthOf(sh.Text, size, "body", u)
     anchor = dict.GetOr("Anchor", "start", sh)
     angle = dict.GetOr("Angle", 0, sh)
     x = sh.X - (0 if anchor == "start" else w / 2 if anchor == "middle" else w)

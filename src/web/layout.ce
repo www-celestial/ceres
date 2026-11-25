@@ -8,25 +8,41 @@ use std/math
 use std/text
 use std/value
 
-(** The look of a page: sizes in pixels, colors 0xRRGGBB. web.Start takes another one, as Theme with a field changed. *)
-Theme = {Size: 14, Small: 12, Title: 22, Ink: 0x1f2328, Muted: 0x59636e, Paper: 0xffffff, Back: 0xffffff, Line: 0xd1d9e0,
-  Accent: 0x0969da, Pressed: 0x0550ae, AccentInk: 0xffffff, Danger: 0xd1242f, Stripe: 0xf6f8fa, Head: 0xeef1f4,
-  Gap: 12, Pad: 8, Radius: 6, Field: 34, Row: 28, Page: 24}
+(** The look of a page, sizes in pixels and colors 0xRRGGBB: ink on paper, thin edges of one pixel, dense rows, color
+    only where it marks something, the focus, a link, an error. web.Start takes another one, as Theme with a field
+    changed. Keys = true shows the band of the keys of the widget in focus at the bottom of the window. *)
+Theme = {Size: 14, Title: 20, Ink: 0x111111, Muted: 0x5c5c5c, Paper: 0xffffff, Back: 0xffffff, Line: 0x111111,
+  Grid: 0xcfcfcf, Accent: 0x0b57d0, Danger: 0xc00000, Chosen: 0x111111, ChosenInk: 0xffffff, Band: 0xf2f2f2,
+  Gap: 8, Pad: 4, Radius: 0, Field: 26, Row: 22, Page: 12, Keys: true}
 
 (* ---- Draw items: the draw list that every back-end paints, in pixels, colors 0xRRGGBB. *)
 rect(x, y, w, h, color, radius = 0) = {Kind: "rect", X: x, Y: y, W: w, H: h, Color: color, Radius: radius}
 frame(x, y, w, h, color, radius = 0) = {Kind: "frame", X: x, Y: y, W: w, H: h, Color: color, Radius: radius}
-words(x, y, s, size, color, strong = false) = {Kind: "text", X: x, Y: y, Text: s, Size: size, Color: color, Strong: strong}
+words(x, y, s, size, color, font = "body") = {Kind: "text", X: x, Y: y, Text: s, Size: size, Color: color, Font: font}
 group(x, y, w, h, clip, items) = {Kind: "group", X: x, Y: y, W: w, H: h, Clip: clip, Items: items}
 
 sizeOf(n, t) = t.Size if value.IsMissing(n.Size) else t.Title if n.Size == "title" else n.Size   (* The size of a text widget. *)
-widthOf(s, size, strong, u) = u.Measure.Width(s, size, strong)   (* The width of a text in pixels. *)
+widthOf(s, size, font, u) = u.Measure.Width(s, size, font)   (* The width of a text in pixels, in a font: "body", "strong" or "code". *)
 lineOf(size, u) = u.Measure.Line(size)   (* The height of a line of text. *)
 
-defn shown(x)
-  (** The text of a value that a widget shows, a signal's or a function's value read here. *)
+defn valueOf(x)
+  (** The value that a widget shows: a signal's or a function's read here, a text widget's own. *)
   v = if value.IsFunction(x) x() else if isSignal(x) Get(x) else x end
-  if value.IsText(v) v else if value.IsDict(v) and dict.Get("Kind", v) == "text" shown(v.Text) else value.Text(v) end
+  if value.IsDict(v) and dict.Get("Kind", v) == "text" valueOf(v.Text) else v end
+end
+
+shown(x) = textOf(valueOf(x))   (* The text that a widget shows of a value. *)
+textOf(v) = v if value.IsText(v) else "" if value.IsMissing(v) else value.Text(v)   (* A value as text. *)
+
+defn fontOf(x)
+  (** The font of what a cell or a text shows: a number, or a text widget of the code font, in the code font. *)
+  if value.IsNumber(x)
+    "code"
+  else if value.IsDict(x) and dict.Get("Kind", x) == "text"
+    dict.GetOr("Font", "body", x)
+  else
+    "body"
+  end
 end
 
 defn watched(id, f, u)
@@ -35,16 +51,16 @@ defn watched(id, f, u)
   {Value: got.Value, Ui: if value.IsEmpty(got.Reads) unfollow(id, u) else follow(id, "box", got.Reads, u) end}
 end
 
-defn wrapped(s, maxW, size, strong, u)
+defn wrapped(s, maxW, size, font, u)
   (** The lines of a text broken between words so that each fits in maxW, a word longer than that on a line of its own. *)
-  if widthOf(s, size, strong, u) <= maxW or not text.Contains(" ", s)
+  if widthOf(s, size, font, u) <= maxW or not text.Contains(" ", s)
     return [s]
   end
   out = []
   line = ""
   for w in text.Split(" ", s)
     next = if line == "" w else "$line $w" end
-    if line != "" and widthOf(next, size, strong, u) > maxW
+    if line != "" and widthOf(next, size, font, u) > maxW
       out = list.Append(line, out)
       line = w
     else
@@ -198,52 +214,57 @@ end
 
 defn layText(id, maxW, ui)
   n = ui.Boxes[id].Node
-  got = watched(id, () -> shown(n.Text), ui)
+  got = watched(id, () -> valueOf(n.Text), ui)
   u = got.Ui
   size = sizeOf(n, u.Theme)
   color = u.Theme.Ink if value.IsMissing(n.Color) else n.Color
+  font = if value.IsSome(n.Font) n.Font else fontOf(got.Value) end
   lh = lineOf(size, u)
-  lines = wrapped(got.Value, maxW, size, n.Strong, u)
-  widest = list.Max([widthOf(l, size, n.Strong, u) for l in lines])
-  u.Boxes[id].Cache = {Text: got.Value}
-  sized(id, list.Min(widest, maxW), lh * value.Len(lines), [words(0, k * lh - lh, lines[k], size, color, n.Strong) for k in 1..value.Len(lines) if text.Trim(lines[k]) != ""], u)
+  s = textOf(got.Value)
+  lines = wrapped(s, maxW, size, font, u)
+  widest = list.Max([widthOf(l, size, font, u) for l in lines])
+  u.Boxes[id].Cache = {Text: s}
+  sized(id, list.Min(widest, maxW), lh * value.Len(lines), [words(0, k * lh - lh, lines[k], size, color, font) for k in 1..value.Len(lines) if text.Trim(lines[k]) != ""], u)
 end
 
 defn layButton(id, ui)
+  (** A plain button: its label in an edge of one pixel, and its key beside, as "Enter"; pressed, ink and paper swap. *)
   u = ui
   n = u.Boxes[id].Node
   t = u.Theme
   label = shown(n.Label)
-  lw = widthOf(label, t.Size, true, u)
-  w = lw + 28
-  h = lineOf(t.Size, u) + 14
+  lw = widthOf(label, t.Size, "body", u)
+  kw = if value.IsMissing(n.Key) 0 else widthOf(n.Key, t.Size, "code", u) + 8 end
+  w = lw + kw + 16
+  h = t.Field
+  ty = math.Div(h - lineOf(t.Size, u), 2)
   down = u.Pressed == id
-  fill = (t.Pressed if down else t.Accent) if n.Primary else (t.Stripe if down else t.Paper)
-  ink = t.AccentInk if n.Primary else t.Ink
-  ring = if u.Focus == id and u.Ring [frame(-2, -2, w + 4, h + 4, t.Accent, t.Radius + 2)] else [] end
-  edge = if n.Primary [] else [frame(0, 0, w, h, t.Line, t.Radius)] end
+  ink = t.Paper if down else t.Ink
+  edge = t.Accent if u.Focus == id else t.Line
+  out = [rect(0, 0, w, h, t.Ink if down else t.Paper), frame(0, 0, w, h, edge), words(8, ty, label, t.Size, ink)]
+  if value.IsSome(n.Key)
+    out = list.Append(words(8 + lw + 8, ty, n.Key, t.Size, t.Paper if down else t.Muted, "code"), out)
+  end
+  if u.Focus == id and u.Ring
+    out = list.Append(frame(-2, -2, w + 4, h + 4, t.Accent), out)
+  end
   u.Boxes[id].Cache = {Text: label}
-  sized(id, w, h, list.Concat(list.Concat([rect(0, 0, w, h, fill, t.Radius)], edge), list.Append(words(14, 7, label, t.Size, ink, true), ring)), u)
+  sized(id, w, h, out, u)
 end
 
 defn layLink(id, ui)
   u = ui
   n = u.Boxes[id].Node
   t = u.Theme
-  w = widthOf(n.Label, t.Size, false, u)
+  w = widthOf(n.Label, t.Size, "body", u)
   h = lineOf(t.Size, u)
   sized(id, w, h, [words(0, 0, n.Label, t.Size, t.Accent), rect(0, h - 2, w, 1, t.Accent)], u)
 end
 
 defn fieldEdge(id, bad, w, h, u)
-  (** The edge of a field: the accent when it has the focus, the color of danger when it is wrong. *)
+  (** The paper and the edge of a field: the accent when it has the focus, the color of danger when it is wrong. *)
   t = u.Theme
-  color = t.Danger if bad else t.Accent if u.Focus == id else t.Line
-  out = [rect(0, 0, w, h, t.Paper, t.Radius), frame(0, 0, w, h, color, t.Radius)]
-  if u.Focus == id
-    out = list.Append(frame(-1, -1, w + 2, h + 2, color, t.Radius + 1), out)
-  end
-  out
+  [rect(0, 0, w, h, t.Paper), frame(0, 0, w, h, t.Danger if bad else t.Accent if u.Focus == id else t.Line)]
 end
 
 defn layInput(id, maxW, ui)
@@ -251,7 +272,7 @@ defn layInput(id, maxW, ui)
   got = watched(id, defn ()
     v = Get(n.Value)
     bad = if value.IsFunction(n.Invalid) n.Invalid() else false end
-    {Text: "" if value.IsMissing(v) else value.Text(v), Bad: bad}
+    {Text: textOf(v), Bad: bad}
   end, ui)
   u = got.Ui
   t = u.Theme
@@ -263,13 +284,13 @@ defn layInput(id, maxW, ui)
   inside = []
   shift = 0
   if u.Focus == id
-    cx = widthOf(head(s, u.Caret), t.Size, false, u)
-    shift = list.Max(0, cx - (w - 24))
+    cx = widthOf(head(s, u.Caret), t.Size, "code", u)
+    shift = list.Max(0, cx - (w - 16))
     inside = [rect(cx - shift, ty, 1, lh, t.Ink)]
   end
-  shownText = if s == "" and n.Placeholder == "" [] else if s == "" [words(0, ty, n.Placeholder, t.Size, t.Muted)] else [words(-shift, ty, s, t.Size, t.Ink)] end
+  shownText = if s == "" and n.Placeholder == "" [] else if s == "" [words(0, ty, n.Placeholder, t.Size, t.Muted, "code")] else [words(-shift, ty, s, t.Size, t.Ink, "code")] end
   u.Boxes[id].Cache = {Text: s, Shift: shift}
-  sized(id, w, h, list.Append(group(10, 0, w - 20, h, true, list.Concat(shownText, inside)), fieldEdge(id, got.Value.Bad, w, h, u)), u)
+  sized(id, w, h, list.Append(group(6, 0, w - 12, h, true, list.Concat(shownText, inside)), fieldEdge(id, got.Value.Bad, w, h, u)), u)
 end
 
 defn optionsOf(n)
@@ -288,17 +309,17 @@ defn chosenLabel(n)
 end
 
 defn laySelect(id, maxW, ui)
+  (** A choice: the chosen option in the code font and a v at its right, as Cemacs draws one. *)
   n = ui.Boxes[id].Node
   got = watched(id, () -> {Label: chosenLabel(n), Count: value.Len(optionsOf(n))}, ui)
   u = got.Ui
   t = u.Theme
   w = list.Min(maxW, 300 if value.IsMissing(n.Width) else n.Width)
   h = t.Field
-  lh = lineOf(t.Size, u)
-  ty = math.Div(h - lh, 2)
+  ty = math.Div(h - lineOf(t.Size, u), 2)
   label = got.Value.Label
-  shownText = if value.IsMissing(label) words(10, ty, n.Placeholder, t.Size, t.Muted) else words(10, ty, label, t.Size, t.Ink) end
-  arrow = [rect(w - 22, math.Div(h, 2) - 2, 9, 2, t.Muted), rect(w - 20, math.Div(h, 2), 5, 2, t.Muted)]
+  shownText = if value.IsMissing(label) words(6, ty, n.Placeholder, t.Size, t.Muted, "code") else words(6, ty, label, t.Size, t.Ink, "code") end
+  vw = widthOf("v", t.Size, "code", u)
   u.Boxes[id].Cache = {Text: "" if value.IsMissing(label) else label}
-  sized(id, w, h, list.Concat(list.Append(group(0, 0, w - 26, h, true, [shownText]), fieldEdge(id, false, w, h, u)), arrow), u)
+  sized(id, w, h, list.Concat(fieldEdge(id, false, w, h, u), [group(0, 0, w - vw - 10, h, true, [shownText]), words(w - vw - 6, ty, "v", t.Size, t.Ink, "code")]), u)
 end

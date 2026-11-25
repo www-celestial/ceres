@@ -1,0 +1,544 @@
+(** The native back-end: a page of Ceres in a window of SDL3, its texts by SDL3_ttf, found at run time, as Cemacs draws.
+    Run opens the window and runs the app until it is closed; Shot draws a page into a PNG without a screen, under
+    SDL's dummy driver. It needs --allow ffi=SDL3,ffi=SDL3_ttf, and read= for the fonts, src/sdl/fonts by default. A
+    still page sleeps in SDL until an event comes: nothing is drawn while nothing changes. *)
+use src/web
+use std/bug
+use std/c
+use std/dict
+use std/fiber
+use std/list
+use std/math
+use std/result
+use std/sys
+use std/text
+use std/value
+
+InitVideo = 0x20   (** SDL's flag that starts its video part. *)
+Resizable = 0x20   (** SDL's flag of a window that can change its size. *)
+Blend = 1   (** SDL's blend mode that mixes by alpha. *)
+Rgba = 0x16762004   (** SDL's format of 4 bytes a pixel, red, green, blue and alpha. *)
+Rgb24 = 0x17101803   (** SDL's format of 3 bytes a pixel, which a PNG without alpha takes. *)
+MaxTexts = 4096   (** How many shaped texts a window keeps before it forgets them all. *)
+
+(* A cell: a channel of size 1 that always holds one value, the window's caches, which every copy of it shares. *)
+defn cell(v)
+  ch = fiber.Channel(size = 1)
+  fiber.Send(v, ch)
+  ch
+end
+
+defn peek(ch)
+  v = fiber.Receive(ch, timeout = 0).Value
+  fiber.Send(v, ch)
+  v
+end
+
+defn put(v, ch)
+  _ = fiber.Receive(ch, timeout = 0)
+  fiber.Send(v, ch)
+end
+
+defn bound(lib, specs)
+  (** The functions of a library as a dictionary, from {Name: [C name, inputs, output]}: an Ok, or an Err. *)
+  out = {}
+  for k in dict.Keys(specs)
+    s = specs[k]
+    out[k] = c.Fn(s[1], s[2], s[3], lib)?
+  end
+  result.Ok(out)
+end
+
+sdlSpecs = {Version: ["SDL_GetVersion", [], "i32"], Init: ["SDL_Init", ["u32"], "bool"], Error: ["SDL_GetError", [], "text"],
+  Hint: ["SDL_SetHint", ["text", "text"], "bool"], Window: ["SDL_CreateWindow", ["text", "i32", "i32", "u64"], "ptr"],
+  Renderer: ["SDL_CreateRenderer", ["ptr", "text"], "ptr"], Vsync: ["SDL_SetRenderVSync", ["ptr", "i32"], "bool"],
+  Color: ["SDL_SetRenderDrawColor", ["ptr", "u8", "u8", "u8", "u8"], "bool"], DrawBlend: ["SDL_SetRenderDrawBlendMode", ["ptr", "u32"], "bool"],
+  Clear: ["SDL_RenderClear", ["ptr"], "bool"], Fill: ["SDL_RenderFillRect", ["ptr", "ptr"], "bool"], Edge: ["SDL_RenderRect", ["ptr", "ptr"], "bool"],
+  Lines: ["SDL_RenderLines", ["ptr", "ptr", "i32"], "bool"], Geometry: ["SDL_RenderGeometry", ["ptr", "ptr", "ptr", "i32", "ptr", "i32"], "bool"],
+  Clip: ["SDL_SetRenderClipRect", ["ptr", "ptr"], "bool"], Present: ["SDL_RenderPresent", ["ptr"], "bool"],
+  Texture: ["SDL_CreateTexture", ["ptr", "u32", "i32", "i32", "i32"], "ptr"], Upload: ["SDL_UpdateTexture", ["ptr", "ptr", "ptr", "i32"], "bool"],
+  TextureBlend: ["SDL_SetTextureBlendMode", ["ptr", "u32"], "bool"], ColorMod: ["SDL_SetTextureColorMod", ["ptr", "u8", "u8", "u8"], "bool"],
+  AlphaMod: ["SDL_SetTextureAlphaMod", ["ptr", "u8"], "bool"], Nine: ["SDL_RenderTexture9Grid", ["ptr", "ptr", "ptr", "f32", "f32", "f32", "f32", "f32", "ptr"], "bool"],
+  Poll: ["SDL_PollEvent", ["ptr"], "bool"], Wait: ["SDL_WaitEventTimeout", ["ptr", "i32"], "bool"], StartText: ["SDL_StartTextInput", ["ptr"], "bool"],
+  Read: ["SDL_RenderReadPixels", ["ptr", "ptr"], "ptr"], Convert: ["SDL_ConvertSurface", ["ptr", "u32"], "ptr"],
+  DestroySurface: ["SDL_DestroySurface", ["ptr"], "void"], DestroyRenderer: ["SDL_DestroyRenderer", ["ptr"], "void"],
+  DestroyWindow: ["SDL_DestroyWindow", ["ptr"], "void"], Quit: ["SDL_QuitSubSystem", ["u32"], "void"], SetTitle: ["SDL_SetWindowTitle", ["ptr", "text"], "bool"]}
+
+ttfSpecs = {Init: ["TTF_Init", [], "bool"], Engine: ["TTF_CreateRendererTextEngine", ["ptr"], "ptr"], Open: ["TTF_OpenFont", ["text", "f32"], "ptr"],
+  Make: ["TTF_CreateText", ["ptr", "ptr", "text", "u64"], "ptr"], Color: ["TTF_SetTextColor", ["ptr", "u8", "u8", "u8", "u8"], "bool"],
+  Draw: ["TTF_DrawRendererText", ["ptr", "f32", "f32"], "bool"], Size: ["TTF_GetStringSize", ["ptr", "text", "u64", "ptr", "ptr"], "bool"],
+  Height: ["TTF_GetFontHeight", ["ptr"], "i32"], Hinting: ["TTF_SetFontHinting", ["ptr", "i32"], "void"], DestroyText: ["TTF_DestroyText", ["ptr"], "void"],
+  CloseFont: ["TTF_CloseFont", ["ptr"], "void"], DestroyEngine: ["TTF_DestroyRendererTextEngine", ["ptr"], "void"], Quit: ["TTF_Quit", [], "void"]}
+
+(* The fonts that come with Ceres, from the root of a project that is Ceres or that takes it. *)
+fontFolders = ["src/sdl/fonts", "deps/www-celestial/ceres/src/sdl/fonts"]
+
+defn defaultFonts()
+  (** The fonts of Ceres, as Cemacs has them: Adwaita Sans for the body, Noto Sans Medium for the strong face and
+      JetBrains Mono for code and numbers, all under the SIL Open Font License. *)
+  at = list.FindFirst(f -> sys.Exists("$f/AdwaitaSans-Regular.ttf"), fontFolders)
+  f = fontFolders[1] if value.IsMissing(at) else at
+  {Body: "$f/AdwaitaSans-Regular.ttf", Strong: "$f/NotoSans-Medium.ttf", Code: "$f/JetBrainsMono-Regular.ttf"}
+end
+
+failed(w) = result.Err({Kind: "sdl", Message: w.Sdl.Error()})   (* An Err with the last reason SDL gave. *)
+
+defn Open(title, width, height, fonts = missing, vsync = true, driver = missing)
+  (** A window of width by height pixels: an Ok of it, or an Err of the kind "sdl". fonts is {Body, Strong, Code}, the
+      paths of the three fonts, Ceres's own by default; driver, as "dummy", the video driver of SDL, for a window that no screen
+      shows. *)
+  api = bound(c.Open("SDL3", version = 0)?, sdlSpecs)?
+  ttf = bound(c.Open("SDL3_ttf", version = 0)?, ttfSpecs)?
+  if api.Version() < 3002000
+    return result.Err({Kind: "sdl", Message: "Ceres needs SDL 3.2 or later."})
+  end
+  if value.IsSome(driver)
+    _ = api.Hint("SDL_VIDEO_DRIVER", driver)
+  end
+  w = {Sdl: api, Ttf: ttf}
+  if not api.Init(InitVideo) or not ttf.Init()
+    return failed(w)
+  end
+  win = api.Window(title, width, height, Resizable)
+  if value.IsMissing(win)
+    return failed(w)
+  end
+  ren = api.Renderer(win, missing)
+  if value.IsMissing(ren)
+    return failed(w)
+  end
+  _ = api.Vsync(ren, 1 if vsync else 0)
+  _ = api.DrawBlend(ren, Blend)
+  _ = api.StartText(win)
+  paths = if value.IsMissing(fonts) defaultFonts() else fonts end
+  engine = ttf.Engine(ren)
+  w = {Sdl: api, Ttf: ttf, Win: win, Ren: ren, Engine: engine, Paths: paths, Fonts: cell(dict.Dict()), Texts: cell(dict.Dict()),
+    Masks: cell(dict.Dict()), Sizes: cell(dict.Dict()), Rect: c.Alloc(16), IRect: c.Alloc(16), Out: c.Alloc(8), Event: c.Alloc(128),
+    Buffer: cell({Block: c.Alloc(65536), Size: 65536}), Width: width, Height: height}
+  for face in ["body", "strong", "code"]
+    _ = fontOf(14, face, w)?
+  end
+  result.Ok(w)
+end
+
+defn fontOf(size, face, w)
+  (** The font of a size and a face, "body", "strong" or "code", opened at its first use: an Ok of it, or an Err. *)
+  px = math.Div(math.Round(size), 1)
+  key = "$face$px"
+  fonts = peek(w.Fonts)
+  if key in fonts
+    return result.Ok(fonts[key])
+  end
+  path = w.Paths.Strong if face == "strong" else w.Paths.Code if face == "code" else w.Paths.Body
+  f = w.Ttf.Open(path, px * 1.0)
+  if value.IsMissing(f)
+    return result.Err({Kind: "sdl", Message: "The font $path can't be opened: $(w.Sdl.Error())"})
+  end
+  w.Ttf.Hinting(f, 4)
+  fonts[key] = f
+  put(fonts, w.Fonts)
+  result.Ok(f)
+end
+
+font(size, face, w) = result.Unwrap(fontOf(size, face, w))   (* A font that must open: a missing font is a bug here. *)
+
+defn shown(s)
+  (** A text as C takes it: a zero byte becomes U+2400, the sign that shows it. *)
+  zero = text.FromBytes([0])
+  if text.Contains(zero, s) text.Replace(zero, "␀", s) else s end
+end
+
+defn Measure(w)
+  (** The measures of a window's texts, for web.Start: widths kept once measured. *)
+  {Width: (s, size, face) -> widthOf(s, size, face, w), Line: size -> lineOf(size, w)}
+end
+
+defn widthOf(s, size, face, w)
+  (** The width of a text in pixels, measured once for each font. *)
+  if s == ""
+    return 0
+  end
+  key = "$face$(math.Round(size))\n$s"
+  sizes = peek(w.Sizes)
+  got = dict.Get(key, sizes)
+  if value.IsSome(got)
+    return got
+  end
+  _ = w.Ttf.Size(font(size, face, w), shown(s), 0, w.Out, missing)
+  px = c.Get("i32", 0, w.Out)
+  put(if value.Len(sizes) > 65536 dict.Dict() else dict.Put(key, px, sizes) end, w.Sizes)
+  px
+end
+
+lineOf(size, w) = w.Ttf.Height(font(size, "body", w))   (* The height of a line of text of a size. *)
+
+(* ---- Painting the draw list *)
+
+red(color) = math.Div(color, 65536)
+green(color) = math.Mod(math.Div(color, 256), 256)
+blue(color) = math.Mod(color, 256)
+alphaOf(one) = dict.GetOr("Alpha", 255, one)
+
+defn setColor(color, alpha, w)
+  _ = w.Sdl.Color(w.Ren, red(color), green(color), blue(color), alpha)
+end
+
+defn area(x, y, wd, h, w)
+  (** The block of an SDL_FRect. *)
+  c.Store(text.FromNumbers("f32", [x, y, wd, h]), 0, w.Rect)
+  w.Rect
+end
+
+defn masked(kind, r, w)
+  (** The mask of a round rectangle of radius r, filled ("box") or its edge ("ring"): a white texture whose alpha is
+      the coverage of each pixel, made once for each radius. *)
+  key = "$kind$r"
+  masks = peek(w.Masks)
+  if key in masks
+    return masks[key]
+  end
+  n = 2 * r + 2
+  px = []
+  for y in 0..(n - 1)
+    for x in 0..(n - 1)
+      dx = list.Max(0.0, math.Abs(x + 0.5 - n / 2.0) - 1.0)
+      dy = list.Max(0.0, math.Abs(y + 0.5 - n / 2.0) - 1.0)
+      d = math.Sqrt(dx * dx + dy * dy)
+      a = cover(r, d) - (cover(r - 1.0, d) if kind == "ring" else 0.0)
+      px = list.Append(0xffffff + math.Div(math.Round(list.Max(0.0, list.Min(1.0, a)) * 255), 1) * 0x1000000, px)
+    end
+  end
+  block = c.Alloc(n * n * 4)
+  c.Store(text.FromNumbers("u32", px), 0, block)
+  t = w.Sdl.Texture(w.Ren, Rgba, 0, n, n)
+  _ = w.Sdl.Upload(t, missing, block, n * 4)
+  _ = w.Sdl.TextureBlend(t, Blend)
+  c.Free(block)
+  masks[key] = t
+  put(masks, w.Masks)
+  t
+end
+
+cover(r, d) = list.Max(0.0, list.Min(1.0, r + 0.5 - d))   (* How much of a pixel at distance d lies inside a radius. *)
+
+defn round(one, kind, x, y, w)
+  (** A rectangle with round corners, from its mask stretched as a 9-grid and tinted. *)
+  r = list.Max(1, list.Min([math.Div(math.Round(one.Radius), 1), math.Div(math.Div(math.Floor(list.Min(one.W, one.H)), 1), 2), 24]))
+  t = masked(kind, r, w)
+  _ = w.Sdl.ColorMod(t, red(one.Color), green(one.Color), blue(one.Color))
+  _ = w.Sdl.AlphaMod(t, alphaOf(one))
+  _ = w.Sdl.Nine(w.Ren, t, missing, r * 1.0, r * 1.0, r * 1.0, r * 1.0, 1.0, area(x, y, one.W, one.H, w))
+end
+
+defn textObject(s, size, face, w)
+  (** The shaped text of a font, made once and kept, as Cemacs keeps them: shaping costs more than drawing. *)
+  key = "$face$(math.Round(size))\n$s"
+  texts = peek(w.Texts)
+  got = dict.Get(key, texts)
+  if value.IsSome(got)
+    return got
+  end
+  if value.Len(texts) >= MaxTexts
+    for t in dict.Values(texts)
+      w.Ttf.DestroyText(t)
+    end
+    texts = dict.Dict()
+  end
+  t = w.Ttf.Make(w.Engine, font(size, face, w), shown(s), 0)
+  put(dict.Put(key, t, texts), w.Texts)
+  t
+end
+
+defn buffer(bytes, w)
+  (** A block that holds these bytes, grown when needed. *)
+  b = peek(w.Buffer)
+  n = text.ByteLength(bytes)
+  if n > b.Size
+    c.Free(b.Block)
+    b = {Block: c.Alloc(n * 2), Size: n * 2}
+    put(b, w.Buffer)
+  end
+  c.Store(bytes, 0, b.Block)
+  b.Block
+end
+
+defn shifted(points, x, y)
+  (** The points x1, y1, x2, y2... moved by x, y. *)
+  [points[k] + (x if math.Mod(k, 2) == 1 else y) for k in 1..value.Len(points)]
+end
+
+defn thick(points, width, color, alpha)
+  (** The vertices of a line of some width, a quad for each segment, as SDL_Vertex: x, y, r, g, b, a, u, v. *)
+  r = red(color) / 255.0
+  g = green(color) / 255.0
+  b = blue(color) / 255.0
+  a = alpha / 255.0
+  out = []
+  half = width / 2.0
+  for k in 1..(math.Div(value.Len(points), 2) - 1)
+    x1 = points[2 * k - 1]
+    y1 = points[2 * k]
+    x2 = points[2 * k + 1]
+    y2 = points[2 * k + 2]
+    len = math.Sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))
+    if len > 0
+      nx = -(y2 - y1) / len * half
+      ny = (x2 - x1) / len * half
+      for p in [[x1 + nx, y1 + ny], [x2 + nx, y2 + ny], [x2 - nx, y2 - ny], [x1 + nx, y1 + ny], [x2 - nx, y2 - ny], [x1 - nx, y1 - ny]]
+        out = list.Concat(out, [p[1], p[2], r, g, b, a, 0.0, 0.0])
+      end
+    end
+  end
+  out
+end
+
+defn tris(points, color, alpha)
+  (** The vertices of filled triangles, as SDL_Vertex. *)
+  r = red(color) / 255.0
+  g = green(color) / 255.0
+  b = blue(color) / 255.0
+  a = alpha / 255.0
+  out = []
+  for k in 1..math.Div(value.Len(points), 2)
+    out = list.Concat(out, [points[2 * k - 1], points[2 * k], r, g, b, a, 0.0, 0.0])
+  end
+  out
+end
+
+defn clipTo(cl, w)
+  (** Cuts what is drawn next to the rectangle cl, [x, y, w, h], or to nothing for missing. *)
+  if value.IsMissing(cl)
+    _ = w.Sdl.Clip(w.Ren, missing)
+  else
+    c.Store(text.FromNumbers("i32", [math.Div(math.Floor(cl[1]), 1), math.Div(math.Floor(cl[2]), 1), math.Div(math.Ceil(cl[3]), 1), math.Div(math.Ceil(cl[4]), 1)]), 0, w.IRect)
+    _ = w.Sdl.Clip(w.Ren, w.IRect)
+  end
+end
+
+defn meet(a, b)
+  (** The rectangle where two meet, [x, y, w, h], a missing one being the whole window. *)
+  if value.IsMissing(a)
+    return b
+  end
+  x = list.Max(a[1], b[1])
+  y = list.Max(a[2], b[2])
+  [x, y, list.Max(0, list.Min(a[1] + a[3], b[1] + b[3]) - x), list.Max(0, list.Min(a[2] + a[4], b[2] + b[4]) - y)]
+end
+
+defn paint(items, dx, dy, cl, w)
+  (** Paints draw items moved by dx, dy inside the clip cl, skipping groups out of it. Gives how many it painted. *)
+  n = 0
+  view = if value.IsMissing(cl) [0, 0, w.Width, w.Height] else cl end
+  for one in items
+    k = one.Kind
+    if k == "group"
+      x = one.X + dx
+      y = one.Y + dy
+      if x < view[1] + view[3] and y < view[2] + view[4] and x + one.W > view[1] and y + one.H > view[2]
+        if one.Clip
+          inner = meet(cl, [x, y, one.W, one.H])
+          clipTo(inner, w)
+          n += paint(one.Items, x, y, inner, w)
+          clipTo(cl, w)
+        else
+          n += paint(one.Items, x, y, cl, w)
+        end
+      end
+    else
+      n += 1
+      if k == "rect"
+        if dict.GetOr("Radius", 0, one) > 0
+          round(one, "box", one.X + dx, one.Y + dy, w)
+        else
+          setColor(one.Color, alphaOf(one), w)
+          _ = w.Sdl.Fill(w.Ren, area(one.X + dx, one.Y + dy, one.W, one.H, w))
+        end
+      else if k == "frame"
+        if dict.GetOr("Radius", 0, one) > 0
+          round(one, "ring", one.X + dx, one.Y + dy, w)
+        else
+          setColor(one.Color, alphaOf(one), w)
+          _ = w.Sdl.Edge(w.Ren, area(one.X + dx, one.Y + dy, one.W, one.H, w))
+        end
+      else if k == "text"
+        t = textObject(one.Text, one.Size, dict.GetOr("Font", "body", one), w)
+        _ = w.Ttf.Color(t, red(one.Color), green(one.Color), blue(one.Color), alphaOf(one))
+        _ = w.Ttf.Draw(t, one.X + dx, one.Y + dy)
+      else if k == "line"
+        pts = shifted(one.Points, dx, dy)
+        if dict.GetOr("Width", 1, one) < 2
+          setColor(one.Color, alphaOf(one), w)
+          _ = w.Sdl.Lines(w.Ren, buffer(text.FromNumbers("f32", pts), w), math.Div(value.Len(pts), 2))
+        else
+          v = thick(pts, one.Width, one.Color, alphaOf(one))
+          _ = w.Sdl.Geometry(w.Ren, missing, buffer(text.FromNumbers("f32", v), w), math.Div(value.Len(v), 8), missing, 0)
+        end
+      else if k == "tris"
+        v = tris(shifted(one.Points, dx, dy), one.Color, alphaOf(one))
+        _ = w.Sdl.Geometry(w.Ren, missing, buffer(text.FromNumbers("f32", v), w), math.Div(value.Len(v), 8), missing, 0)
+      end
+    end
+  end
+  n
+end
+
+defn Paint(items, w)
+  (** Paints a draw list, as web.Frame gives it, and shows it: how many items it painted. *)
+  clipTo(missing, w)
+  n = paint(items, 0, 0, missing, w)
+  _ = w.Sdl.Present(w.Ren)
+  n
+end
+
+(* ---- Events *)
+
+defn keyName(code)
+  (** The name of a key, as Ceres names them, or missing. *)
+  named = {13: "enter", 27: "escape", 8: "backspace", 9: "tab", 32: "space", 127: "delete", 0x40000058: "enter", 0x4000004A: "home",
+    0x4000004B: "pageup", 0x4000004D: "end", 0x4000004E: "pagedown", 0x4000004F: "right", 0x40000050: "left", 0x40000051: "down", 0x40000052: "up"}
+  if code in named
+    named[code]
+  else if code >= 0x21 and code <= 0x7E
+    text.Char(code)
+  else
+    missing
+  end
+end
+
+held(mods, left, right) = math.Mod(math.Div(mods, left), 2) == 1 or math.Mod(math.Div(mods, right), 2) == 1
+
+whole(x) = math.Div(math.Floor(x), 1)
+
+defn decoded(e)
+  (** The event in the block of SDL 3.2, as web.Handle takes it, or missing for one that a page has no use for:
+      {Kind: "quit"} and {Kind: "window"} are the window's own. *)
+  code = c.Get("u32", 0, e)
+  if code == 0x100
+    {Kind: "quit"}
+  else if code == 0x206
+    {Kind: "resize", Width: c.Get("i32", 20, e), Height: c.Get("i32", 24, e)}
+  else if code == 0x300
+    name = keyName(c.Get("u32", 28, e))
+    mods = c.Get("u16", 32, e)
+    if value.IsMissing(name) missing else {Kind: "key", Key: name, Ctrl: held(mods, 0x40, 0x80), Alt: held(mods, 0x100, 0x200), Shift: held(mods, 1, 2)} end
+  else if code == 0x303
+    {Kind: "text", Text: c.Text(c.Get("ptr", 24, e))}
+  else if code == 0x400
+    {Kind: "mouse", Action: "move", X: whole(c.Get("f32", 28, e)), Y: whole(c.Get("f32", 32, e)), Button: 0, Amount: 0}
+  else if code == 0x401 or code == 0x402
+    {Kind: "mouse", Action: "down" if code == 0x401 else "up", X: whole(c.Get("f32", 28, e)), Y: whole(c.Get("f32", 32, e)), Button: c.Get("u8", 24, e), Amount: 0}
+  else if code == 0x403
+    {Kind: "mouse", Action: "wheel", X: whole(c.Get("f32", 36, e)), Y: whole(c.Get("f32", 40, e)), Button: 0, Amount: c.Get("f32", 28, e)}
+  else if code >= 0x202 and code <= 0x21A
+    {Kind: "window"}
+  else
+    missing
+  end
+end
+
+defn Events(w)
+  (** The events waiting, without waiting for one. *)
+  out = []
+  while w.Sdl.Poll(w.Event)
+    one = decoded(w.Event)
+    if value.IsSome(one)
+      out = list.Append(one, out)
+    end
+  end
+  out
+end
+
+defn Run(app, origin = missing, title = missing, width = 1100, height = 860, path = "/", fonts = missing)
+  (** Opens a window and runs the app in it until the window is closed: an Ok of missing, or an Err of the kind "sdl".
+      Its live screen, if it has one, opens at origin, as "http://127.0.0.1:8080". A frame is drawn only when the page
+      changed or the window asks for one; a still page waits in SDL, waking every 50 ms with a live screen, so that
+      what the app pushes is drawn, and every 250 ms without. *)
+  w = Open(if value.IsMissing(title) app.Title else title end, width, height, fonts = fonts)?
+  ui = web.Start(app, width, height, Measure(w), origin = origin, path = path)
+  rest = 50 if value.IsSome(app.Live) and value.IsSome(origin) else 250
+  while true
+    events = Events(w)
+    if list.Any([e.Kind == "quit" for e in events])
+      break
+    end
+    window = false
+    for e in events
+      if e.Kind == "window"
+        window = true
+      else
+        if e.Kind == "resize"
+          w.Width = e.Width
+          w.Height = e.Height
+        end
+        ui = web.Handle(e, ui)
+      end
+    end
+    ui = web.Update(ui)
+    if web.Changed(ui) or window
+      _ = Paint(web.Frame(ui), w)
+      ui = web.Painted(ui)
+    else
+      _ = w.Sdl.Wait(missing, rest)
+      sys.Sleep(0.000001)
+    end
+  end
+  Close(w)
+  result.Ok(missing)
+end
+
+defn Save(w, path)
+  (** Writes what the window drew since its last frame, before it is shown, as a PNG at path: Ok(path), or an Err. *)
+  save = c.Fn("SDL_SavePNG", ["ptr", "text"], "bool", c.Open("SDL3", version = 0)?)
+  if result.IsErr(save)
+    return result.Err({Kind: "sdl", Message: "SDL_SavePNG needs SDL 3.4 or later."})
+  end
+  surface = w.Sdl.Read(w.Ren, missing)
+  if value.IsMissing(surface)
+    return failed(w)
+  end
+  plain = w.Sdl.Convert(surface, Rgb24)
+  w.Sdl.DestroySurface(surface)
+  ok = save.Value(plain, path)
+  w.Sdl.DestroySurface(plain)
+  if ok result.Ok(path) else failed(w) end
+end
+
+defn Shot(app, path, origin = missing, width = 1100, height = 860, settle = missing, steps = missing, fonts = missing)
+  (** Draws the app in a window that no screen shows, under SDL's dummy driver, once its live screen brought what
+      settle(page) waits for, at most 5 seconds, and steps(page) gave the page after the events it sends, as
+      web.Handle takes them; writes it as a PNG at path: Ok(path), or an Err. It needs write= for path. *)
+  w = Open(app.Title, width, height, fonts = fonts, vsync = false, driver = "dummy")?
+  ui = web.Start(app, width, height, Measure(w), origin = origin)
+  start = sys.Now()
+  while value.IsSome(settle) and not settle(ui) and sys.Now() - start < 5
+    sys.Sleep(0.01)
+    ui = web.Update(ui)
+  end
+  if value.IsSome(steps)
+    ui = steps(ui)
+  end
+  clipTo(missing, w)
+  _ = paint(web.Frame(ui), 0, 0, missing, w)
+  saved = Save(w, path)
+  Close(w)
+  saved
+end
+
+defn Close(w)
+  (** Closes a window and frees what it took. *)
+  for t in dict.Values(peek(w.Texts))
+    w.Ttf.DestroyText(t)
+  end
+  for f in dict.Values(peek(w.Fonts))
+    w.Ttf.CloseFont(f)
+  end
+  w.Ttf.DestroyEngine(w.Engine)
+  w.Sdl.DestroyRenderer(w.Ren)
+  w.Sdl.DestroyWindow(w.Win)
+  for b in [w.Rect, w.IRect, w.Out, w.Event, peek(w.Buffer).Block]
+    c.Free(b)
+  end
+  w.Ttf.Quit()
+  w.Sdl.Quit(InitVideo)
+  missing
+end

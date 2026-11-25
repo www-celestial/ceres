@@ -1,0 +1,25 @@
+(* The invoices page of the guide in a window: its app served in this program on a free port of 127.0.0.1, standing
+   in for the app's server, and the page live from it. Every 4 seconds, an accountant pays an invoice elsewhere, and
+   the page sees it go. cesia do demo. *)
+use examples/invoices/page
+use examples/invoices/server
+use src/sdl
+use src/web
+use std/fiber
+use std/io
+use std/net
+use std/sys
+
+store = server.Store()
+l = net.Listen(0).Value
+fiber.Spawn(() -> server.Serve(store, l))
+fiber.Spawn(defn ()
+  for k in 99993..100000
+    sys.Sleep(4)
+    server.Pay(k, store)
+  end
+end)
+app = web.App([web.Route("/", page.Page)], live = "/live", title = "Invoices — Ceres")
+done = sdl.Run(app, origin = "http://127.0.0.1:$(net.Port(l))")
+io.Print(done)
+sys.Exit(0)

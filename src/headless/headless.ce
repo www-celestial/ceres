@@ -13,7 +13,7 @@ use std/text
 use std/value
 
 (** The measures of the headless text: a character is half the size wide, a line one size and a half high. *)
-Measure = {Width: (s, size, strong) -> value.Len(s) * math.Div(size, 2), Line: size -> size + math.Div(size, 2)}
+Measure = {Width: (s, size, font) -> value.Len(s) * math.Div(size, 2), Line: size -> size + math.Div(size, 2)}
 
 (** An app mounted in a page of width by height pixels at path, its live screen at origin if it has one. *)
 Open(app, width = 800, height = 600, origin = missing, path = "/") = web.Start(app, width, height, Measure, origin = origin, path = path)
@@ -103,7 +103,7 @@ defn lines(items, dx, dy, w, h, pad)
       alpha = if dict.GetOr("Alpha", 255, one) < 255 " a$(one.Alpha)" else "" end
       out = list.Append("$pad$k $(number(x)),$(number(y)) $(number(one.W))x$(number(one.H)) $(color(one.Color))$round$alpha", out)
     else if k == "text"
-      strong = if one.Strong " strong" else "" end
+      strong = if one.Font != "body" " $(one.Font)" else "" end
       turned = if dict.GetOr("Angle", 0, one) != 0 " turned" else "" end
       out = list.Append("$(pad)text $(number(x)),$(number(y)) \"$(one.Text)\" $(one.Size)$strong$turned $(color(one.Color))", out)
     else if k == "line" or k == "tris"

@@ -17,10 +17,11 @@ defn Table(source, columns, height = 400, rowHeight = missing, width = missing, 
     Offset: Signal(0), Sort: Signal(missing), Chosen: Signal(missing)}
 end
 
-defn Column(title, cell, sort = missing, align = "left", width = missing)
+defn Column(title, cell, sort = missing, align = missing, width = missing)
   (** A column of a web.Table: its title, and cell(row), what it shows of a row: a value, or a text widget as
       web.Money gives. sort is the field the rows are sorted by when its title is clicked, missing for a column that
-      doesn't sort; align is "left" or "right"; width in pixels, else the columns share the width left.
+      doesn't sort; align is "left" or "right", and by default numbers and amounts go right, in the code font, and
+      the rest left; width in pixels, else the columns share the width left.
 
         Column("Total", r -> r.Total, align = "right").Align --> "right" *)
   {Title: title, Cell: cell, Sort: sort, Align: align, Width: width}
@@ -104,7 +105,7 @@ defn colWidths(cols, w)
   [share if value.IsMissing(c.Width) else c.Width for c in cols]
 end
 
-scrollBar = 10   (* The width of a table's scroll bar, in pixels. *)
+scrollBar = 8   (* The width of a table's scroll bar, in pixels. *)
 
 defn tableGeometry(n, u)
   (** The row height and the height of a table's body. *)
@@ -122,7 +123,9 @@ defn layTable(id, maxW, ui)
 end
 
 defn tableView(id, n, w, u)
-  (** The items of a table at its scroll, and what its box keeps: {Items, Cache}. *)
+  (** The items of a table at its scroll, and what its box keeps: {Items, Cache}. A table has real edges: a line under
+      its header, between its rows and between its columns. Numbers and amounts sit at the right of their column, in
+      the code font; the chosen row is ink on paper turned round. *)
   t = u.Theme
   g = tableGeometry(n, u)
   rh = g.Row
@@ -139,51 +142,57 @@ defn tableView(id, n, w, u)
     _ = pageRows(n.Source, order, 1, 1)
   end
   chosen = Get(n.Chosen)
-  cw = colWidths(n.Columns, w - scrollBar)
-  items = [rect(0, 0, w, n.Height, t.Paper), rect(0, 0, w, rh, t.Head)]
+  inner = w - scrollBar
+  cw = colWidths(n.Columns, inner)
+  lh = lineOf(t.Size, u)
+  ty = math.Div(rh - lh, 2)
+  items = [rect(0, 0, w, n.Height, t.Paper)]
   rows = []
   for k in 1..value.Len(slice)
     i = first + k - 1
     y = (i - 1) * rh - offset
     if i == chosen
-      rows = list.Append(rect(0, y, w - scrollBar, rh, 0xdbeafe), rows)
-    else if math.Mod(i, 2) == 0
-      rows = list.Append(rect(0, y, w - scrollBar, rh, t.Stripe), rows)
+      rows = list.Append(rect(0, y, inner, rh, t.Chosen), rows)
     end
+    rows = list.Append(rect(0, y + rh - 1, inner, 1, t.Grid), rows)
   end
-  x = 0
   texts = [[] for k in 1..value.Len(slice)]
-  lh = lineOf(t.Size, u)
-  ty = math.Div(rh - lh, 2)
+  x = 0
   for c in 1..value.Len(n.Columns)
     col = n.Columns[c]
-    mark = if value.IsSome(order) and value.IsSome(col.Sort) and order.By == col.Sort (" ↓" if order.Desc else " ↑") else "" end
+    mark = if value.IsSome(order) and value.IsSome(col.Sort) and order.By == col.Sort (" v" if order.Desc else " ^") else "" end
     head = "$(col.Title)$mark"
-    hx = if col.Align == "right" cw[c] - 8 - widthOf(head, t.Size, true, u) else 8 end
-    items = list.Append(group(x, 0, cw[c], rh, true, [words(hx, ty, head, t.Size, t.Ink, true)]), items)
+    sample = list.FindFirst(r -> value.IsSome(r), slice)
+    right = col.Align == "right" or (value.IsMissing(col.Align) and value.IsSome(sample) and fontOf(col.Cell(sample)) == "code")
+    hx = if right cw[c] - 6 - widthOf(head, t.Size, "strong", u) else 6 end
+    items = list.Append(group(x, 0, cw[c], rh, true, [words(hx, ty, head, t.Size, t.Ink, "strong")]), items)
     cells = []
     for k in 1..value.Len(slice)
       row = slice[k]
       y = (first + k - 2) * rh - offset + ty
-      s = if value.IsMissing(row) "…" else shown(col.Cell(row)) end
-      cx = if col.Align == "right" cw[c] - 8 - widthOf(s, t.Size, false, u) else 8 end
-      cells = list.Append(words(cx, y, s, t.Size, t.Ink), cells)
+      got = if value.IsMissing(row) "…" else col.Cell(row) end
+      font = fontOf(got)
+      s = shown(got)
+      ink = t.ChosenInk if first + k - 1 == chosen else t.Ink
+      cx = if right cw[c] - 6 - widthOf(s, t.Size, font, u) else 6 end
+      cells = list.Append(words(cx, y, s, t.Size, ink, font), cells)
       texts[k] = list.Append(s, texts[k])
     end
     rows = list.Append(group(x, 0, cw[c], g.Body, true, cells), rows)
+    if c > 1
+      items = list.Append(rect(x, 0, 1, n.Height, t.Grid), items)
+    end
     x += cw[c]
   end
-  items = list.Append(group(0, rh, w, g.Body, true, rows), items)
+  items = list.Append(group(0, rh, inner, g.Body, true, rows), items)
   items = list.Append(rect(0, rh - 1, w, 1, t.Line), items)
+  items = list.Append(rect(inner, 0, 1, n.Height, t.Grid), items)
   if most > 0
-    thumb = list.Max(24, math.Div(g.Body * g.Body, count * rh))
-    ty0 = rh + math.Div((g.Body - thumb) * offset, most)
-    items = list.Append(rect(w - scrollBar + 2, ty0, scrollBar - 4, thumb, 0xaab4bf, 3), items)
+    thumb = list.Max(20, math.Div(g.Body * g.Body, count * rh))
+    y0 = rh + math.Div((g.Body - thumb) * offset, most)
+    items = list.Append(rect(inner + 2, y0, scrollBar - 4, thumb, t.Muted), items)
   end
-  items = list.Append(frame(0, 0, w, n.Height, t.Line, 0), items)
-  if u.Focus == id and u.Ring
-    items = list.Append(frame(-1, -1, w + 2, n.Height + 2, t.Accent, 0), items)
-  end
+  items = list.Append(frame(0, 0, w, n.Height, t.Accent if u.Focus == id else t.Line), items)
   keep = if value.IsMissing(data) missing else {Ver: data.Ver, Order: order, Rows: data.Rows} end
   {Items: items, Cache: {Sorted: keep, First: first, Seen: seen, Count: count, Most: most, Offset: offset, Widths: cw, Row: rh, Texts: texts}}
 end

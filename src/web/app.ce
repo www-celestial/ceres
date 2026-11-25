@@ -55,7 +55,8 @@ Go(path, p) = Set(p.Nav, path)
 
 defn Start(app, width, height, measure, origin = missing, path = "/", theme = Theme, headers = [])
   (** Mounts an app in a window of width by height pixels, at a path: the state that a back-end keeps and gives to
-      Handle and Frame. measure is the back-end's {Width: (text, size, strong) -> pixels, Line: size -> pixels}. With
+      Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels}, font "body", "strong" or
+      "code". With
       origin, as "http://127.0.0.1:8080", an app with live opens its screen there, sending headers with it. *)
   ui = newUi(width, height, measure, theme)
   screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers) else missing end
@@ -94,7 +95,7 @@ end
 defn scrolled(y, ui)
   (** The page scrolled to y, within its height. *)
   u = ui
-  u.ScrollY = list.Max(0, list.Min(y, u.Boxes[u.Root].H - u.Height))
+  u.ScrollY = list.Max(0, list.Min(y, u.Boxes[u.Root].H - seenHeight(u)))
   u.Changed = true
   u
 end
@@ -103,19 +104,72 @@ defn Frame(ui)
   (** The draw list of the page: items painted in order, each in pixels from the top left of the window, colors as
       0xRRGGBB. {Kind: "rect", X, Y, W, H, Color, Radius} fills a rectangle, round at its corners when Radius > 0, with
       Alpha from 0 to 255 when it has one; "frame" is the same rectangle's edge, one pixel wide; "text" {X, Y, Text,
-      Size, Color, Strong} a line of text, X, Y the top left of its line, Angle -90 for one written upward; "line"
+      Size, Color, Font} a line of text, Font "body", "strong" or "code", X, Y the top left of its line, Angle -90 for one written upward; "line"
       {Points, Color, Width, Dash} a line through the points x1, y1, x2, y2...; "tris" {Points, Color, Alpha} filled
       triangles, three points each; "group" {X, Y, W, H, Clip, Items} items moved by X, Y, cut to W by H when Clip is
       true: a back-end may skip a group that is out of sight. *)
   t = ui.Theme
   root = ui.Boxes[ui.Root]
+  seen = seenHeight(ui)
   page = [rect(0, 0, ui.Width, ui.Height, t.Back), group(0, -ui.ScrollY, root.W, root.H, false, root.Items)]
-  if root.H > ui.Height
-    bar = list.Max(24, math.Div(ui.Height * ui.Height, root.H))
-    y = math.Div((ui.Height - bar) * ui.ScrollY, root.H - ui.Height)
-    page = list.Append(rect(ui.Width - 8, y, 6, bar, 0xaab4bf, 3), page)
+  if root.H > seen
+    bar = list.Max(20, math.Div(seen * seen, root.H))
+    y = math.Div((seen - bar) * ui.ScrollY, root.H - seen)
+    page = list.Append(rect(ui.Width - 6, y, 4, bar, t.Muted), page)
   end
-  list.Concat(page, popupItems(ui))
+  list.Concat(list.Concat(page, popupItems(ui)), bandItems(ui))
+end
+
+bandHeight(ui) = lineOf(ui.Theme.Size, ui) + 8 if ui.Theme.Keys else 0   (* The height of the band of keys. *)
+seenHeight(ui) = ui.Height - bandHeight(ui)   (* The height of the window that shows the page. *)
+
+defn buttonKeys(id, ui)
+  (** The buttons of the page that have a key of their own, a chord as C-s: [key, label] for each. *)
+  b = ui.Boxes[id]
+  n = b.Node
+  k = dict.Get("Key", n)
+  own = if n.Kind == "button" and value.IsSome(k) and (text.StartsWith("C-", k) or text.StartsWith("M-", k) or text.StartsWith("f", k) and value.Len(k) > 1) [[k, shown(n.Label)]] else [] end
+  list.Concat(own, list.FlatMap(c -> buttonKeys(c, ui), b.Kids))
+end
+
+defn Keys(ui)
+  (** The keys of the widget in focus, and those of the page's buttons: [keys, what they do] for each, as the band
+      at the bottom of the window shows them. *)
+  f = ui.Focus
+  k = if f != 0 and f in ui.Boxes ui.Boxes[f].Node.Kind else "" end
+  own = if k == "input"
+    list.Concat([["Tab S-Tab", "next field, previous"], ["Left Right Home End", "move"]], if value.IsFunction(ui.Boxes[f].Node.OnEnter) [["Enter", "send"]] else [] end)
+  else if k == "select" and ui.Popup == f
+    [["Up Down", "choose"], ["Enter Esc", "close the list"]]
+  else if k == "select"
+    [["Up Down", "choose"], ["Enter", "open the list"], ["Tab S-Tab", "next field, previous"]]
+  else if k == "button"
+    [["Enter Space", "press"], ["Tab S-Tab", "next field, previous"]]
+  else if k == "table"
+    [["Up Down PgUp PgDn", "scroll"], ["Home End", "first row, last"], ["click a title", "sort"], ["Tab", "next field"]]
+  else
+    [["Tab", "first field"], ["PgUp PgDn", "scroll the page"]]
+  end
+  list.Concat(own, buttonKeys(ui.Root, ui))
+end
+
+defn bandItems(ui)
+  (** The band of keys at the bottom of the window: each key in the code font, then what it does. *)
+  t = ui.Theme
+  if not t.Keys
+    return []
+  end
+  h = bandHeight(ui)
+  y = ui.Height - h
+  out = [rect(0, y, ui.Width, h, t.Band), rect(0, y, ui.Width, 1, t.Grid)]
+  x = t.Page
+  for pair in Keys(ui)
+    out = list.Append(words(x, y + 4, pair[1], t.Size, t.Accent, "code"), out)
+    x += widthOf(pair[1], t.Size, "code", ui) + 8
+    out = list.Append(words(x, y + 4, pair[2], t.Size, t.Ink), out)
+    x += widthOf(pair[2], t.Size, "body", ui) + 20
+  end
+  out
 end
 
 defn at(id, ui)
@@ -140,11 +194,11 @@ defn popup(ui)
   b = ui.Boxes[ui.Popup]
   p = at(ui.Popup, ui)
   shown = list.Take(10, optionsOf(b.Node))
-  {Box: ui.Popup, X: p.X, Y: p.Y + b.H + 2, W: b.W, Row: ui.Theme.Row + 4, Options: shown}
+  {Box: ui.Popup, X: p.X, Y: p.Y + b.H - 1, W: b.W, Row: ui.Theme.Row, Options: shown}
 end
 
 defn popupItems(ui)
-  (** The items of the open list of a select, over the page. *)
+  (** The items of the open list of a select, over the page: the chosen option is ink on paper turned round. *)
   o = popup(ui)
   if value.IsMissing(o)
     return []
@@ -153,15 +207,16 @@ defn popupItems(ui)
   n = ui.Boxes[o.Box].Node
   chosen = Get(n.Value)
   h = o.Row * value.Len(o.Options)
-  out = [rect(o.X + 2, o.Y + 3, o.W, h, 0xd0d7de, t.Radius), rect(o.X, o.Y, o.W, h, t.Paper, t.Radius), frame(o.X, o.Y, o.W, h, t.Line, t.Radius)]
+  out = [rect(o.X, o.Y, o.W, h, t.Paper), frame(o.X, o.Y, o.W, h, t.Line)]
   lh = lineOf(t.Size, ui)
   for k in 1..value.Len(o.Options)
     opt = o.Options[k]
     y = o.Y + (k - 1) * o.Row
-    if n.Key(opt) == chosen
-      out = list.Append(rect(o.X + 1, y + 1, o.W - 2, o.Row - 2, 0xdbeafe, t.Radius), out)
+    on = n.Key(opt) == chosen
+    if on
+      out = list.Append(rect(o.X + 1, y + 1, o.W - 2, o.Row - 2, t.Chosen), out)
     end
-    out = list.Append(words(o.X + 10, y + math.Div(o.Row - lh, 2), value.Text(n.Label(opt)), t.Size, t.Ink), out)
+    out = list.Append(words(o.X + 6, y + math.Div(o.Row - lh, 2), value.Text(n.Label(opt)), t.Size, t.ChosenInk if on else t.Ink, "code"), out)
   end
   out
 end

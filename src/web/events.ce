@@ -44,6 +44,9 @@ end
 defn hit(x, y, ui)
   (** The widget that takes the mouse at x, y of the window: {Id, X, Y}, X and Y in its own coordinates, or missing. *)
   root = ui.Boxes[ui.Root]
+  if y >= seenHeight(ui)
+    return missing
+  end
   k = hitIn(ui.Root, x - root.X, y + ui.ScrollY - root.Y, ui)
   while k != 0 and not (ui.Boxes[k].Node.Kind in active)
     k = ui.Boxes[k].Parent
@@ -107,7 +110,7 @@ defn mouse(e, ui)
     return if k == "button" focus(h.Id, u) else u end
   else if k == "input"
     u = focus(h.Id, u)
-    u.Caret = caretAt(h.X - 10 + dict.GetOr("Shift", 0, u.Boxes[h.Id].Cache), h.Id, u)
+    u.Caret = caretAt(h.X - 6 + dict.GetOr("Shift", 0, u.Boxes[h.Id].Cache), h.Id, u)
     return touch(h.Id, u)
   else if k == "select"
     u = focus(h.Id, u)
@@ -221,8 +224,8 @@ defn caretAt(x, id, ui)
   s = value.Text(dict.GetOr("Text", "", ui.Boxes[id].Cache))
   size = ui.Theme.Size
   for k in 0..value.Len(s)
-    w = widthOf(head(s, k), size, false, ui)
-    next = widthOf(head(s, k + 1), size, false, ui)
+    w = widthOf(head(s, k), size, "code", ui)
+    next = widthOf(head(s, k + 1), size, "code", ui)
     return k if x < (w + next) / 2
   end
   value.Len(s)
@@ -247,8 +250,32 @@ defn tabbed(back, ui)
   focus(all[j], ui, ring = true)
 end
 
+defn chord(e)
+  (** A key event as a button names its key: "C-s", "M-n", "f5", "enter". *)
+  "$(if dict.GetOr("Ctrl", false, e) "C-" else "" end)$(if dict.GetOr("Alt", false, e) "M-" else "" end)$(e.Key)"
+end
+
+defn keyed(id, name, ui)
+  (** The button whose key is name, in the box id or under it, or 0. *)
+  b = ui.Boxes[id]
+  if b.Node.Kind == "button" and dict.Get("Key", b.Node) == name
+    return id
+  end
+  for c in b.Kids
+    got = keyed(c, name, ui)
+    return got if got != 0
+  end
+  0
+end
+
 defn key(e, ui)
   u = ui
+  if dict.GetOr("Ctrl", false, e) or dict.GetOr("Alt", false, e) or text.StartsWith("f", e.Key) and value.Len(e.Key) > 1
+    b = keyed(u.Root, chord(e), u)
+    if b != 0
+      return clicked(b, u)
+    end
+  end
   if e.Key == "tab"
     u.Popup = 0
     return tabbed(dict.GetOr("Shift", false, e), u)
@@ -273,7 +300,7 @@ end
 
 defn pageKey(e, ui)
   (** Keys with no widget in focus scroll the page. *)
-  by = if e.Key == "down" 48 else if e.Key == "up" (-48) else if e.Key == "pagedown" ui.Height - 48 else if e.Key == "pageup" 48 - ui.Height else if e.Key == "home" (-ui.ScrollY) else if e.Key == "end" 1000000000 else 0 end
+  by = if e.Key == "down" 48 else if e.Key == "up" (-48) else if e.Key == "pagedown" seenHeight(ui) - 48 else if e.Key == "pageup" 48 - seenHeight(ui) else if e.Key == "home" (-ui.ScrollY) else if e.Key == "end" 1000000000 else 0 end
   if by == 0 ui else scrolled(ui.ScrollY + by, ui) end
 end
 

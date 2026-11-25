@@ -173,25 +173,21 @@ defn shownError(draft, name, kind)
   dict.Get(name, Errors(draft))
 end
 
-defn fieldView(draft, f)
-  (** A field with its label above and its message under it. *)
+defn fieldView(draft, f, labelWidth)
+  (** A field on a line: its label before it, always in sight, and its message after it, in plain words. *)
   name = f.Field
   label = if value.IsMissing(f.Label) name else f.Label end
   bad = () -> value.IsSome(shownError(draft, name, f.Kind))
   widget = if f.Kind == "choice"
     web.Select(draft.Fields[name], f.Options, f.Key, f.Show, placeholder = f.Placeholder, name = label, width = 220)
   else
-    web.Input(draft.Fields[name], label = label, placeholder = f.Placeholder, width = 220 if f.Kind == "text" else 160, invalid = bad)
+    web.Input(draft.Fields[name], label = label, placeholder = f.Placeholder, width = 220 if f.Kind == "text" else 140, invalid = bad)
   end
-  web.Stack([
-    web.Text(label, size = 12, color = 0x59636e, strong = true),
-    widget,
-    () -> message(shownError(draft, name, f.Kind)),
-  ], gap = 4)
+  web.Row([web.Stack([web.Text(label)], width = labelWidth), widget, () -> message(shownError(draft, name, f.Kind))], gap = 8)
 end
 
-(** The message under a field, or a blank line that keeps its place. *)
-message(m) = web.Text(" " if value.IsMissing(m) else m, size = 12, color = 0xd1242f)
+(** The message beside a field, in plain words, or nothing. *)
+message(m) = web.Text("" if value.IsMissing(m) else m, color = 0xc00000)
 
 defn sent(draft, onSubmit)
   (** What the button of a form does: shows the messages, and sends the form when no field breaks a rule. *)
@@ -209,24 +205,25 @@ defn replyView(draft)
   (** The line beside the button: sending, sent, or why the app refused; a sent form starts again empty. *)
   reply = web.Get(draft.Reply)
   if value.IsMissing(reply)
-    return web.Text(" ", size = 12)
+    return web.Text("")
   end
   got = web.Get(reply)
   if value.IsMissing(got)
-    web.Text("Sending…", size = 12, color = 0x59636e)
+    web.Text("Sending…", color = 0x5c5c5c)
   else if result.IsOk(got)
     Reset(draft)
-    web.Text("Added.", size = 12, color = 0x1a7f37)
+    web.Text("Sent.")
   else
-    web.Text(got.Error.Message, size = 12, color = 0xd1242f)
+    web.Text(got.Error.Message, color = 0xc00000)
   end
 end
 
-defn View(draft, onSubmit, fields, across = true)
-  (** The fields of a draft, side by side, or one under the other with across = false, each with its label and its
-      message, and the button of Submit: onSubmit() runs when it is pressed and no field breaks a rule. When onSubmit
-      gives the reply of web.Act, the line beside the button says how it went, an Err's messages go under their
-      fields, and an Ok empties the form. Enter in a field sends it too. *)
+defn View(draft, onSubmit, fields, labelWidth = 90)
+  (** The fields of a draft, one a line, each with its label before it, in labelWidth pixels, and its message after
+      it; then the button of Submit, which shows its key, Enter: Enter in a field sends the form too. onSubmit() runs
+      when no field breaks a rule. When onSubmit gives the reply of web.Act, the line of the button says how it went,
+      in plain words: Sending…, Sent., or why the app refused; an Err's messages go beside their fields, and an Ok
+      empties the form. *)
   kinds = {}
   for f in fields
     if "Field" in f
@@ -238,14 +235,14 @@ defn View(draft, onSubmit, fields, across = true)
   items = []
   for f in fields
     if f.Kind == "submit"
-      items = list.Append(web.Stack([web.Text(" ", size = 12), web.Button(f.Label, send), () -> replyView(draft)], gap = 4), items)
+      items = list.Append(web.Row([web.Stack([], width = labelWidth), web.Button(f.Label, send, key = "Enter"), () -> replyView(draft)], gap = 8), items)
     else
-      one = fieldView(draft, f)
+      one = fieldView(draft, f, labelWidth)
       if f.Kind != "choice"
         one.Kids[2].OnEnter = send
       end
       items = list.Append(one, items)
     end
   end
-  if across web.Row(items, align = "start", gap = 16) else web.Stack(items) end
+  web.Stack(items, gap = 6)
 end

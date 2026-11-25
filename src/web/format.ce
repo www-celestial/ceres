@@ -29,12 +29,12 @@ defn Grouped(x, decimals = 2, decimal = ",", group = " ")
 end
 
 defn Money(x, currency = "€", decimal = ",", group = " ")
-  (** An amount as a text widget, two digits after the point and the currency after it, as a French page writes
-      it; decimal and group give another way.
+  (** An amount as a text widget in the code font, two digits after the point and the currency after it, as a French
+      page writes it; decimal and group give another way. A table puts it at the right of its column.
 
         Money(1234.5).Text --> "1 234,50 €"
         Money(9.99, currency = "$", decimal = ".", group = ",").Text --> "9.99 $" *)
-  Text("$(Grouped(x, decimal = decimal, group = group)) $currency")
+  Text("$(Grouped(x, decimal = decimal, group = group)) $currency", font = "code")
 end
 
 (* The first k characters of a text, and those from the k-th on: empty outside it. *)

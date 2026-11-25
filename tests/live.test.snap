@@ -1,11 +1,11 @@
 == isLiveRowsAndActions 1 (10 lines, no line end)
 page at 0,0 800x600
-  list at 24,24 752x54
+  list at 12,12 776x50
     listitem
-      text "F-2" at 24,24 21x21
-      text "20,00 €" at 57,24 49x21
+      text "F-2" at 12,12 21x21
+      text "20,00 €" at 41,12 49x21
     listitem
-      text "F-3" at 24,57 21x21
-      text "30,50 €" at 57,57 49x21
-  button "Pay F-2" focused at 24,90 77x35
-  text "reply: Ok({Paid: 2})" at 24,137 140x21
+      text "F-3" at 12,41 21x21
+      text "30,50 €" at 41,41 49x21
+  button "Pay F-2" focused at 12,70 65x26
+  text "reply: Ok({Paid: 2})" at 12,104 140x21

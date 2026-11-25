@@ -1,11 +1,18 @@
-== isCounter 1 (10 lines, no line end)
+== isCounter 1 (17 lines, no line end)
 rect 0,0 800x600 #ffffff
-text 24,24 "Counter" 22 strong #1f2328
-rect 24,69 49x35 #0969da r6
-text 38,76 "Add" 14 strong #ffffff
-text 85,76 "Count: 2" 14 #1f2328
+text 12,12 "Counter" 20 strong #111111
+rect 12,50 37x26 #ffffff
+frame 12,50 37x26 #0b57d0
+text 20,52 "Add" 14 #111111
+text 57,52 "Count: 2" 14 #111111
+rect 0,571 800x29 #f2f2f2
+rect 0,571 800x1 #cfcfcf
+text 12,575 "Enter Space" 14 code #0b57d0
+text 97,575 "press" 14 #111111
+text 152,575 "Tab S-Tab" 14 code #0b57d0
+text 223,575 "next field, previous" 14 #111111
 --
 page at 0,0 800x600
-  heading "Counter" at 24,24 77x33
-  button "Add" focused at 24,69 49x35
-  text "Count: 2" at 85,76 56x21
+  heading "Counter" at 12,12 70x30
+  button "Add" focused at 12,50 37x26
+  text "Count: 2" at 57,52 56x21

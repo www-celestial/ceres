@@ -22,3 +22,8 @@ allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "wri
 [site]
 title = "Ceres"
 color = "#2f6f4e"
+
+# The pictures of shots/, drawn by the SDL3 back-end without a screen.
+[tasks.shots]
+file = "tools/shot.ce"
+allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "write=shots"]

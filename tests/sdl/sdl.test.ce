@@ -1,0 +1,28 @@
+(* The SDL3 back-end draws the invoices page of the guide under SDL's dummy driver, which needs no screen, into a PNG.
+   Without SDL3 and SDL3_ttf on the machine, it passes without a word. *)
+use examples/invoices/page
+use examples/invoices/server
+use src/sdl
+use src/web
+use std/c
+use std/fiber
+use std/net
+use std/result
+use std/sys
+use std/test
+use std/text
+
+hasSdl() = result.IsOk(c.Open("SDL3", version = 0)) and result.IsOk(c.Open("SDL3_ttf", version = 0))
+
+defn isInvoicesShot()
+  if not hasSdl()
+    return true
+  end
+  store = server.Store()
+  l = net.Listen(0).Value
+  fiber.Spawn(() -> server.Serve(store, l))
+  app = web.App([web.Route("/", page.Page)], live = "/live", title = "Invoices")
+  out = "$(test.Temp())/invoices.png"
+  done = sdl.Shot(app, out, origin = "http://127.0.0.1:$(net.Port(l))", settle = ui -> text.Contains("F-000001", "$(web.Semantics(ui))"))
+  result.IsOk(done) and sys.Exists(out)
+end

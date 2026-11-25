@@ -1,15 +1,23 @@
-== isMessagesAsOneTypes 1 (14 lines, no line end)
+== isMessagesAsOneTypes 1 (22 lines, no line end)
 rect 0,0 800x600 #ffffff
-text 24,24 "Name" 12 strong #59636e
-rect 24,46 220x34 #ffffff r6
-frame 24,46 220x34 #d1242f r6
-clip 34,46 200x34
-text 24,84 "Give a name." 12 #d1242f
-text 260,24 "Amount" 12 strong #59636e
-rect 260,46 160x34 #ffffff r6
-frame 260,46 160x34 #d1242f r6
-clip 270,46 140x34
-  text 270,52 "-3" 14 #1f2328
-text 260,84 "More than zero." 12 #d1242f
-rect 436,46 49x35 #0969da r6
-text 450,53 "Add" 14 strong #ffffff
+text 12,14 "Name" 14 #111111
+rect 110,12 220x26 #ffffff
+frame 110,12 220x26 #c00000
+clip 116,12 208x26
+text 338,14 "Give a name." 14 #c00000
+text 12,46 "Amount" 14 #111111
+rect 110,44 140x26 #ffffff
+frame 110,44 140x26 #c00000
+clip 116,44 128x26
+  text 116,46 "-3" 14 code #111111
+text 258,46 "More than zero." 14 #c00000
+rect 110,76 80x26 #ffffff
+frame 110,76 80x26 #0b57d0
+text 118,78 "Add" 14 #111111
+text 147,78 "Enter" 14 code #5c5c5c
+rect 0,571 800x29 #f2f2f2
+rect 0,571 800x1 #cfcfcf
+text 12,575 "Enter Space" 14 code #0b57d0
+text 97,575 "press" 14 #111111
+text 152,575 "Tab S-Tab" 14 code #0b57d0
+text 223,575 "next field, previous" 14 #111111
