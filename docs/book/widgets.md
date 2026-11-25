@@ -84,6 +84,16 @@ page = headless.Type("Ana", headless.ClickOn("Name", one(web.Input(name, label =
 web.Get(name) --> "Ana"
 ```
 
+`secret = true` makes it the field of a password: it shows a dot for each character, the tree of semantics (what a
+screen reader and a test read) holds the dots only, and in a browser its hidden input is of the type `password`, which
+the browser's manager of passwords fills.
+
+```cesia
+pass = web.Signal("")
+page = headless.Type("hunter2", headless.ClickOn("Password", one(web.Input(pass, label = "Password", secret = true))))
+web.Get(pass) --> "hunter2"
+```
+
 ## Select
 
 A choice among options, a list or a signal of rows: the signal it is bound to holds the key of the chosen one. A click

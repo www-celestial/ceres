@@ -14,7 +14,8 @@ the browser's ([Ceres in a web page](web.md)).
 - `web.Live(name, p)`: the rows of the show `name`, a signal kept up to date as the server pushes its changes, the
   answer of a `cepheus.Watch` for instance. An empty list until the first answer.
 - `web.Act(name, args, p)`: asks the server for the action `name`. It gives a signal of the reply: `missing` until it
-  comes, then the `Ok` of what the action gave, or its `Err`.
+  comes, then the `Ok` of what the action gave, or its `Err`. An action asked before the screen first connected, as a
+  page asks what it shows when it opens, waits for the connection; one asked after a break gets an `Err` at once.
 - `web.Pages(name, p)`: the rows of a big table, which the server gives a window at a time, through the action `name`.
 
 ```cesia norun
