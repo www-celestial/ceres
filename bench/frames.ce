@@ -1,0 +1,116 @@
+(* The measures of docs/book/speed.md, in a window of SDL3 with vsync off: frames of the invoices page live from its
+   app served in this program, a live change, typing, and a table of 100,000 rows scrolled, sorted and dragged, from
+   the app a window at a time and from a list in the page. Each line gives the p50 and the p99 in ms over its runs, and
+   splits the time of Ceres (events, update, layout, draw list) from the painting of SDL. cesia do bench. *)
+use examples/invoices/page
+use examples/invoices/server
+use src/sdl
+use src/web
+use std/fiber
+use std/io
+use std/list
+use std/math
+use std/net
+use std/sys
+use std/text
+use std/value
+
+defn pct(xs, q)
+  s = list.Sort(xs)
+  s[list.Max(1, math.Div(math.Ceil(q * value.Len(s)), 1))]
+end
+
+ms(x) = text.Decimals(2, x * 1000)
+
+defn report(name, ceres, paint)
+  total = [ceres[k] + paint[k] for k in 1..value.Len(ceres)]
+  io.Print("$name: $(value.Len(total)) runs, frame p50 $(ms(pct(total, 0.5))) ms p99 $(ms(pct(total, 0.99))) ms; Ceres p50 $(ms(pct(ceres, 0.5))) ms, SDL paint p50 $(ms(pct(paint, 0.5))) ms")
+end
+
+defn frame(w, ui, f)
+  (** One step: f(ui) timed as Ceres's part, with the draw list, then the paint and present. {Ui, Ceres, Paint, Items} *)
+  t0 = sys.Now()
+  u = f(ui)
+  items = web.Frame(u)
+  t1 = sys.Now()
+  n = sdl.Paint(items, w)
+  t2 = sys.Now()
+  {Ui: web.Painted(u), Ceres: t1 - t0, Paint: t2 - t1, Items: n}
+end
+
+defn runs(name, w, ui, steps, f)
+  c = []
+  p = []
+  u = ui
+  last = 0
+  for k in 1..steps
+    got = frame(w, u, f)
+    u = got.Ui
+    c = list.Append(got.Ceres, c)
+    p = list.Append(got.Paint, p)
+    last = got.Items
+  end
+  report("$name ($last items painted)", c, p)
+  u
+end
+
+has(words, ui) = text.Contains(words, "$(web.Semantics(ui))")
+
+defn settle(ui, ok)
+  u = ui
+  start = sys.Now()
+  while not ok(u) and sys.Now() - start < 10
+    sys.Sleep(0.002)
+    u = web.Update(u)
+  end
+  u
+end
+
+key(name) = {Kind: "key", Key: name, Ctrl: false, Alt: false, Shift: false}
+mouse(action, x, y, amount = 0) = {Kind: "mouse", Action: action, X: x, Y: y, Button: 1, Amount: amount}
+
+store = server.Store()
+l = net.Listen(0).Value
+fiber.Spawn(() -> server.Serve(store, l))
+app = web.App([web.Route("/", page.Page)], live = "/live", title = "Ceres bench")
+w = sdl.Open("Ceres bench", 1100, 860, vsync = false).Value
+t0 = sys.Now()
+ui = web.Start(app, 1100, 860, sdl.Measure(w), origin = "http://127.0.0.1:$(net.Port(l))")
+started = sys.Now() - t0
+ui = settle(ui, u -> has("F-000001", u) and has("F-099993", u))
+io.Print("start of the page, mounted and laid out: $(ms(started)) ms; with its live data: $(ms(sys.Now() - t0)) ms")
+ui = runs("repaint of the invoices page", w, ui, 200, u -> web.Update(u))
+
+(* A live change: an invoice paid elsewhere, from the moment the page takes it in, its message already there. *)
+c = []
+p = []
+for k in 99993..99999
+  server.Pay(k, store)
+  sys.Sleep(0.05)
+  got = frame(w, ui, u -> web.Update(u))
+  ui = got.Ui
+  c = list.Append(got.Ceres, c)
+  p = list.Append(got.Paint, p)
+end
+report("a live change (a row gone, the bars again)", c, p)
+
+(* Typing in the field Amount. *)
+ui = web.Handle(mouse("up", 160, 121), web.Handle(mouse("down", 160, 121), ui))
+ui = runs("a key typed in a field", w, ui, 100, u -> web.Handle({Kind: "text", Text: "7"}, u))
+
+(* The table of the app, 100,000 rows a window of 100 at a time: a notch of the wheel each frame. *)
+ui = runs("table from the app, one notch of the wheel", w, ui, 300, u -> web.Handle(mouse("wheel", 500, 600, amount = -1), u))
+ui = settle(ui, u -> not has("…", u))
+ui = runs("table from the app, a drag of its scroll bar", w, ui, 100, u -> web.Handle(mouse("move", 1083, 480 + math.Mod(math.Div(math.Round(sys.Now() * 1000), 1), 200)), u))
+
+(* A table of 100,000 rows from a list in the page. *)
+many = [{Number: "F-$(text.PadLeft(6, "0", value.Text(k)))", Client: "Client $(math.Mod(k * 7, 1000))", Total: k * 1.5} for k in 1..100000]
+local = web.App([web.Route("/", _ -> web.Table(many, [web.Column("Number", r -> r.Number, sort = "Number"), web.Column("Client", r -> r.Client, sort = "Client"), web.Column("Total", r -> web.Money(r.Total))], height = 800, label = "Local"))])
+lu = web.Start(local, 1100, 860, sdl.Measure(w))
+lu = runs("table of a list, one notch of the wheel", w, lu, 300, u -> web.Handle(mouse("wheel", 500, 400, amount = -1), u))
+t = sys.Now()
+lu = web.Handle(mouse("up", 300, 20), web.Handle(mouse("down", 300, 20), lu))
+io.Print("sort of the 100,000 rows of a list by Client, a click: $(ms(sys.Now() - t)) ms")
+lu = runs("table of a list sorted, one notch of the wheel", w, lu, 300, u -> web.Handle(mouse("wheel", 500, 400, amount = -1), u))
+sdl.Close(w)
+sys.Exit(0)

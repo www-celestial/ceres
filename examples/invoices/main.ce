@@ -12,7 +12,11 @@ use std/sys
 
 store = server.Store()
 l = net.Listen(0).Value
-fiber.Spawn(() -> server.Serve(store, l))
+fiber.Spawn(defn ()
+  (* The server takes TERM and INT, as http.Serve does: once it stopped, so does the window. *)
+  _ = server.Serve(store, l)
+  sys.Exit(0)
+end)
 fiber.Spawn(defn ()
   for k in 99993..100000
     sys.Sleep(4)

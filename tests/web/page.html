@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Ceres glue test</title>
+<style>html, body { margin: 0; } #page { width: 1100px; height: 860px; }</style>
+<div id="page"><canvas></canvas></div>
+<script type="module">
+// The test of web/ceres.js without WebAssembly: a host that gives the draw list and the semantics tree that Ceres made
+// natively for the invoices page (cesia do webframe), and counts the events it gets.
+import { start } from '/web/ceres.js'
+const bytes = new Uint8Array(await (await fetch('/tests/web/invoices.bin')).arrayBuffer())
+const tree = await (await fetch('/tests/web/invoices.json')).text()
+const events = []
+let sent = false
+const host = {
+  event: e => events.push(e),
+  frame: () => bytes,
+  semantics: () => (sent ? null : (sent = true, tree)),
+  message() {}, closed() {},
+}
+const glue = start(document.querySelector('canvas'), host)
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  const layer = document.querySelector('#page > div')
+  document.title = 'done ' + layer.querySelectorAll('[role=row]').length + ' rows, ' + layer.querySelectorAll('input').length + ' inputs, ' + events.length + ' events, measure ' + Math.round(glue.measure('Invoices', 14, 'body'))
+}))
+</script>

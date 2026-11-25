@@ -225,17 +225,18 @@ end
 
 defn Semantics(ui)
   (** The semantics tree of the page: what a screen reader reads and what the web back-end mirrors in a hidden DOM.
-      Each node is {Role, Name, Value, X, Y, W, H, Focused, Kids}, in pixels of the window: Role "page", "heading",
+      Each node is {Id, Role, Name, Value, X, Y, W, H, Focused, Kids}, in pixels of the window, Id the same for the
+      same widget from one frame to the next, so that a mirror keeps its elements: Role "page", "heading",
       "text", "button", "link" (with Href), "textbox" (with Invalid), "combobox" (with Expanded), "table" (with Count,
       the number of rows in all, and Kids, its header and the rows in sight, "row" with Index, of "cell"), "img" for a
       graph, "list" of "listitem". The boxes that only place others, stacks and rows, give their children. *)
   root = ui.Boxes[ui.Root]
-  {Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: semOf(ui.Root, 0, -ui.ScrollY, ui)}
+  {Id: 0, Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: semOf(ui.Root, 0, -ui.ScrollY, ui)}
 end
 
 defn node(role, name, b, x, y, ui, kids = [], v = missing)
   (** A node of the semantics tree. *)
-  {Role: role, Name: name, Value: v, X: x, Y: y, W: b.W, H: b.H, Focused: ui.Focus == b.Id, Kids: kids}
+  {Id: b.Id, Role: role, Name: name, Value: v, X: x, Y: y, W: b.W, H: b.H, Focused: ui.Focus == b.Id, Kids: kids}
 end
 
 defn semOf(id, x0, y0, ui)
@@ -267,7 +268,7 @@ defn semOf(id, x0, y0, ui)
   else if k == "table"
     [tableSem(b, x, y, ui)]
   else if k == "each"
-    [node("list", "", b, x, y, ui, kids = [{Role: "listitem", Name: "", Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: semOf(c, x, y, ui)} for c in b.Kids])]
+    [node("list", "", b, x, y, ui, kids = [{Id: "$(c)i", Role: "listitem", Name: "", Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: semOf(c, x, y, ui)} for c in b.Kids])]
   else
     inner
   end
@@ -277,13 +278,13 @@ defn tableSem(b, x, y, ui)
   (** The semantics of a table: its header and the rows in sight. *)
   c = b.Cache
   n = b.Node
-  head = {Role: "row", Name: "", Value: missing, X: x, Y: y, W: b.W, H: c.Row, Focused: false, Index: 0,
-    Kids: [{Role: "columnheader", Name: col.Title, Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for col in n.Columns]}
+  head = {Id: "$(b.Id)h", Role: "row", Name: "", Value: missing, X: x, Y: y, W: b.W, H: c.Row, Focused: false, Index: 0,
+    Kids: [{Id: "$(b.Id)h$k", Role: "columnheader", Name: n.Columns[k].Title, Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for k in 1..value.Len(n.Columns)]}
   rows = []
   for k in 1..value.Len(c.Texts)
     i = c.First + k - 1
-    rows = list.Append({Role: "row", Name: "", Value: missing, X: x, Y: y + c.Row + (i - 1) * c.Row - c.Offset, W: b.W, H: c.Row, Focused: false, Index: i,
-      Kids: [{Role: "cell", Name: s, Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for s in c.Texts[k]]}, rows)
+    rows = list.Append({Id: "$(b.Id)r$i", Role: "row", Name: "", Value: missing, X: x, Y: y + c.Row + (i - 1) * c.Row - c.Offset, W: b.W, H: c.Row, Focused: false, Index: i,
+      Kids: [{Id: "$(b.Id)r$(i)c$j", Role: "cell", Name: c.Texts[k][j], Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for j in 1..value.Len(c.Texts[k])]}, rows)
   end
   one = node("table", n.Label, b, x, y, ui, kids = list.Prepend(head, rows))
   one.Count = c.Count

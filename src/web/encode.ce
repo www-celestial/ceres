@@ -1,0 +1,64 @@
+(* The draw list as bytes, for the glue of the browser, web/ceres.js: what it paints with WebGL2 in one pass. *)
+use std/list
+use std/text
+use std/value
+
+defn Encode(items)
+  (** The draw list as the bytes that web/ceres.js paints: two u32, the count of f32 numbers and the count of bytes of
+      text, then the numbers, then the texts in UTF-8. Each item is a code and its numbers: 1 rect and 2 frame, X Y W
+      H Color Alpha Radius; 3 text, X Y Size Color Alpha Font (0 body, 1 strong, 2 code) Start Length Angle, Start and
+      Length the place of its text in the bytes of texts; 4 line, n Width Color Alpha then n points x y; 5 tris, n
+      Color Alpha then n points; 6 a group, X Y W H Clip (1 or 0), whose items follow, up to 7, its end. A color fits
+      in an f32 exactly, as every integer up to 2^24 does.
+
+        value.Len(text.Numbers("u32", text.ByteSlice(1, 8, Encode([{Kind: "rect", X: 0, Y: 0, W: 1, H: 1, Color: 0, Radius: 0}])))) --> 2 *)
+  got = encoded(items, 0)
+  words = text.Join("", got.Texts)
+  text.Str(text.FromNumbers("u32", [got.Count, text.ByteLength(words)]), text.Join("", got.Chunks), words)
+end
+
+fonts = {body: 0, strong: 1, code: 2}   (* The number of each font in the bytes. *)
+
+defn encoded(items, at)
+  (** The bytes of the numbers of items, in chunks, an item each, with their count, and the texts of items, from the
+      byte at of all texts: {Chunks, Count, Texts, At}. *)
+  chunks = []
+  count = 0
+  ts = []
+  pos = at
+  for one in items
+    k = one.Kind
+    a = dictAlpha(one)
+    nums = if k == "rect" or k == "frame"
+      [1 if k == "rect" else 2, one.X, one.Y, one.W, one.H, one.Color, a, radiusOf(one)]
+    else if k == "text"
+      [3, one.X, one.Y, one.Size, one.Color, a, fonts[fontName(one)], pos, text.ByteLength(one.Text), angleOf(one)]
+    else if k == "line"
+      list.Concat([4, value.Len(one.Points) / 2, widthOf1(one), one.Color, a], one.Points)
+    else if k == "tris"
+      list.Concat([5, value.Len(one.Points) / 2, one.Color, a], one.Points)
+    else
+      [6, one.X, one.Y, one.W, one.H, 1 if one.Clip else 0]
+    end
+    chunks = list.Append(text.FromNumbers("f32", nums), chunks)
+    count += value.Len(nums)
+    if k == "text"
+      ts = list.Append(one.Text, ts)
+      pos += text.ByteLength(one.Text)
+    else if k == "group"
+      got = encoded(one.Items, pos)
+      chunks = list.Append(text.Join("", got.Chunks), chunks)
+      chunks = list.Append(text.FromNumbers("f32", [7]), chunks)
+      count += got.Count + 1
+      ts = list.Append(text.Join("", got.Texts), ts)
+      pos = got.At
+    end
+  end
+  {Chunks: chunks, Count: count, Texts: ts, At: pos}
+end
+
+dictAlpha(one) = one.Alpha if "Alpha" in one and value.IsSome(one.Alpha) else 255   (* The alpha of an item, 255 by default. *)
+radiusOf(one) = one.Radius if "Radius" in one else 0   (* The radius of a rectangle, 0 by default. *)
+fontName(one) = one.Font if "Font" in one and value.IsSome(one.Font) else "body"   (* The font of a text. *)
+angleOf(one) = one.Angle if "Angle" in one else 0   (* The angle of a text. *)
+widthOf1(one) = one.Width if "Width" in one and value.IsSome(one.Width) else 1   (* The width of a line. *)

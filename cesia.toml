@@ -27,3 +27,8 @@ color = "#2f6f4e"
 [tasks.shots]
 file = "tools/shot.ce"
 allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "write=shots"]
+
+# The draw list of the invoices page for tests/web/page.html, the test of the browser's glue.
+[tasks.webframe]
+file = "tools/webframe.ce"
+allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "write=tests/web"]
