@@ -13,7 +13,8 @@ use std/value
 (* ---- Constructors *)
 
 defn Panel(title, body, icon = missing, name = missing)
-  (** A panel of a web.Dock or a web.Tabs: its title on its tab, beside an icon of web.Icons, and its body, a widget,
+  (** A panel of a web.Dock or a web.Tabs: its title on its tab, beside an icon of web.Icons (each a value or a
+      function that gives it, read again as the panel changes), and its body, a widget,
       4 pixels in, scrolled when it is taller than the panel; a body that fills the panel, as a table alone or a part
       that web.Grow marks in a stack, takes its height and doesn't scroll. name tells it apart in the layout that a
       dock keeps, its title by default.
@@ -80,7 +81,7 @@ defn Dock(center, left = [], right = [], bottom = [], toolbar = missing, status 
     panels[p.Name] = p
   end
   areas = {Left: [p.Name for p in left], Center: [p.Name for p in center], Right: [p.Name for p in right], Bottom: [p.Name for p in bottom]}
-  state = {Name: name, Panels: panels, Areas: Signal(areas), First: areas,
+  state = {Id: fresh(), Name: name, Panels: panels, Areas: Signal(areas), First: areas,
     Sizes: {Left: Signal(dict.GetOr("Left", 240, sizes)), Right: Signal(dict.GetOr("Right", 320, sizes)), Bottom: Signal(dict.GetOr("Bottom", 200, sizes))},
     Chosen: {Left: Signal(1), Center: Signal(1), Right: Signal(1), Bottom: Signal(1)}}
   top = if value.IsMissing(toolbar) missing else kid(toolbar) end
@@ -106,7 +107,7 @@ defn Toolbar(items)
       pushes the next to the right, a web.Divider is a thin line up between two groups.
 
         Toolbar([Button("Save", () -> missing, icon = "save", key = "C-s")]).Kind --> "toolbar" *)
-  {Kind: "toolbar", Kids: [barred(x) for x in kids(items)], Gap: 2, Pad: 4, Fill: "Header", Border: missing, Radius: 0, Width: missing,
+  {Kind: "toolbar", Kids: [barred(x) for x in kids(items)], Gap: 4, Pad: 4, Fill: "Header", Border: missing, Radius: 0, Width: missing,
     Height: missing, Align: "center", Grow: 0}
 end
 
@@ -163,8 +164,8 @@ end
 
 defn Property(label, editor, note = missing, error = missing, width = 112)
   (** A row of an inspector: a label at the left, in a column of width pixels, and its editor, a web.Input or any
-      widget, which a field fills to the right; note, a short text after it, as the type of a field, in the muted
-      color; error, a function that gives the text of what is wrong with it ("" or missing for nothing), shown under it
+      widget, which a field fills to the right; note, a short text after it in a column of 56 pixels, as the type of a
+      field, in the muted color; error, a function that gives the text of what is wrong with it ("" or missing for nothing), shown under it
       in the color of danger.
 
         Property("Total", Input(Signal("12"))).Kind --> "row" *)
@@ -172,7 +173,7 @@ defn Property(label, editor, note = missing, error = missing, width = 112)
   if (ed.Kind == "input" or ed.Kind == "select") and value.IsMissing(ed.Width)
     ed.Width = 100000
   end
-  line = Row([Stack([Text(label, color = "Muted")], width = width), Grow(ed), if value.IsMissing(note) missing else Text(note, color = "Muted") end], gap = 8)
+  line = Row([Stack([Text(label, color = "Muted")], width = width), Grow(Stack([ed], gap = 0)), if value.IsMissing(note) missing else Stack([Text(note, color = "Muted")], width = 56) end], gap = 8)
   if value.IsMissing(error) line else Stack([line, () -> wrongText(error())], gap = 2) end
 end
 
@@ -229,11 +230,7 @@ defn layIcon(id, ui)
   n = ui.Boxes[id].Node
   t = ui.Theme
   s = if value.IsMissing(n.Size) role("Icon", t) else n.Size end
-  lh = lineOf(t.Size, ui)
-  (* as tall as a line of text, the icon where the letters of the line are: they sit high in it *)
-  h = list.Max(s, lh)
-  y = if lh > s math.Div(lh - s, 2) - 2 else 0 end
-  sized(id, s, h, [iconItem(0, y, n.Name, s, if value.IsMissing(n.Color) t.Ink else tone(n.Color, t) end)], ui)
+  sized(id, s, s, [iconItem(0, 0, n.Name, s, if value.IsMissing(n.Color) t.Ink else tone(n.Color, t) end)], ui)
 end
 
 layLine(id, ui) = sized(id, 1, 16, [rect(0, 0, 1, 16, role("Edge", ui.Theme))], ui)   (* A line up between two groups of a toolbar. *)
@@ -316,7 +313,8 @@ defn layTabs(id, maxW, ui)
   for k in 1..value.Len(ps)
     p = ps[k]
     title = shown(p.Title)
-    iw = if value.IsMissing(p.Icon) 0 else ic + 6 end
+    icon = valueOf(p.Icon)
+    iw = if value.IsMissing(icon) 0 else ic + 6 end
     tw = 24 + iw + widthOf(title, t.Size, "body", u)
     on = k == chosen
     hov = u.Hover == id and u.HoverPart == k
@@ -327,8 +325,8 @@ defn layTabs(id, maxW, ui)
       items = list.Append(rect(x, 2, tw, th - 2, role("Hover", t)), items)
     end
     ink = t.Ink if on or hov else t.Muted
-    if value.IsSome(p.Icon)
-      items = list.Append(iconItem(x + 12, math.Div(th - ic, 2), p.Icon, ic, t.Link if on and inside else ink), items)
+    if value.IsSome(icon)
+      items = list.Append(iconItem(x + 12, math.Div(th - ic, 2), icon, ic, t.Link if on and inside else ink), items)
     end
     items = list.Append(words(x + 12 + iw, math.Div(th - t.Size, 2), title, t.Size, ink), items)
     if on and u.Focus == id and u.Ring

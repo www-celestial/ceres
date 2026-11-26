@@ -58,9 +58,24 @@ defn partNode(v)
 end
 
 defn remount(id, ui)
-  (** Runs the live part of box id again, and mounts what it gives in place of what it gave before. *)
+  (** Runs the live part of box id again, and mounts what it gives in place of what it gave before; the same web.Dock
+      as before, as each route of an app may give, stays mounted as it is. *)
+  b = ui.Boxes[id]
+  if value.Len(b.Kids) == 1 and ui.Boxes[b.Kids[1]].Node.Kind == "dock"
+    again = track(b.Node.Fn)
+    n = partNode(again.Value)
+    if n.Kind == "dock" and n.State.Id == ui.Boxes[b.Kids[1]].Node.State.Id
+      return follow(id, "part", again.Reads, ui)
+    end
+    return mounted(id, again, dropKids(id, ui))
+  end
   u = dropKids(id, ui)
-  got = track(u.Boxes[id].Node.Fn)
+  mounted(id, track(u.Boxes[id].Node.Fn), u)
+end
+
+defn mounted(id, got, ui)
+  (** The box id with what its live part gave, got, mounted as its child. *)
+  u = ui
   u = follow(id, "part", got.Reads, u)
   made = mount(partNode(got.Value), id, u)
   u = made.Ui

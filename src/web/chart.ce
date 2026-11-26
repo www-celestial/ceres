@@ -21,7 +21,7 @@ defn colorOf(c, t)
   if c == "ink" or value.IsMissing(c)
     t.Ink
   else if c == "grid"
-    0xe6eaef
+    role("Rule", t)
   else if c == "paper"
     t.Paper
   else

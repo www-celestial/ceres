@@ -479,10 +479,10 @@ end
 (* ---- What the page shows of its connection. *)
 
 (* The colors of the line, as 0xRRGGBB: what is wrong, what waits, what is fine, what explains. *)
-red = 0xb3261e
-amber = 0x8a5a00
-green = 0x1e6b2e
-gray = 0x5f6670
+red = ["Danger", 0xb3261e]
+amber = ["Warn", 0x8a5a00]
+green = ["Ok", 0x1e6b2e]
+gray = ["Muted", 0x5f6670]
 
 inWords(say, t) = if value.IsMissing(say) t else say(t) end   (* A text in the page's language. *)
 
@@ -546,7 +546,7 @@ defn conflictsOf(cs, screen, say)
   if value.Len(cs) == 0
     return missing
   end
-  Stack([conflictOf(c, screen, say) for c in cs], gap = 8, pad = 8, fill = 0xfff4e5, border = amber)
+  Stack([conflictOf(c, screen, say) for c in cs], gap = 8, pad = 8, fill = ["Header", 0xfff4e5], border = amber)
 end
 
 defn conflictOf(c, screen, say)

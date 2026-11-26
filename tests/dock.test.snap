@@ -2,8 +2,8 @@
 page at 0,0 1000x640
   toolbar at 0,0 1000x32
     button "Save" at 4,4 88x24
-    button "Refresh" at 97,4 100x24
-    text "Invoices" at 948,6 48x19
+    button "Refresh" at 101,4 100x24
+    text "Invoices" at 948,9 48x19
   tablist "Left" at 0,36 200x28
     tab "Outliner" selected at 0,36 94x28
   tabpanel "Outliner" at 0,64 200x518
@@ -100,14 +100,14 @@ page at 0,0 1000x640
   tabpanel "Details" at 740,64 260x518
     button "Invoice" expanded at 744,68 252x24
     text "Client" at 748,98 36x19
-    textbox "Client" = "Martin & Co" at 868,96 92x24
-    text "text" at 968,98 24x19
+    textbox "Client" = "Martin & Co" at 868,96 60x24
+    text "text" at 936,98 24x19
     text "Total" at 748,124 30x19
-    textbox "Total" = "10.5" at 868,122 86x24
-    text "money" at 962,124 30x19
-  text "Live" at 4,590 24x19
-  text "super@app.test" at 53,590 84x19
-  text "200 invoices" at 924,590 72x19
+    textbox "Total" = "10.5" at 868,122 60x24
+    text "money" at 936,124 30x19
+  text "Live" at 4,593 24x19
+  text "super@app.test" at 53,593 84x19
+  text "200 invoices" at 924,593 72x19
 == isDockFillsTheWindow 2 (184 lines, no line end)
 rect 0,0 1000x640 #151515
 rect 0,0 1000x613 #151515
@@ -115,11 +115,11 @@ rect 0,0 1000x32 #1c1c1c
 icon 12,8 "save" 16 #dcdcdc
 text 34,9 "Save" 13 #dcdcdc
 text 66,9 "C-s" 13 code #a8a8a8
-rect 94,8 1x16 #383838
-icon 105,8 "refresh" 16 #dcdcdc
-text 127,9 "Refresh" 13 #dcdcdc
-text 177,9 "f5" 13 code #a8a8a8
-text 948,6 "Invoices" 13 #a8a8a8
+rect 96,8 1x16 #383838
+icon 109,8 "refresh" 16 #dcdcdc
+text 131,9 "Refresh" 13 #dcdcdc
+text 181,9 "f5" 13 code #a8a8a8
+text 948,9 "Invoices" 13 #a8a8a8
 clip 0,36 1000x546
   clip 0,36 200x546
     rect 0,36 200x28 #1c1c1c
@@ -267,22 +267,22 @@ clip 0,36 1000x546
           icon 748,72 "chevron-down" 16 #a8a8a8
           text 768,73 "Invoice" 13 strong #dcdcdc
           text 748,98 "Client" 13 #a8a8a8
-          rect 868,96 92x24 #161616 r2
-          frame 868,96 92x24 #737373 r2
-          clip 874,96 80x24
+          rect 868,96 60x24 #161616 r2
+          frame 868,96 60x24 #737373 r2
+          clip 874,96 48x24
             text 874,98 "Martin & Co" 13 code #dcdcdc
-          text 968,98 "text" 13 #a8a8a8
+          text 936,98 "text" 13 #a8a8a8
           text 748,124 "Total" 13 #a8a8a8
-          rect 868,122 86x24 #161616 r2
-          frame 868,122 86x24 #737373 r2
-          clip 874,122 74x24
+          rect 868,122 60x24 #161616 r2
+          frame 868,122 60x24 #737373 r2
+          clip 874,122 48x24
             text 874,124 "10.5" 13 code #dcdcdc
-          text 962,124 "money" 13 #a8a8a8
+          text 936,124 "money" 13 #a8a8a8
 rect 0,586 1000x27 #1c1c1c
-text 4,590 "Live" 13 #5fcf75
+text 4,593 "Live" 13 #5fcf75
 rect 40,591 1x16 #383838
-text 53,590 "super@app.test" 13 #dcdcdc
-text 924,590 "200 invoices" 13 #a8a8a8
+text 53,593 "super@app.test" 13 #dcdcdc
+text 924,593 "200 invoices" 13 #a8a8a8
 rect 0,613 1000x27 #1c1c1c
 rect 0,613 1000x1 #2e2e2e
 text 12,617 "Tab" 13 code #6cb4ff
@@ -297,8 +297,8 @@ text 386,617 "Refresh" 13 #dcdcdc
 page at 0,0 1000x640
   toolbar at 0,0 1000x32
     button "Save" at 4,4 88x24
-    button "Refresh" at 97,4 100x24
-    text "Invoices" at 948,6 48x19
+    button "Refresh" at 101,4 100x24
+    text "Invoices" at 948,9 48x19
   tablist "Left" at 0,36 260x28
     tab "Outliner" selected at 0,36 94x28
   tabpanel "Outliner" at 0,64 260x518
@@ -394,6 +394,6 @@ page at 0,0 1000x640
     tab "Log" selected at 829,36 64x28
   tabpanel "Log" at 740,64 260x518
     text "ready" at 744,68 30x19
-  text "Live" at 4,590 24x19
-  text "super@app.test" at 53,590 84x19
-  text "200 invoices" at 924,590 72x19
+  text "Live" at 4,593 24x19
+  text "super@app.test" at 53,593 84x19
+  text "200 invoices" at 924,593 72x19

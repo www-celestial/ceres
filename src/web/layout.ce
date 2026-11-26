@@ -259,14 +259,28 @@ defn layRow(id, maxW, fit, ui)
   h = if value.IsSome(n.Height) n.Height else tall + 2 * n.Pad end
   room = h - 2 * n.Pad
   x = n.Pad
+  bar = n.Kind == "toolbar" or n.Kind == "statusbar"
   for c in b.Kids
     ch = u.Boxes[c].H
+    (* in a toolbar or a status bar, a text is centered by its letters, which sit high in its line, as an icon is *)
+    ch = if bar letters(c, u) else ch end
     y = n.Pad + (0 if n.Align == "start" else math.Div(room - ch, 2) if n.Align == "center" else room - ch)
     u = place(c, x, y, u)
     x += u.Boxes[c].W + gap
   end
   w = if value.IsSome(n.Width) n.Width else if fit and shares == 0 used + gaps + 2 * n.Pad else maxW end
   sized(id, w, h, list.Concat(decor(n, w, h, u.Theme), kidGroups(u.Boxes[id], u)), u)
+end
+
+defn letters(id, u)
+  (** The height of the box id as a bar centers it: a text of one line, or a live part that gives one, by the size of
+      its letters, which sit high in their line; any other box by its own. *)
+  b = u.Boxes[id]
+  k = b.Node.Kind
+  if k == "live" and value.Len(b.Kids) == 1
+    return letters(b.Kids[1], u)
+  end
+  if k == "text" and b.H == lineOf(sizeOf(b.Node, u.Theme), u) sizeOf(b.Node, u.Theme) else b.H end
 end
 
 defn layLive(id, maxW, fit, ui)

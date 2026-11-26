@@ -67,7 +67,11 @@ end
 
 defn tone(c, t)
   (** A color as a number: c itself, or the color of the theme t that a name gives, "Panel" for t.Panel; missing
-      stays missing. *)
+      stays missing. Ceres's own widgets give a pair [role, color]: the role in a theme of a desktop tool (one that has
+      Raised), the color in web.Theme, whose look stays as it was. *)
+  if value.IsArray(c)
+    return if value.IsSome(dict.Get("Raised", t)) tone(c[1], t) else c[2] end
+  end
   if value.IsText(c)
     got = role(c, t)
     if not value.IsNumber(got)
