@@ -4,6 +4,7 @@ use std/dict
 use std/fiber
 use std/list
 use std/math
+use std/text
 use std/value
 
 defn Table(source, columns, height = 400, rowHeight = missing, width = missing, label = "")
@@ -203,9 +204,10 @@ end
 
 defn line(i, row, on, columns, cw, rights, inner, rh, ty, t, u)
   (** The items of the row i of a table at its place in the whole table: {Row, On, Back, Cells, Texts, Pure}, Back its
-      background and its line, Cells the text of each column, Texts what they show. A row not here yet shows "…". *)
+      background and its line, Cells the text of each column, Texts what they show, each item with its bytes, so that
+      web.Encoded copies them as long as the row stays. A row not here yet shows "…". *)
   y = (i - 1) * rh
-  back = if on [rect(0, y, inner, rh, t.Chosen), rect(0, y + rh - 1, inner, 1, t.Grid)] else [rect(0, y + rh - 1, inner, 1, t.Grid)] end
+  back = [withBytes(one) for one in (if on [rect(0, y, inner, rh, t.Chosen), rect(0, y + rh - 1, inner, 1, t.Grid)] else [rect(0, y + rh - 1, inner, 1, t.Grid)] end)]
   cells = []
   texts = []
   ink = t.ChosenInk if on else t.Ink
@@ -214,7 +216,7 @@ defn line(i, row, on, columns, cw, rights, inner, rh, ty, t, u)
     font = fontOf(got)
     s = shown(got)
     cx = if rights[c] cw[c] - 6 - widthOf(s, t.Size, font, u) else 6 end
-    cells = list.Append(words(cx, y + ty, s, t.Size, ink, font), cells)
+    cells = list.Append(withBytes(words(cx, y + ty, s, t.Size, ink, font)), cells)
     texts = list.Append(s, texts)
   end
   {Row: row, On: on, Back: back, Cells: cells, Texts: texts, Pure: true}
@@ -227,4 +229,11 @@ defn scrollTable(id, by, ui)
   most = if value.IsDict(c) and "Most" in c c.Most else 0 end
   Set(b.Node.Offset, list.Max(0, list.Min(Get(b.Node.Offset) + by, most)))
   ui
+end
+
+defn withBytes(one)
+  (** A rect or a text of a table's row with its bytes as web.Encoded writes them (a text as a 9), in Enc. *)
+  out = one
+  out.Enc = text.FromNumbers("f32", if one.Kind == "text" [9, one.X, one.Y, one.Size, one.Color, 255, fonts[one.Font], text.ByteLength(one.Text), 0] else [1, one.X, one.Y, one.W, one.H, one.Color, 255, 0] end)
+  out
 end

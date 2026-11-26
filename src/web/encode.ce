@@ -8,10 +8,10 @@ defn Encode(items)
   (** The draw list as the bytes that web/ceres.js paints: two u32, the count of f32 numbers and the count of bytes of
       text, then the numbers, then the texts in UTF-8. Each item is a code and its numbers: 1 rect and 2 frame, X Y W
       H Color Alpha Radius; 3 text, X Y Size Color Alpha Font (0 body, 1 strong, 2 code) Start Length Angle, Start and
-      Length the place of its text in the bytes of texts, from the group's start of texts; 4 line, n Width Color Alpha
-      then n points x y; 5 tris, n Color Alpha then n points; 6 a group, X Y W H Clip (1 or 0), whose items follow, up
-      to 7, its end; 8 Base, inside a group, the start of its texts, Base bytes after that of the group around it (0 at
-      first, and for a group without one). A color fits in an f32 exactly, as every integer up to 2^24 does.
+      Length the place of its text in the bytes of texts; 4 line, n Width Color Alpha then n points x y; 5 tris, n Color
+      Alpha then n points; 6 a group, X Y W H Clip (1 or 0), whose items follow, up to 7, its end; and 9, a text whose
+      bytes follow those of the 9 before it (the first at 0), X Y Size Color Alpha Font Length Angle, which web.Encoded
+      writes. A color fits in an f32 exactly, as every integer up to 2^24 does.
 
         value.Len(text.Numbers("u32", text.ByteSlice(1, 8, Encode([{Kind: "rect", X: 0, Y: 0, W: 1, H: 1, Color: 0, Radius: 0}])))) --> 2 *)
   got = encoded(items, 0)
@@ -21,42 +21,62 @@ end
 
 fonts = {body: 0, strong: 1, code: 2}   (* The number of each font in the bytes. *)
 
-defn encoded(items, at)
+defn encoded(items, at, seq = false)
   (** The bytes of the numbers of items, in chunks, an item each, with their count, and the texts of items, from the
-      byte at of all texts: {Chunks, Count, Texts, At}. *)
+      byte at of all texts: {Chunks, Count, Texts, At}. With seq, a text is a 9, its bytes those after the text before,
+      and an item that holds its own bytes (Enc, as the rows of a table keep them) gives them. *)
   chunks = []
   count = 0
   ts = []
   pos = at
   for one in items
     k = one.Kind
-    a = dictAlpha(one)
-    nums = if k == "rect" or k == "frame"
-      [1 if k == "rect" else 2, one.X, one.Y, one.W, one.H, one.Color, a, radiusOf(one)]
-    else if k == "text"
-      [3, one.X, one.Y, one.Size, one.Color, a, fonts[fontName(one)], pos, text.ByteLength(one.Text), angleOf(one)]
-    else if k == "line"
-      list.Concat([4, value.Len(one.Points) / 2, widthOf1(one), one.Color, a], one.Points)
-    else if k == "tris"
-      list.Concat([5, value.Len(one.Points) / 2, one.Color, a], one.Points)
+    if seq and "Enc" in one
+      chunks = list.Append(one.Enc, chunks)
+      count += math.Div(text.ByteLength(one.Enc), 4)
+      if k == "text"
+        ts = list.Append(one.Text, ts)
+        pos += text.ByteLength(one.Text)
+      end
     else
-      [6, one.X, one.Y, one.W, one.H, 1 if one.Clip else 0]
-    end
-    chunks = list.Append(text.FromNumbers("f32", nums), chunks)
-    count += value.Len(nums)
-    if k == "text"
-      ts = list.Append(one.Text, ts)
-      pos += text.ByteLength(one.Text)
-    else if k == "group"
-      got = encoded(one.Items, pos)
-      chunks = list.Append(text.Join("", got.Chunks), chunks)
-      chunks = list.Append(text.FromNumbers("f32", [7]), chunks)
-      count += got.Count + 1
-      ts = list.Append(text.Join("", got.Texts), ts)
-      pos = got.At
+      got = item(one, k, pos, seq)
+      chunks = list.Append(got.Nums, chunks)
+      count += got.Count
+      if k == "text"
+        ts = list.Append(one.Text, ts)
+        pos += text.ByteLength(one.Text)
+      else if k == "group"
+        ts = list.Append(got.Texts, ts)
+        pos = got.At
+      end
     end
   end
   {Chunks: chunks, Count: count, Texts: ts, At: pos}
+end
+
+defn item(one, k, pos, seq)
+  (** The bytes of one item that holds none, with their count, and for a group the texts of its items and the byte
+      after them: {Nums, Count, Texts, At}. *)
+  a = dictAlpha(one)
+  nums = if k == "rect" or k == "frame"
+    [1 if k == "rect" else 2, one.X, one.Y, one.W, one.H, one.Color, a, radiusOf(one)]
+  else if k == "text" and seq
+    [9, one.X, one.Y, one.Size, one.Color, a, fonts[fontName(one)], text.ByteLength(one.Text), angleOf(one)]
+  else if k == "text"
+    [3, one.X, one.Y, one.Size, one.Color, a, fonts[fontName(one)], pos, text.ByteLength(one.Text), angleOf(one)]
+  else if k == "line"
+    list.Concat([4, value.Len(one.Points) / 2, widthOf1(one), one.Color, a], one.Points)
+  else if k == "tris"
+    list.Concat([5, value.Len(one.Points) / 2, one.Color, a], one.Points)
+  else
+    [6, one.X, one.Y, one.W, one.H, 1 if one.Clip else 0]
+  end
+  if k != "group"
+    return {Nums: text.FromNumbers("f32", nums), Count: value.Len(nums), Texts: "", At: pos}
+  end
+  got = encoded(one.Items, pos, seq = seq)
+  {Nums: text.Str(text.FromNumbers("f32", nums), text.Join("", got.Chunks), text.FromNumbers("f32", [7])), Count: value.Len(nums) + got.Count + 1,
+    Texts: text.Join("", got.Texts), At: got.At}
 end
 
 dictAlpha(one) = one.Alpha if "Alpha" in one and value.IsSome(one.Alpha) else 255   (* The alpha of an item, 255 by default. *)
@@ -66,16 +86,15 @@ angleOf(one) = one.Angle if "Angle" in one else 0   (* The angle of a text. *)
 widthOf1(one) = one.Width if "Width" in one and value.IsSome(one.Width) else 1   (* The width of a line. *)
 
 defn Encoded(ui)
-  (** The bytes of the page's frame, as web.Encode(web.Frame(ui)) gives them to paint, made again only for the boxes
-      laid out since the last frame: each box keeps the bytes of its items, in which those of its children are copied
-      whole, and a group of a child starts its texts where they are (8, Base). {Ui, Bytes}: a back-end gives the Ui to
-      the next frame. *)
+  (** The bytes of the page's frame, which paint what web.Encode(web.Frame(ui)) paints, made again only for the boxes
+      laid out since the last frame: its texts are 9s, each after the one before, so that the bytes of a box hold no
+      place of their texts, and each box keeps its bytes, in which those of its children are copied whole; the rows of
+      a table keep the bytes of their items. {Ui, Bytes}: a back-end gives the Ui to the next frame. *)
   u = chunked(ui.Root, ui)
   c = u.Boxes[u.Root].Enc
   t = u.Theme
   root = u.Boxes[u.Root]
-  head = encoded([rect(0, 0, u.Width, u.Height, t.Back)], 0)
-  pos = head.At
+  head = encoded([rect(0, 0, u.Width, u.Height, t.Back)], 0, seq = true)
   rest = []
   seen = seenHeight(u)
   if root.H > seen
@@ -83,11 +102,11 @@ defn Encoded(ui)
     y = math.Div((seen - bar) * u.ScrollY, root.H - seen)
     rest = [rect(u.Width - 6, y, 4, bar, t.Muted)]
   end
-  tail = encoded(list.Concat(list.Concat(rest, popupItems(u)), bandItems(u)), pos + text.ByteLength(c.Texts))
-  nums = text.Str(text.Join("", head.Chunks), text.FromNumbers("f32", [6, 0, -u.ScrollY, root.W, root.H, 0, 8, pos]), c.Nums,
+  tail = encoded(list.Concat(list.Concat(rest, popupItems(u)), bandItems(u)), 0, seq = true)
+  nums = text.Str(text.Join("", head.Chunks), text.FromNumbers("f32", [6, 0, -u.ScrollY, root.W, root.H, 0]), c.Nums,
     text.FromNumbers("f32", [7]), text.Join("", tail.Chunks))
   words = text.Str(text.Join("", head.Texts), c.Texts, text.Join("", tail.Texts))
-  count = head.Count + 8 + c.Count + 1 + tail.Count
+  count = head.Count + 6 + c.Count + 1 + tail.Count
   {Ui: u, Bytes: text.Str(text.FromNumbers("u32", [count, text.ByteLength(words)]), nums, words)}
 end
 
@@ -100,19 +119,17 @@ defn chunked(id, ui)
   end
   u = ui
   own = value.Len(b.Items) - value.Len(b.Kids)
-  mine = encoded(if own == value.Len(b.Items) b.Items else list.Take(own, b.Items) end, 0)
+  mine = encoded(if own == value.Len(b.Items) b.Items else list.Take(own, b.Items) end, 0, seq = true)
   nums = [text.Join("", mine.Chunks)]
   ts = [text.Join("", mine.Texts)]
-  pos = mine.At
   count = mine.Count
   for c in b.Kids
     u = chunked(c, u)
     k = u.Boxes[c]
     e = k.Enc
-    nums = list.Append(text.Str(text.FromNumbers("f32", [6, k.X, k.Y, k.W, k.H, 0, 8, pos]), e.Nums, text.FromNumbers("f32", [7])), nums)
+    nums = list.Append(text.Str(text.FromNumbers("f32", [6, k.X, k.Y, k.W, k.H, 0]), e.Nums, text.FromNumbers("f32", [7])), nums)
     ts = list.Append(e.Texts, ts)
-    pos += text.ByteLength(e.Texts)
-    count += 8 + e.Count + 1
+    count += 6 + e.Count + 1
   end
   u.Boxes[id].Enc = {Laid: b.Laid, Nums: text.Join("", nums), Count: count, Texts: text.Join("", ts)}
   u

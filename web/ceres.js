@@ -95,14 +95,12 @@ export function painter(canvas) {
   }
   function restart() { runs = [new Map(), new Map(), new Map()]; shelfX = shelfY = shelfH = 0; due0 = ATLAS; due1 = dueH = 0; strip.clearRect(0, 0, ATLAS, strip.canvas.height) }
 
-  // The part of the strip drawn since the last upload, into the atlas at the shelf.
+  // The part of the strip drawn since the last upload, into the atlas at the shelf: its pixels read from the strip, a
+  // canvas in memory, and sent as bytes (Firefox took 0.6 ms to send a part of a canvas, as many as a frame's texts).
   function upload() {
     if (due1 <= due0) return
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, ATLAS)
-    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, due0)
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, due0, shelfY, due1 - due0, dueH, gl.RGBA, gl.UNSIGNED_BYTE, strip.canvas)
-    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0)
-    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0)
+    const px = strip.getImageData(due0, 0, due1 - due0, dueH)
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, due0, shelfY, due1 - due0, dueH, gl.RGBA, gl.UNSIGNED_BYTE, px.data)
     due0 = ATLAS; due1 = dueH = 0
   }
 
@@ -160,9 +158,8 @@ export function painter(canvas) {
     gl.drawArrays(gl.TRIANGLES, 0, n / STRIDE)
     n = 0
   }
-  // The groups of the draw list: at each depth, its offset, the start of its texts, and its clip if it has one, else
-  // the one above.
-  let ox = [0], oy = [0], tx = [0], has = [false], kx = [0], ky = [0], kw = [0], kh = [0], own = [false], depth = 0
+  // The groups of the draw list: at each depth, its offset, and its clip if it has one, else the one above.
+  let ox = [0], oy = [0], has = [false], kx = [0], ky = [0], kw = [0], kh = [0], own = [false], depth = 0
   // The clip of the vertices that follow: that of the group at depth, in pixels of the canvas as a scissor takes it.
   function scissor() {
     if (!has[depth]) { k0 = k1 = -1e9; k2 = k3 = 4e9; return }
@@ -188,7 +185,8 @@ export function painter(canvas) {
     gl.uniform2f(uS, width, height)
     gl.clearColor(1, 1, 1, 1)
     gl.clear(gl.COLOR_BUFFER_BIT)
-    depth = 0; ox[0] = 0; oy[0] = 0; tx[0] = 0; has[0] = false; own[0] = false
+    depth = 0; ox[0] = 0; oy[0] = 0; has[0] = false; own[0] = false
+    let next = 0 // where the text of the next 9 starts
     scissor()
     let k = 0
     while (k < f.length) {
@@ -197,12 +195,14 @@ export function painter(canvas) {
         color(f[k + 5], f[k + 6])
         quad(f[k + 1] + dx, f[k + 2] + dy, f[k + 3], f[k + 4], f[k + 7], op === 2 ? 1 : 0, 0, 0, 0, 0)
         k += 8
-      } else if (op === 3) {
-        const start = f[k + 7] + tx[depth], text = whole ? all.substring(place[start], place[start + f[k + 8]]) : dec.decode(tb.subarray(start, start + f[k + 8]))
+      } else if (op === 3 || op === 9) {
+        const len = f[k + (op === 3 ? 8 : 7)], start = op === 3 ? f[k + 7] : next
+        const text = whole ? all.substring(place[start], place[start + len]) : dec.decode(tb.subarray(start, start + len))
         const e = run(text, f[k + 3], f[k + 6])
         color(f[k + 4], f[k + 5])
         quad(f[k + 1] + dx - 1 / dpr, f[k + 2] + dy - 1 / dpr, e.w, e.h, -1, 0, e.u0, e.v0, e.u1, e.v1)
-        k += 10
+        if (op === 9) next += len
+        k += op === 3 ? 10 : 9
       } else if (op === 4) {
         const m = f[k + 1], lw = f[k + 2] / 2, p = k + 5
         color(f[k + 3], f[k + 4])
@@ -225,7 +225,7 @@ export function painter(canvas) {
         k += 4 + 2 * m
       } else if (op === 6) {
         const x = f[k + 1] + dx, y = f[k + 2] + dy, d = depth + 1
-        depth = d; ox[d] = x; oy[d] = y; tx[d] = tx[d - 1]
+        depth = d; ox[d] = x; oy[d] = y
         if (f[k + 5]) {
           let x0 = x, y0 = y, w = f[k + 3], h = f[k + 4]
           if (has[d - 1]) {
@@ -242,9 +242,6 @@ export function painter(canvas) {
         depth--
         if (mine) scissor()
         k += 1
-      } else if (op === 8) {
-        tx[depth] = (depth > 0 ? tx[depth - 1] : 0) + f[k + 1]
-        k += 2
       } else throw new Error('Ceres: no draw item ' + op)
     }
     flush()

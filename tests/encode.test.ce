@@ -1,8 +1,9 @@
 (* web.Encoded, the bytes of a frame kept box by box, paints what web.Encode(web.Frame(page)) paints: both read as a
-   painter reads them (each group's offset and start of texts, 8 Base inside a group) give the same items at the same
-   places with the same texts, on a page of each kind of box, after each step that changes a part of it. *)
+   painter reads them (each group's offset, a 3's text at its place, a 9's after the 9 before) give the same items at
+   the same places with the same texts, on a page of each kind of box, after each step that changes a part of it. *)
 use src/web
 use src/headless
+use std/bug
 use std/list
 use std/math
 use std/text
@@ -16,7 +17,7 @@ defn painted(bytes)
   out = []
   xs = [0]
   ys = [0]
-  bases = [0]
+  next = 1
   k = 1
   while k <= value.Len(f)
     op = f[k]
@@ -24,11 +25,15 @@ defn painted(bytes)
     if op == 1 or op == 2
       out = list.Append("$op $(f[k + 1] + xs[d]) $(f[k + 2] + ys[d]) $(f[k + 3]) $(f[k + 4]) $(f[k + 5]) $(f[k + 6]) $(f[k + 7])", out)
       k += 8
-    else if op == 3
-      at = math.Div(f[k + 7], 1) + bases[d] + 1
-      s = if f[k + 8] == 0 "" else text.ByteSlice(at, at + math.Div(f[k + 8], 1) - 1, words) end
-      out = list.Append("3 $(f[k + 1] + xs[d]) $(f[k + 2] + ys[d]) $(f[k + 3]) $(f[k + 4]) $(f[k + 5]) $(f[k + 6]) $s $(f[k + 9])", out)
-      k += 10
+    else if op == 3 or op == 9
+      n = math.Div(f[k + (8 if op == 3 else 7)], 1)
+      at = math.Div(f[k + 7], 1) + 1 if op == 3 else next
+      s = if n == 0 "" else text.ByteSlice(at, at + n - 1, words) end
+      if op == 9
+        next += n
+      end
+      out = list.Append("text $(f[k + 1] + xs[d]) $(f[k + 2] + ys[d]) $(f[k + 3]) $(f[k + 4]) $(f[k + 5]) $(f[k + 6]) $s $(f[k + (9 if op == 3 else 8)])", out)
+      k += 10 if op == 3 else 9
     else if op == 4 or op == 5
       m = math.Div(f[k + 1], 1)
       skip = 5 if op == 4 else 4
@@ -38,18 +43,15 @@ defn painted(bytes)
     else if op == 6
       xs = list.Append(f[k + 1] + xs[d], xs)
       ys = list.Append(f[k + 2] + ys[d], ys)
-      bases = list.Append(bases[d], bases)
       out = list.Append("clip $(f[k + 5]) $(f[k + 1] + xs[d]) $(f[k + 2] + ys[d]) $(f[k + 3]) $(f[k + 4])", out)
       k += 6
     else if op == 7
       xs = list.DropLast(1, xs)
       ys = list.DropLast(1, ys)
-      bases = list.DropLast(1, bases)
       out = list.Append("end", out)
       k += 1
     else
-      bases[d] = (bases[d - 1] if d > 1 else 0) + f[k + 1]
-      k += 2
+      bug.Panic("No draw item $op.")
     end
   end
   out
