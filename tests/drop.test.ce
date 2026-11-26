@@ -229,3 +229,45 @@ defn isOutboxBounded()
   last = web.Get(replies[5])
   value.IsSome(last) and result.IsErr(last) and text.Contains("Too many actions wait", last.Error.Message) and value.IsMissing(web.Get(replies[3]))
 end
+
+defn conflicting(kept)
+  (** An app whose action rename refuses a base that isn't the name now, with each field seen and now, as
+      app.Unchanged does: a cell holds the name. *)
+  l = net.Listen(0).Value
+  rename = defn (s, args)
+    now = peek(kept)
+    seen = dict.Get("Name", if value.IsDict(s.Base) s.Base else {} end)
+    if value.IsSome(seen) and seen != now
+      return result.Err({Kind: "conflict", Status: 409, Message: "This changed meanwhile: see its values now.", Conflict: [{Field: "Name", Base: seen, Now: now}]})
+    end
+    put(args.Name, kept)
+    {Name: args.Name}
+  end
+  fiber.Spawn(() -> http.Serve(http.App() then live.Route("/live", s -> [], actions = {rename: rename}), listener = l))
+  "http://127.0.0.1:$(net.Port(l))"
+end
+
+defn renaming(p)
+  reply = web.Signal(missing)
+  web.Stack([
+    web.Connection(p),
+    web.Conflicts(p),
+    web.Button("Rename", () -> web.Set(reply, web.Act("rename", {Name: "Brun"}, p, base = {Name: "Martin"}))),
+    () -> web.Text("reply: $(if web.IsSignal(web.Get(reply)) json.Text(web.Get(web.Get(reply))) else "none" end)"),
+  ])
+end
+
+defn isConflictShownWithItsChoices()
+  (** A change over a name someone changed meanwhile: the app refuses it, the page shows the name seen, the name now
+      and its own, with Keep mine and Take theirs; Keep mine sends it again over the name now, and the reply comes
+      to what waited for the first. *)
+  kept = cellOf("Martin & Co")
+  p = headless.Open(web.App([web.Route("/", renaming)], live = "/live"), origin = conflicting(kept))
+  p = headless.Settle(p, until = q -> has("Live", q))
+  p = headless.ClickOn("Rename", p)
+  p = headless.Settle(p, until = q -> has("Keep mine", q))
+  shown = has("seen Martin", p) and has("now Martin & Co", p) and has("yours Brun", p) and has("Take theirs", p)
+  p = headless.ClickOn("Keep mine", p)
+  p = headless.Settle(p, until = q -> has("Ok", q) and not has("Keep mine", q))
+  shown and peek(kept) == "Brun" and not has("Keep mine", p)
+end

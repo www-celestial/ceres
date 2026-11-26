@@ -243,21 +243,23 @@ defn Live(name, p)
   showOf(name, p.Screen).Signal
 end
 
-defn Act(name, args, p, base = missing)
+defn Act(name, args, p, base = missing, mine = missing, read = false)
   (** Asks the app for the action name with args: a signal of the reply, missing until it comes, then the Ok of what
       the action gave or its Err. The app checks args again: the page is never trusted. While the page is away from its
       app, the action waits, in order, with the key it got now, and goes once the page is back: the app runs it once.
       base, the values the page saw of what the action changes ({Total: 120}), lets the app refuse it when they changed
-      meanwhile: its Err is then of the kind "conflict", with each field's value now. *)
+      meanwhile: its Err is then of the kind "conflict", with each field's value now; mine, the values the action
+      writes, when its args don't hold them as fields, for web.Conflicts to show beside. read, true for an action that
+      only reads (a list asked): it waits as the others, but the line of the connection counts only the changes. *)
   out = Signal(missing)
-  actThen(name, args, p.Screen, m -> Set(out, result.Err(m.Err) if "Err" in m else result.Ok(m.Ok)), base = base)
+  actThen(name, args, p.Screen, m -> Set(out, result.Err(m.Err) if "Err" in m else result.Ok(m.Ok)), base = base, mine = mine, read = read)
   out
 end
 
 (* The key of an action, made when it is asked: 128 random bits, as hex. *)
 newKey() = encode.Hex(text.FromBytes([math.Div(math.Floor(random.Float() * 256), 1) for k in 1..16]))
 
-defn actThen(name, args, screen, reply, base = missing)
+defn actThen(name, args, screen, reply, base = missing, mine = missing, read = false)
   (** Sends an action, or keeps it until the screen is up, and calls reply(m) with its reply, {Ack, Ok} or {Ack, Err},
       on the page's fiber. With the outbox off, an action asked while the screen is down gets an Err at once. *)
   o = peek(screen.Settings)
@@ -279,7 +281,7 @@ defn actThen(name, args, screen, reply, base = missing)
   end
   id = peek(screen.Next)
   put(id + 1, screen.Next)
-  a = {Id: id, Key: newKey(), Name: name, Args: args, Base: base, Who: peek(screen.Who), At: sys.Now(), Bytes: bytes, Sent: false}
+  a = {Id: id, Key: newKey(), Name: name, Args: args, Base: base, Mine: mine, Read: read, Who: peek(screen.Who), At: sys.Now(), Bytes: bytes, Sent: false}
   acts = peek(screen.Acts)
   acts[id] = reply
   put(acts, screen.Acts)
@@ -321,7 +323,7 @@ defn answered(id, m, screen)
     mine = list.First([x for x in box if x.Id == id])
     put([x for x in box if x.Id != id], screen.Outbox)
     if "Err" in m and value.IsDict(m.Err) and dict.Get("Kind", m.Err) == "conflict" and value.IsSome(mine)
-      Set(screen.Conflicts, list.Append({Id: id, Name: mine.Name, Args: mine.Args, Base: mine.Base, Error: m.Err, Reply: f}, untracked(screen.Conflicts)))
+      Set(screen.Conflicts, list.Append({Id: id, Name: mine.Name, Args: mine.Args, Base: mine.Base, Mine: mine.Mine, Error: m.Err, Reply: f}, untracked(screen.Conflicts)))
     end
     f(m)
     status(screen)
@@ -337,7 +339,7 @@ defn Resolve(c, mine, screen)
     for f in dict.GetOr("Conflict", [], c.Error)
       now[f.Field] = f.Now
     end
-    actThen(c.Name, c.Args, screen, c.Reply, base = dict.Merge(if value.IsDict(c.Base) c.Base else {} end, now))
+    actThen(c.Name, c.Args, screen, c.Reply, base = dict.Merge(if value.IsDict(c.Base) c.Base else {} end, now), mine = c.Mine)
   end
   missing
 end
@@ -387,7 +389,7 @@ defn status(screen)
   (** The Status signal set from the state of the connection and the outbox, when it changed. *)
   st = peek(screen.State)
   box = peek(screen.Outbox)
-  v = {State: st.State, Waiting: value.Len(box), Retry: st.Retry, Last: st.Last, At: st.At, Offline: st.Offline, Error: untracked(screen.Error)}
+  v = {State: st.State, Waiting: value.Len([a for a in box if not a.Read]), Retry: st.Retry, Last: st.Last, At: st.At, Offline: st.Offline, Error: untracked(screen.Error)}
   if not value.Equal(v, untracked(screen.Status))
     Set(screen.Status, v)
   end
@@ -547,11 +549,17 @@ end
 
 defn conflictOf(c, screen, say)
   (** One conflict: what was refused, a line a field, and the two choices. *)
-  args = if value.IsDict(c.Args) c.Args else {} end
-  fields = [Row([Stack([Text(f.Field, font = "strong")], width = 120), Text(inWords(say, "seen $(valueShown(f.Base))"), color = gray),
-    Text(inWords(say, "now $(valueShown(f.Now))"), color = red), Text(inWords(say, "yours $(valueShown(dict.Get(f.Field, args)))"))], gap = 12) for f in dict.GetOr("Conflict", [], c.Error)]
+  args = if value.IsDict(c.Mine) c.Mine else if value.IsDict(c.Args) c.Args else {} end
+  fields = [fieldLine(f, args, say) for f in dict.GetOr("Conflict", [], c.Error)]
   Stack(list.Concat([Text(inWords(say, "$(c.Name) was refused: $(dict.GetOr("Message", "it changed meanwhile", c.Error))"), color = red)], list.Concat(fields,
     [Row([Button(inWords(say, "Keep mine"), () -> Resolve(c, true, screen)), Button(inWords(say, "Take theirs"), () -> Resolve(c, false, screen))], gap = 8)])), gap = 4)
+end
+
+defn fieldLine(f, args, say)
+  (** A field of a conflict: its name, the value seen, the value now, and the page's own when it is known. *)
+  yours = if dict.Has(f.Field, args) Text(inWords(say, "yours $(valueShown(args[f.Field]))")) else missing end
+  Row([Stack([Text(f.Field, font = "strong")], width = 120), Text(inWords(say, "seen $(valueShown(f.Base))"), color = gray),
+    Text(inWords(say, "now $(valueShown(f.Now))"), color = red), yours], gap = 12)
 end
 
 valueShown(v) = if value.IsMissing(v) "—" else if value.IsText(v) v else json.Text(v) end   (* A value of a field, as the panel shows it. *)
