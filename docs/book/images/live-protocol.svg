@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="604" viewBox="0 0 760 604">
+<title>The messages of a live screen down the time, between the page and its app: the page says Hello 2; the app gives a new screen, then the whole answer of the show unpaid as frame 1, which the page confirms with Got 1; a click sends the action pay of Id 7; the app sends only what changed, F-2 removed, then the reply to action 7. The network drops; the page comes back with its token and Got 3, gets the same screen and each change it missed once; it says Bye as it goes away.</title>
+<style>
+text{font-family:system-ui,sans-serif;font-size:13px;fill:#111}
+.c{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.m{fill:#5c5c5c}
+.a{fill:#0b57d0}
+.h{font-weight:600}
+.b{fill:#fff;stroke:#111;stroke-width:1}
+.ba{fill:#fff;stroke:#0b57d0;stroke-width:1.6}
+.g{fill:#f2f2f2;stroke:#cfcfcf;stroke-width:1}
+.l{stroke:#111;stroke-width:1.2;fill:none}
+.la{stroke:#0b57d0;stroke-width:1.4;fill:none}
+.d{stroke:#5c5c5c;stroke-width:1.2;stroke-dasharray:4 3;fill:none}
+.hd{fill:#111}
+.hda{fill:#0b57d0}
+.hdd{fill:#5c5c5c}
+</style>
+<rect width="760" height="604" fill="#fff"/>
+<line class="d" x1="100" y1="42" x2="100" y2="596"/>
+<line class="d" x1="660" y1="42" x2="660" y2="596"/>
+<rect class="b" x="20" y="12" width="160" height="30"/>
+<text x="100" y="32" class="h" text-anchor="middle">page: Ceres</text>
+<rect class="b" x="580" y="12" width="160" height="30"/>
+<text x="660" y="32" class="h" text-anchor="middle">app: std/live</text>
+<text x="380" y="66" class="c" text-anchor="middle">{Hello: 2}</text>
+<line class="la" x1="100" y1="73" x2="652.0" y2="73.0"/><polygon class="hda" points="660,73 652.0,77.0 652.0,69.0"/>
+<text x="380" y="91" class="m" text-anchor="middle">once connected</text>
+<text x="380" y="116" class="c" text-anchor="middle">[{Token, Resumed: false, Heard: 0, Who, Client}]</text>
+<line class="l" x1="660" y1="123" x2="108.0" y2="123.0"/><polygon class="hd" points="100,123 108.0,119.0 108.0,127.0"/>
+<text x="380" y="141" class="m" text-anchor="middle">a new screen, and the page's settings</text>
+<text x="380" y="166" class="c" text-anchor="middle">[{Seq: 1}, {Show: &quot;unpaid&quot;, Group: 1, Rows: [F-1, F-2, F-3]}]</text>
+<line class="l" x1="660" y1="173" x2="108.0" y2="173.0"/><polygon class="hd" points="100,173 108.0,169.0 108.0,177.0"/>
+<text x="380" y="191" class="m" text-anchor="middle">each show's whole answer</text>
+<text x="380" y="216" class="c" text-anchor="middle">{Got: 1}</text>
+<line class="la" x1="100" y1="223" x2="652.0" y2="223.0"/><polygon class="hda" points="660,223 652.0,227.0 652.0,219.0"/>
+<text x="380" y="241" class="m" text-anchor="middle">the page has frame 1</text>
+<text x="380" y="266" class="c" text-anchor="middle">{Act: &quot;pay&quot;, Id: 7, Args: {Id: 2}, Key, Base}</text>
+<line class="la" x1="100" y1="273" x2="652.0" y2="273.0"/><polygon class="hda" points="660,273 652.0,277.0 652.0,269.0"/>
+<text x="380" y="291" class="m" text-anchor="middle">a click on Pay F-2</text>
+<text x="380" y="316" class="c" text-anchor="middle">[{Seq: 2}, {Show: &quot;unpaid&quot;, Group: 2, Added: [], Removed: [F-2]}]</text>
+<line class="l" x1="660" y1="323" x2="108.0" y2="323.0"/><polygon class="hd" points="100,323 108.0,319.0 108.0,327.0"/>
+<text x="380" y="341" class="m" text-anchor="middle">only what changed</text>
+<text x="380" y="366" class="c" text-anchor="middle">[{Seq: 3}, {Ack: 7, Ok: {Paid: 2}}]</text>
+<line class="l" x1="660" y1="373" x2="108.0" y2="373.0"/><polygon class="hd" points="100,373 108.0,369.0 108.0,377.0"/>
+<text x="380" y="391" class="m" text-anchor="middle">the reply to action 7</text>
+<rect class="g" x="20" y="410" width="720" height="34"/>
+<text x="380" y="431" class="m" text-anchor="middle">the network drops: the page says Offline and keeps its actions; the app keeps the screen</text>
+<text x="380" y="460" class="c" text-anchor="middle">{Hello: 2, Token, Got: 3}</text>
+<line class="la" x1="100" y1="467" x2="652.0" y2="467.0"/><polygon class="hda" points="660,467 652.0,471.0 652.0,463.0"/>
+<text x="380" y="485" class="m" text-anchor="middle">back to the screen it had, after frame 3</text>
+<text x="380" y="510" class="c" text-anchor="middle">[{Token, Resumed: true, Heard: 7, ...}], then the frames after 3</text>
+<line class="l" x1="660" y1="517" x2="108.0" y2="517.0"/><polygon class="hd" points="100,517 108.0,513.0 108.0,521.0"/>
+<text x="380" y="535" class="m" text-anchor="middle">the same screen: each change missed comes once</text>
+<text x="380" y="560" class="c" text-anchor="middle">{Bye: 1}</text>
+<line class="la" x1="100" y1="567" x2="652.0" y2="567.0"/><polygon class="hda" points="660,567 652.0,571.0 652.0,563.0"/>
+<text x="380" y="585" class="m" text-anchor="middle">the page goes away</text>
+</svg>

@@ -1,0 +1,199 @@
+(* The pictures of the line of the connection and of a conflict, docs/book/live.md, drawn by the SDL3 back-end under
+   SDL's dummy driver. A page of unpaid invoices is live from an app of std/live in this program, through a network that
+   it cuts and gives back (a proxy of std/net, as tests/drop.test.ce does): the page live, then offline with two
+   payments waiting, then back after the break, the payments run once; OUT/live-live.png, live-offline.png and
+   live-back.png. Then a change over a name someone changed meanwhile, refused by the app: OUT/live-conflict.png. *)
+use src/sdl
+use src/web
+use std/dict
+use std/fiber
+use std/http
+use std/io
+use std/list
+use std/live
+use std/net
+use std/result
+use std/sys
+use std/text
+use std/value
+
+defn cellOf(v)
+  (** A channel that holds one value. *)
+  c = fiber.Channel(size = 1)
+  fiber.Send(v, c)
+  c
+end
+
+defn peek(c)
+  v = fiber.Receive(c).Value
+  fiber.Send(v, c)
+  v
+end
+
+defn put(v, c)
+  _ = fiber.Receive(c)
+  fiber.Send(v, c)
+end
+
+defn pipe(from, to)
+  got = net.Read(from)
+  while result.IsOk(got) and got.Value != ""
+    break if result.IsErr(net.Write(to, got.Value))
+    got = net.Read(from)
+  end
+  net.Close(to)
+  net.Close(from)
+end
+
+defn network(target)
+  (** A network between the page and its app: {Address, Cut, Back}. Cut() closes every connection and refuses the
+      next ones until Back(). *)
+  l = net.Listen(0).Value
+  state = cellOf({Down: false, Open: []})
+  fiber.Spawn(defn ()
+    while true
+      page = net.Accept(l)
+      if result.IsOk(page)
+        if peek(state).Down
+          net.Close(page.Value)
+        else
+          app = net.Connect("127.0.0.1", target)
+          if result.IsOk(app)
+            s = peek(state)
+            s.Open = list.Append([page.Value, app.Value], s.Open)
+            put(s, state)
+            fiber.Spawn(() -> pipe(page.Value, app.Value))
+            fiber.Spawn(() -> pipe(app.Value, page.Value))
+          end
+        end
+      end
+    end
+  end)
+  cut = defn ()
+    for pair in peek(state).Open
+      net.Close(pair[1])
+      net.Close(pair[2])
+    end
+    put({Down: true, Open: []}, state)
+  end
+  back = defn ()
+    s = peek(state)
+    s.Down = false
+    put(s, state)
+  end
+  {Address: "http://127.0.0.1:$(net.Port(l))", Cut: cut, Back: back}
+end
+
+defn invoices()
+  (** An app of the unpaid invoices on a free port, its action pay taking an invoice off the show: its port. *)
+  changes = fiber.Channel()
+  fiber.Send({Group: 1, Rows: [{Id: 1, Number: "F-1", Total: 120}, {Id: 2, Number: "F-2", Total: 340.5}, {Id: 3, Number: "F-3", Total: 80}]}, changes)
+  group = cellOf(1)
+  rows = {1: {Id: 1, Number: "F-1", Total: 120}, 2: {Id: 2, Number: "F-2", Total: 340.5}, 3: {Id: 3, Number: "F-3", Total: 80}}
+  pay = defn (s, args)
+    g = peek(group) + 1
+    put(g, group)
+    fiber.Send({Group: g, Added: [], Removed: [rows[args.Id]]}, changes)
+    {Paid: args.Id}
+  end
+  l = net.Listen(0).Value
+  fiber.Spawn(() -> http.Serve(http.App() then live.Route("/live", s -> [live.Show("unpaid", changes)], actions = {pay: pay}, resume = 120,
+    client = {PingEvery: 1, DeadAfter: 3, ReconnectFirst: 4000, ReconnectMax: 4000}), listener = l))
+  net.Port(l)
+end
+
+defn unpaid(p)
+  (** The page: the line of the connection, the invoices unpaid, and two payments. *)
+  web.Stack([
+    web.Connection(p),
+    web.Each(web.Live("unpaid", p), i -> i.Id, i -> web.Row([web.Text(i.Number), web.Spacer(), web.Money(i.Total)]), gap = 2),
+    web.Row([web.Button("Pay F-2", () -> web.Act("pay", {Id: 2}, p)), web.Button("Pay F-3", () -> web.Act("pay", {Id: 3}, p))], gap = 8),
+  ], width = 420)
+end
+
+defn conflicting(kept)
+  (** An app whose action rename refuses a base that isn't the name now, with each field seen and now. *)
+  l = net.Listen(0).Value
+  rename = defn (s, args)
+    now = peek(kept)
+    seen = dict.Get("Name", if value.IsDict(s.Base) s.Base else {} end)
+    if value.IsSome(seen) and seen != now
+      return result.Err({Kind: "conflict", Status: 409, Message: "This changed meanwhile: see its values now.", Conflict: [{Field: "Name", Base: seen, Now: now}]})
+    end
+    put(args.Name, kept)
+    {Name: args.Name}
+  end
+  fiber.Spawn(() -> http.Serve(http.App() then live.Route("/live", s -> [], actions = {rename: rename}), listener = l))
+  "http://127.0.0.1:$(net.Port(l))"
+end
+
+defn renaming(p)
+  (** The page: a client's name changed to Brun over Martin, the name it saw. *)
+  web.Stack([
+    web.Connection(p),
+    web.Conflicts(p),
+    web.Row([web.Text("Client: Martin"), web.Button("Rename to Brun", () -> web.Act("rename", {Name: "Brun"}, p, base = {Name: "Martin"}))], gap = 12),
+  ], width = 520)
+end
+
+says(s, ui) = text.Contains(s, "$(web.Semantics(ui))")
+
+defn settled(ui, f, most = 10)
+  (** The page once f holds of it, most seconds at most. *)
+  u = ui
+  start = sys.Now()
+  while not f(u) and sys.Now() - start < most
+    sys.Sleep(0.02)
+    u = web.Update(u)
+  end
+  u
+end
+
+defn find(role, name, n)
+  (** The first node of the tree of a role and a name, or missing. *)
+  if n.Role == role and n.Name == name
+    return n
+  end
+  for k in n.Kids
+    got = find(role, name, k)
+    if value.IsSome(got)
+      return got
+    end
+  end
+  missing
+end
+
+defn clickOn(role, name, ui)
+  (** A click in the middle of the widget of a role and a name. *)
+  n = find(role, name, web.Semantics(ui))
+  at = {Kind: "mouse", Action: "down", X: n.X + n.W / 2, Y: n.Y + n.H / 2, Button: 1, Amount: 0}
+  web.Handle(dict.Put("Action", "up", at), web.Handle(at, ui))
+end
+
+out = if value.IsText(sys.Env("OUT")) sys.Env("OUT") else "docs/book/images" end
+app = web.App([web.Route("/", unpaid)], live = "/live", title = "Unpaid")
+
+defn shot(name, steps)
+  (** The page of the invoices through a network of its own, after steps(ui, network): OUT/name.png. *)
+  n = network(invoices())
+  sdl.Shot(app, "$out/$name.png", origin = n.Address, width = 440, height = 200, settle = ui -> says("F-3", ui) and says("Live", ui), steps = ui -> steps(ui, n))
+end
+
+defn offline(ui, n)
+  (** The network cut, then two payments asked. *)
+  n.Cut()
+  u = settled(ui, q -> says("Offline", q))
+  settled(clickOn("button", "Pay F-3", clickOn("button", "Pay F-2", u)), q -> says("2 actions waiting", q))
+end
+
+io.Print(shot("live-live", (ui, n) -> ui))
+io.Print(shot("live-offline", offline))
+io.Print(shot("live-back", defn (ui, n)
+  u = offline(ui, n)
+  n.Back()
+  settled(u, q -> says("back after a break", q) and value.IsMissing(find("text", "F-2", web.Semantics(q))), most = 15)
+end))
+kept = cellOf("Martin & Co")
+io.Print(sdl.Shot(web.App([web.Route("/", renaming)], live = "/live"), "$out/live-conflict.png", origin = conflicting(kept), width = 540, height = 200,
+  settle = ui -> says("Live", ui), steps = ui -> settled(clickOn("button", "Rename to Brun", ui), q -> says("Keep mine", q))))
+sys.Exit(0)

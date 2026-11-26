@@ -1,0 +1,7 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Ceres — the pictures of the book</title>
+<style>html, body { margin: 0; height: 100%; } #page { width: 100%; height: 100%; }</style>
+<div id="page"><canvas></canvas></div>
+<script>document.querySelector('canvas').dataset.path = location.hash.slice(1) || '/text'</script>
+<script type="module" src="page.js"></script>

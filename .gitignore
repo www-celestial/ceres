@@ -15,3 +15,7 @@ bench/web/table.js
 bench/web/table.wasm
 bench/web/table.sites
 bench/web/ceres.js
+tools/docshots/page.js
+tools/docshots/page.wasm
+tools/docshots/page.sites
+tools/docshots/ceres.js

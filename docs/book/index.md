@@ -9,6 +9,8 @@ Its look is plain on purpose: ink on paper, edges of one pixel, dense rows, tabl
 fields, every action a button or a key in sight, numbers at the right in the code font, errors in plain words beside
 what they concern. The theme changes all of it.
 
+![The invoices page of the guide in Chrome, compiled to WebAssembly: a form, the unpaid invoices live from the app, a graph of the unpaid sum by month and a table of 100,000 invoices.](images/invoices-webgl.png)
+
 1. [A client list with a form, live from Cepheus](guide.md): the tutorial, from the project to its test.
 2. [Widgets](widgets.md): signals and live parts, then each widget with a page that uses it.
 3. [Forms](forms.md): one set of rules for the page and for the app.

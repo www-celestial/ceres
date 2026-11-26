@@ -5,6 +5,9 @@ lays out and draws. Each example below is a whole page run on the headless back-
 shows the page's semantics tree, what a screen reader reads, each widget at its place in pixels. The headless text is
 7 pixels a character and 21 a line at the size 14, so the places can be checked by hand.
 
+The pictures are these widgets in Chrome, compiled to WebAssembly, after the steps they say; `tools/docshots.sh`
+takes them all again.
+
 ```cesia
 use deps/www-celestial/ceres/src/web
 use deps/www-celestial/ceres/src/headless
@@ -20,6 +23,8 @@ A *signal* is a value that changes, as in SolidJS: `web.Signal(v)` makes one, `w
 changes it. A function given where a widget goes is a *live part*: the runtime runs it once, notes the signals it read,
 and runs it again, it alone, when one of them changes. Nothing else of the page is looked at again, and nothing runs at
 all while nothing changes: there is no virtual DOM to compare.
+
+![A page of three widgets: a title, a live part that shows n, and a button. At its first run the live part reads the signal n, which notes it; a click on the button calls web.Set(n, 2), and the live part runs again, it alone, while the title and the button are not looked at again.](images/widgets-signals.svg)
 
 ```cesia
 n = web.Signal(1)
@@ -49,6 +54,8 @@ larger text: a heading.
 headless.Tree(one(web.Stack([web.Title("Invoices"), web.Text(42), web.Text("unpaid", font = "strong")]))) -->
 ```
 
+![The title Invoices, larger and strong, then 42 in the code font and unpaid in the strong font, one under the other.](images/widgets-text.png)
+
 ## Stack, Row, Grow, Spacer, Divider
 
 `web.Stack` puts widgets one under the other, `web.Row` side by side; `gap` is the space between them, `pad` the space
@@ -58,6 +65,8 @@ is such a share, empty. `web.Divider()` is a thin line across.
 ```cesia
 headless.Tree(one(web.Row([web.Text("Total"), web.Spacer(), web.Text(12.5)]))) -->
 ```
+
+![A stack of two rows split by a divider: Total at the left and 12.5 pushed to the right by a spacer; then Client, a field that grows to fill the row with Brun typed in it, and the button Find.](images/widgets-layout.png)
 
 ## Button
 
@@ -72,6 +81,8 @@ web.Get(saved) --> 0
 page = web.Handle({Kind: "key", Key: "s", Ctrl: true, Alt: false, Shift: false}, page)
 web.Get(saved) --> 1
 ```
+
+![The button Save with its key C-s beside its label, and Saved 2 times after Ctrl-S was pressed twice; the band of keys at the bottom lists C-s Save.](images/widgets-button.png)
 
 ## Input
 
@@ -94,6 +105,8 @@ page = headless.Type("hunter2", headless.ClickOn("Password", one(web.Input(pass,
 web.Get(pass) --> "hunter2"
 ```
 
+![Two fields: Name holds Ana; Password, in focus with its blue edge and its caret, shows a dot for each of the 7 characters typed.](images/widgets-input.png)
+
 ## Select
 
 A choice among options, a list or a signal of rows: the signal it is bound to holds the key of the chosen one. A click
@@ -107,6 +120,8 @@ page = headless.Press("down", headless.Press("down", headless.Press("escape", he
 web.Get(city) --> 2
 ```
 
+![The select City open after a click, its list under it: Down twice chose Nice, which is shown in the field and marked in the list.](images/widgets-select.png)
+
 ## Each
 
 A list that follows a signal of rows, a widget for each row. Rows are told apart by their key: when the rows change, the
@@ -118,6 +133,8 @@ page = one(web.Each(rows, r -> r.Id, r -> web.Text(r.Name)))
 web.Set(rows, [{Id: 2, Name: "Bo"}, {Id: 3, Name: "Cy"}])
 headless.Tree(web.Update(page)) -->
 ```
+
+![Before and after: the list Ana, Bo; a click on Change the rows sets the signal to Bo, Cy, and the list shows Bo, Cy, the widget of Bo kept.](images/widgets-each.png)
 
 ## Table and Column
 
@@ -132,6 +149,8 @@ page = headless.Wheel(100, 60, -1000, one(table))
 headless.Tree(page) -->
 ```
 
+![A table of 100,000 invoices sorted by a click on the title Client, which shows ^: the rows of Atelier Brun come first, F-1, F-7, F-13 and on; the totals are amounts at the right of their column, and a scroll bar at the right.](images/widgets-table.png)
+
 ## Plot
 
 A graph of std/plot, drawn by Ceres: `web.Plot` takes a function that gives one, a live part, drawn again when a signal
@@ -144,6 +163,8 @@ graph = web.Plot(() -> plot.Of([plot.Bars([m.Month for m in web.Get(months)], [m
 headless.Tree(one(graph)) -->
 ```
 
+![A graph of bars, Unpaid by month: Jul 120, Aug 260, Sep 190, Oct 340 and Nov 80, its axis of amounts at the left.](images/widgets-plot.png)
+
 ## Money and Grouped
 
 `web.Money(x)` is an amount as a text widget in the code font, two digits after the point, its thousands apart, as a
@@ -153,6 +174,8 @@ French page writes it; `web.Grouped` gives the text alone.
 web.Money(1234.5).Text --> "1 234,50 €"
 web.Grouped(1234.5, decimal = ".", group = ",") --> "1,234.50"
 ```
+
+![Bread 3,20 €, Rent 1 234,50 € and, under a divider, Total 1 237,70 €: the amounts in the code font at the right, their figures lined up.](images/widgets-money.png)
 
 ## Link, routes and Go
 
@@ -166,6 +189,8 @@ app = web.App([web.Route("/", home), web.Route("/invoices/:id", invoice)])
 headless.Tree(headless.ClickOn("Invoice 42", headless.Open(app))) -->
 ```
 
+![Before and after: the link Invoice 42, underlined; a click on it shows the route /invoices/:id, the title Invoice 42.](images/widgets-link.png)
+
 ## The band of keys
 
 Every action is in sight with its key: at the bottom of the window, a band lists the keys of the widget in focus and
@@ -175,3 +200,5 @@ those of the buttons that have one. `web.Keys(page)` gives them; `web.Theme` wit
 page = headless.ClickOn("Name", one(web.Input(web.Signal(""), label = "Name")))
 web.Keys(page) -->
 ```
+
+![The field Name in focus with Ana typed, and the button Save; the band at the bottom lists Tab S-Tab next field, previous, Left Right Home End move, and C-s Save.](images/widgets-keys.png)

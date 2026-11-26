@@ -102,6 +102,8 @@ anything about the page. The page calls it by `js.Call("../../web/ceres.js", nam
 - `Check(json)`, in a page whose address holds `ceres-check`, where `Start` gives `check` true: `src/browser` sends the
   whole tree after each frame, and `tests/web/check.js` checks the hidden DOM against it (below).
 
+![A form compiled to WebAssembly in Chrome, the elements of its hidden DOM outlined in orange for the picture: each label, field, message and button of the canvas has an element at its place, transparent, which a screen reader reads; the fields Client and Amount are a combobox and a real input.](images/backends-hidden-dom.png)
+
 The bytes of the draw list: two u32, the count of f32 numbers and of bytes of text, the numbers, then the texts in
 UTF-8. Each item is a code and its numbers: 1 rect and 2 frame (X Y W H Color Alpha Radius), 3 text (X Y Size Color
 Alpha Font Start Length Angle), 4 line (n Width Color Alpha, then n points), 5 tris (n Color Alpha, then n points), 6 a

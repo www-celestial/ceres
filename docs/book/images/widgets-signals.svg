@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="280" viewBox="0 0 680 280">
+<title>A page of three widgets: a title, a live part that shows n, and a button. At its first run the live part reads the signal n, which notes it. A click on the button calls web.Set(n, 2): the live part runs again, it alone, and shows n is 2; the title and the button are not looked at again.</title>
+<style>
+text{font-family:system-ui,sans-serif;font-size:13px;fill:#111}
+.c{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.m{fill:#5c5c5c}
+.a{fill:#0b57d0}
+.h{font-weight:600}
+.b{fill:#fff;stroke:#111;stroke-width:1}
+.ba{fill:#fff;stroke:#0b57d0;stroke-width:1.6}
+.g{fill:#f2f2f2;stroke:#cfcfcf;stroke-width:1}
+.l{stroke:#111;stroke-width:1.2;fill:none}
+.la{stroke:#0b57d0;stroke-width:1.4;fill:none}
+.d{stroke:#5c5c5c;stroke-width:1.2;stroke-dasharray:4 3;fill:none}
+.hd{fill:#111}
+.hda{fill:#0b57d0}
+.hdd{fill:#5c5c5c}
+</style>
+<rect width="680" height="280" fill="#fff"/>
+<text x="20" y="26" class="h">the page</text>
+<rect class="g" x="20" y="36" width="324" height="176"/>
+<rect class="b" x="36" y="52" width="292" height="40"/>
+<text x="48" y="70" class="c">web.Title(&quot;Invoices&quot;)</text>
+<text x="48" y="85" class="m">runs once</text>
+<rect class="ba" x="36" y="104" width="292" height="46"/>
+<text x="48" y="123" class="c">() -&gt; web.Text(&quot;n is $(web.Get(n))&quot;)</text>
+<text x="48" y="141" class="a">a live part: runs again when n changes</text>
+<rect class="b" x="36" y="162" width="292" height="40"/>
+<text x="48" y="180" class="c">web.Button(&quot;Add one&quot;, () -&gt; ...)</text>
+<text x="48" y="195" class="m">runs once</text>
+<text x="470" y="26" class="h">the signal</text>
+<rect class="b" x="470" y="104" width="190" height="46"/>
+<text x="482" y="123" class="c">n = web.Signal(1)</text>
+<text x="482" y="141" class="m">1, then 2</text>
+<line class="d" x1="328" y1="114" x2="462.0" y2="114.0"/><polygon class="hdd" points="470,114 462.0,118.0 462.0,110.0"/>
+<text x="399" y="106" class="m" text-anchor="middle">reads n: noted</text>
+<line class="la" x1="470" y1="140" x2="336.0" y2="140.0"/><polygon class="hda" points="328,140 336.0,136.0 336.0,144.0"/>
+<text x="399" y="158" class="a" text-anchor="middle">runs it again</text>
+<polyline class="l" points="328,182 565,182 565,158"/>
+<line class="l" x1="565" y1="166" x2="565.0" y2="158.0"/><polygon class="hd" points="565,150 569.0,158.0 561.0,158.0"/>
+<text x="446" y="176" class="c" text-anchor="middle">web.Set(n, 2)</text>
+<text x="20" y="236">1. Each part runs once and notes the signals it read.  2. A click: web.Set(n, 2).</text>
+<text x="20" y="254">3. Only the parts that read n run again, then the frame draws what changed.</text>
+<text x="20" y="272" class="m">Nothing is compared, and nothing runs while nothing changes.</text>
+</svg>

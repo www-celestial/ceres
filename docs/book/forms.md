@@ -57,8 +57,11 @@ headless.Tree(s) -->
 web.Get(sent) --> []
 ```
 
-The amount breaks a rule and no client is chosen: each message stands beside its field, and nothing is sent. Choose a
-client, fix the amount, and Enter sends:
+The amount breaks a rule and no client is chosen: each message stands beside its field, and nothing is sent.
+
+![The form after Enter: Client still says Choose, with Choose a client. in red beside it; Amount holds -5 in a red edge, with More than zero. beside it; the button Add shows its key Enter.](images/forms-errors.png)
+
+Choose a client, fix the amount, and Enter sends:
 
 ```cesia
 s = headless.Press("down", headless.Press("escape", headless.ClickOn("Client", s)))
@@ -66,6 +69,8 @@ s = headless.Type("120", headless.Press("backspace", headless.Press("backspace",
 s = headless.Press("enter", s)
 value.Equal(web.Get(sent), [{Client: 3, Amount: 120}]) --> true
 ```
+
+![The same form, Atelier Brun chosen and the amount 120 typed: the messages are gone, and Enter sends.](images/forms-fixed.png)
 
 When `onSubmit` gives the reply of `web.Act`, the line of the button says how it went: Sending…, Sent., or the reason
 the app gave; the app's messages of an `Err` of the kind "form" go beside their fields, and an `Ok` empties the form.

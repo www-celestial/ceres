@@ -1,0 +1,109 @@
+(* The picture of the tutorial's page in a window, docs/book/guide.md: the page of clients drawn by the SDL3 back-end
+   under SDL's dummy driver, live from a server of std/live in this program, which stands in for Cepheus as the test of
+   the tutorial does (tests/clients.test.ce): its show "latest" brings two clients, then each one added; its action
+   addClient checks the form with the same rules; "all" gives the table its windows of 30 clients. A person types a
+   client, sends the form with Enter, and sorts the table by City with a click: OUT/guide-clients.png. *)
+use src/form
+use src/sdl
+use src/serve
+use src/web
+use std/fiber
+use std/http
+use std/io
+use std/list
+use std/live
+use std/math
+use std/net
+use std/result
+use std/sys
+use std/text
+use std/value
+
+Client = {
+  Name: [form.Required("Give a name."), form.Length(2, 60, "From 2 to 60 letters.")],
+  City: [form.Required("Give a city.")],
+}
+
+defn Page(p)
+  (** The page of the tutorial, as docs/book/guide.md writes it. *)
+  latest = web.Live("latest", p)
+  draft = form.New({Name: missing, City: missing}, Client)
+  web.Stack([
+    web.Title("Clients"),
+    form.View(draft, () -> web.Act("addClient", form.Values(draft), p), [form.Text("Name"), form.Text("City"), form.Submit("Add")]),
+    web.Text("Latest", font = "strong"),
+    web.Each(latest, c -> c.Id, c -> web.Row([web.Text(c.Name), web.Text(c.City)], gap = 16), gap = 2),
+    web.Table(web.Pages("all", p), [web.Column("Name", c -> c.Name, sort = "Name"), web.Column("City", c -> c.City, sort = "City")], height = 160, label = "All clients"),
+  ])
+end
+
+names = ["Atelier Brun", "Martin & Co", "Garage Roux", "Boulangerie Petit", "Fleurs Morel", "Librairie Duval", "Bistrot Lenoir", "Pharmacie Roy"]
+towns = ["Lyon", "Paris", "Nantes", "Lille", "Nice", "Brest"]
+all = [{Id: k, Name: "$(names[math.Mod(k - 1, 8) + 1]) $k", City: towns[math.Mod(k * 5, 6) + 1]} for k in 1..30]
+
+latest = fiber.Channel()
+fiber.Send({Group: 1, Rows: [{Id: 2, Name: "Martin & Co 2", City: "Lille"}, {Id: 1, Name: "Atelier Brun 1", City: "Nantes"}]}, latest)
+defn addClient(s, args)
+  (** The action of the form: the same rules, then the client goes to the show, as a Watch of Cepheus would send it. *)
+  c = form.Checked(Client, args)?
+  fiber.Send({Group: 2, Added: [{Id: 31, Name: c.Name, City: c.City}], Removed: []}, latest)
+  result.Ok({Id: 31})
+end
+defn window(sort, desc, offset, limit)
+  (** A window of the 30 clients, sorted by a field. *)
+  sorted = if value.IsMissing(sort) all else list.SortBy(c -> c[sort], all) end
+  rows = if desc list.Reverse(sorted) else sorted end
+  {Rows: list.Take(limit, list.Skip(offset, rows)), Count: 30}
+end
+l = net.Listen(0).Value
+actions = {addClient: addClient, all: serve.Pages(["Name", "City"], window)}
+fiber.Spawn(() -> http.Serve(http.App() then live.Route("/live", s -> [live.Show("latest", latest)], actions = actions), listener = l))
+
+defn find(role, name, n)
+  (** The first node of the tree of a role and a name, or missing. *)
+  if n.Role == role and n.Name == name
+    return n
+  end
+  for k in n.Kids
+    got = find(role, name, k)
+    if value.IsSome(got)
+      return got
+    end
+  end
+  missing
+end
+
+defn settled(ui, f)
+  (** The page once its live screen brought what f waits for, 5 seconds at most. *)
+  u = ui
+  start = sys.Now()
+  while not f(u) and sys.Now() - start < 5
+    sys.Sleep(0.01)
+    u = web.Update(u)
+  end
+  u
+end
+
+says(s, ui) = text.Contains(s, "$(web.Semantics(ui))")
+key(name) = {Kind: "key", Key: name, Ctrl: false, Alt: false, Shift: false}
+click(x, y, ui) = web.Handle({Kind: "mouse", Action: "up", X: x, Y: y, Button: 1, Amount: 0}, web.Handle({Kind: "mouse", Action: "down", X: x, Y: y, Button: 1, Amount: 0}, ui))
+defn clickOn(role, name, ui)
+  (** A click in the middle of the widget of a role and a name. *)
+  n = find(role, name, web.Semantics(ui))
+  click(n.X + n.W / 2, n.Y + n.H / 2, ui)
+end
+
+defn steps(ui)
+  (** A client typed and sent with Enter, then the table sorted by City. *)
+  u = web.Handle({Kind: "text", Text: "Cave Lemoine"}, clickOn("textbox", "Name", ui))
+  u = web.Handle({Kind: "text", Text: "Nice"}, clickOn("textbox", "City", u))
+  u = settled(web.Handle(key("enter"), u), q -> says("Sent.", q) and says("Cave Lemoine", q))
+  t = find("table", "All clients", web.Semantics(u))
+  settled(click(t.X + t.W * 3 / 4, t.Y + 10, u), q -> says("Bistrot Lenoir 7", q) and not says("Boulangerie Petit 4", q))
+end
+
+out = sys.Env("OUT")
+app = web.App([web.Route("/", Page)], live = "/live", title = "Clients")
+io.Print(sdl.Shot(app, "$(if value.IsText(out) out else "docs/book/images" end)/guide-clients.png", origin = "http://127.0.0.1:$(net.Port(l))",
+  width = 760, height = 440, settle = ui -> says("Atelier Brun 1", ui), steps = steps))
+sys.Exit(0)

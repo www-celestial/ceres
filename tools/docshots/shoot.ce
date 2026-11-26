@@ -1,0 +1,220 @@
+(* The pictures of the widgets in the book, taken in a browser: this program serves tools/docshots (page.html and the
+   page compiled to WebAssembly, tools/docshots.sh builds it), opens it in Chrome without a window, driven by its
+   DevTools protocol over std/websocket, and plays each scene below as a person: a click where a widget is, a text
+   typed, a key, a notch of the wheel, each sent by Chrome as its own input. A picture is the part of the page that holds
+   the widgets, read from the hidden DOM's semantics tree, a margin around; or the whole window, when the band of keys
+   at its bottom is what it shows. Each goes in OUT (docs/book/images) as NAME.png. CHROME names the browser, a Chrome
+   or a chrome-headless-shell; its profile is in PROFILE. The page of examples/hello is served too, built beside it. *)
+use std/dict
+use std/encode
+use std/fiber
+use std/http
+use std/io
+use std/json
+use std/list
+use std/net
+use std/result
+use std/sys
+use std/text
+use std/value
+use std/websocket
+
+defn env(name, default)
+  v = sys.Env(name)
+  if value.IsText(v) and v != "" v else default end
+end
+
+(* Each scene: its route, the size of the window, and its steps. A step is a list: click a node by its role and name
+   (a name that ends with * by its start), type a text, a key (with "C-" for Ctrl), a wheel of notches over a node,
+   wait for a text in the tree, or take a picture: of the nodes, a margin of 8 pixels around, or of the window. *)
+scenes = [
+  {Route: "/text", W: 360, H: 160, Steps: [["shot", "widgets-text", "nodes"]]},
+  {Route: "/layout", W: 460, H: 160, Steps: [["click", "textbox", "Client"], ["type", "Brun"], ["shot", "widgets-layout", "nodes"]]},
+  {Route: "/button", W: 420, H: 90, Steps: [["key", "C-s"], ["key", "C-s"], ["until", "Saved 2 times"], ["shot", "widgets-button", "window"]]},
+  {Route: "/input", W: 360, H: 120, Steps: [["click", "textbox", "Name"], ["type", "Ana"], ["click", "textbox", "Password"], ["type", "hunter2"],
+    ["shot", "widgets-input", "nodes"]]},
+  {Route: "/select", W: 300, H: 150, Steps: [["click", "combobox", "City"], ["key", "down"], ["key", "down"], ["shot", "widgets-select", "window-top"]]},
+  {Route: "/each", W: 300, H: 170, Steps: [["shot", "widgets-each-before", "nodes"], ["click", "button", "Change the rows"], ["until", "Cy"],
+    ["shot", "widgets-each-after", "nodes"]]},
+  {Route: "/table", W: 480, H: 280, Steps: [["clickAt", 200, 22], ["until", "F-13"], ["shot", "widgets-table", "nodes"]]},
+  {Route: "/plot", W: 480, H: 300, Steps: [["shot", "widgets-plot", "nodes"]]},
+  {Route: "/money", W: 300, H: 160, Steps: [["shot", "widgets-money", "nodes"]]},
+  {Route: "/link", W: 300, H: 100, Steps: [["shot", "widgets-link-before", "nodes"], ["click", "link", "Invoice 42"], ["until", "Invoice 42"],
+    ["shot", "widgets-link-after", "nodes"]]},
+  {Route: "/keys", W: 560, H: 90, Steps: [["click", "textbox", "Name"], ["type", "Ana"], ["shot", "widgets-keys", "window"]]},
+  {Route: "/form", W: 520, H: 160, Steps: [["click", "textbox", "Amount"], ["type", "-5"], ["key", "enter"], ["until", "More than zero."],
+    ["shot", "forms-errors", "window-top"], ["click", "combobox", "Client"], ["key", "escape"], ["key", "down"], ["click", "textbox", "Amount"], ["key", "backspace"], ["key", "backspace"],
+    ["type", "120"], ["shot", "forms-fixed", "window-top"]]},
+  {Route: "/form", W: 520, H: 160, Steps: [["click", "textbox", "Amount"], ["type", "-5"], ["key", "enter"], ["until", "More than zero."],
+    ["css", "#page > div * { outline: 1px solid #e8590c !important; outline-offset: -1px }"], ["shot", "backends-hidden-dom", "window-top"]]},
+  {Page: "/hello/index.html", Route: "/", W: 600, H: 200, Steps: [["click", "button", "Add one*"], ["click", "button", "Add one*"], ["click", "textbox", "Your name"],
+    ["type", "Ana"], ["until", "Hello, Ana!"], ["shot", "web-hello", "window"]]},
+]
+
+(* The keys of the DevTools protocol: its key, code and key code. *)
+keys = {enter: ["Enter", "Enter", 13], escape: ["Escape", "Escape", 27], down: ["ArrowDown", "ArrowDown", 40], up: ["ArrowUp", "ArrowUp", 38],
+  backspace: ["Backspace", "Backspace", 8], tab: ["Tab", "Tab", 9], s: ["s", "KeyS", 83]}
+
+defn ask(conn, method, params)
+  (** A command of the DevTools protocol and its result, the events before it left aside: one command at a time, so one
+      id serves them all. *)
+  _ = websocket.Send(json.Text({id: 1, method: method, params: params}), conn)
+  while true
+    m = json.Parse(fiber.Receive(conn.Messages, timeout = 60)?)?
+    if value.IsDict(m) and "id" in m and m["id"] == 1
+      return if "error" in m result.Err({Kind: "cdp", Message: "$method: $(json.Text(m["error"]))"}) else result.Ok(m["result"]) end
+    end
+  end
+end
+
+defn evaluated(conn, expression)
+  (** The value of an expression evaluated in the page, its promise awaited. *)
+  r = ask(conn, "Runtime.evaluate", {expression: expression, awaitPromise: true, returnByValue: true})?
+  result.Ok(dict.GetOr("value", missing, r["result"]))
+end
+
+(* What the page's semantics tree says, read from ceres.js: the box of a node, of all of them, or whether a text is in it. *)
+finder = "const tree = () => import(new URL('ceres.js', location.href).href).then(m => m.Tree() && JSON.parse(m.Tree())); const all = (n, f, out = []) => { if (f(n)) out.push(n); (n.Kids || []).forEach(k => all(k, f, out)); return out }; const named = (n, want) => want.endsWith('*') ? (n.Name || '').startsWith(want.slice(0, -1)) : n.Name === want;"
+
+defn box(conn, role, name)
+  (** The box of the first node of a role and a name, {X, Y, W, H}, or missing. *)
+  evaluated(conn, "(async () => { $finder const t = await tree(); const n = t && all(t, n => n.Role === $(json.Text(role)) && named(n, $(json.Text(name))))[0]; return n ? {X: n.X, Y: n.Y, W: n.W, H: n.H} : null })()")
+end
+
+defn nodes(conn)
+  (** The box that holds every node that has a size, but the page's; the rows of a table that it lays out out of sight
+      are cut to its box. *)
+  evaluated(conn, "(async () => { $finder const t = await tree(); const bs = []; const walk = (n, c) => { if (n.W > 0 && n.H > 0 && n.Role !== 'page') { const x = Math.max(n.X, c.x), y = Math.max(n.Y, c.y), x2 = Math.min(n.X + n.W, c.x2), y2 = Math.min(n.Y + n.H, c.y2); if (x2 > x && y2 > y) bs.push({x, y, x2, y2}) } const k = n.Role === 'table' ? {x: n.X, y: n.Y, x2: n.X + n.W, y2: n.Y + n.H} : c; (n.Kids || []).forEach(m => walk(m, k)) }; walk(t, {x: -1e9, y: -1e9, x2: 1e9, y2: 1e9}); const x = Math.min(...bs.map(b => b.x)), y = Math.min(...bs.map(b => b.y)); return {X: x, Y: y, W: Math.max(...bs.map(b => b.x2)) - x, H: Math.max(...bs.map(b => b.y2)) - y} })()")
+end
+
+defn holds(conn, s)
+  (** Whether a node of the tree names or holds the text s. *)
+  evaluated(conn, "(async () => { $finder const t = await tree(); return !!t && all(t, n => n.Name === $(json.Text(s)) || n.Value === $(json.Text(s))).length > 0 })()")
+end
+
+defn mouse(conn, x, y)
+  (** A click of the left button at x, y of the page. *)
+  for kind in ["mouseMoved", "mousePressed", "mouseReleased"]
+    ask(conn, "Input.dispatchMouseEvent", {type: kind, x: x, y: y, button: if kind == "mouseMoved" "none" else "left" end, clickCount: 1})?
+  end
+  result.Ok(missing)
+end
+
+defn key(conn, k)
+  (** A key pressed and let go, "C-s" with Ctrl. *)
+  ctrl = text.StartsWith("C-", k)
+  name = if ctrl text.Slice(3, value.Len(k), k) else k end
+  kc = keys[name]
+  for kind in ["keyDown", "keyUp"]
+    ask(conn, "Input.dispatchKeyEvent", {type: kind, key: kc[1], code: kc[2], windowsVirtualKeyCode: kc[3], modifiers: if ctrl 2 else 0 end})?
+  end
+  result.Ok(missing)
+end
+
+defn waitFor(conn, s)
+  (** Waits, 10 seconds at most, for a text in the tree. *)
+  start = sys.Now()
+  while sys.Now() - start < 10
+    got = holds(conn, s)
+    if result.IsOk(got) and got.Value == true
+      return result.Ok(missing)
+    end
+    sys.Sleep(0.1)
+  end
+  result.Err({Kind: "docshots", Message: "no $s in the page"})
+end
+
+defn picture(conn, path, clip)
+  (** A picture of the box clip of the page in a file. *)
+  s = ask(conn, "Page.captureScreenshot", {format: "png", clip: {x: clip.X, y: clip.Y, width: clip.W, height: clip.H, scale: 1}})?
+  sys.Write(path, encode.Unbase64(s["data"])?)
+end
+
+defn play(conn, port, scene, k, out)
+  (** Opens the route of a scene in a window of its size, the page loaded again (k, its number, makes its address its
+      own), and plays its steps: the names of its pictures. *)
+  ask(conn, "Emulation.setDeviceMetricsOverride", {width: scene.W, height: scene.H, deviceScaleFactor: 1, mobile: false})?
+  ask(conn, "Page.navigate", {url: "http://127.0.0.1:$port$(dict.GetOr("Page", "/page.html", scene))?$k#$(scene.Route)"})?
+  start = sys.Now()
+  ready = false
+  while not ready and sys.Now() - start < 20
+    sys.Sleep(0.1)
+    got = evaluated(conn, "import(new URL('ceres.js', location.href).href).then(m => !!m.Tree()).catch(() => false)")
+    ready = result.IsOk(got) and got.Value == true
+  end
+  sys.Sleep(0.3)
+  taken = []
+  for s in scene.Steps
+    if s[1] == "click"
+      b = box(conn, s[2], s[3])?
+      if value.IsMissing(b)
+        return result.Err({Kind: "docshots", Message: "$(scene.Route): no $(s[2]) $(s[3])"})
+      end
+      mouse(conn, b.X + b.W / 2, b.Y + b.H / 2)?
+    else if s[1] == "clickAt"
+      mouse(conn, s[2], s[3])?
+    else if s[1] == "type"
+      ask(conn, "Input.insertText", {text: s[2]})?
+    else if s[1] == "key"
+      key(conn, s[2])?
+    else if s[1] == "until"
+      waitFor(conn, s[2])?
+    else if s[1] == "css"
+      evaluated(conn, "document.head.insertAdjacentHTML('beforeend', '<style>' + $(json.Text(s[2])) + '</style>')")?
+    else if s[1] == "sleep"
+      sys.Sleep(s[2])
+    else if s[1] == "shot"
+      sys.Sleep(0.3)
+      clip = if s[3] == "window" {X: 0, Y: 0, W: scene.W, H: scene.H} else if s[3] == "window-top" {X: 0, Y: 0, W: scene.W, H: scene.H - 34} else nodes(conn)? end
+      pad = if s[3] == "nodes" 8 else 0 end
+      x = if clip.X - pad < 0 0 else clip.X - pad end
+      y = if clip.Y - pad < 0 0 else clip.Y - pad end
+      picture(conn, "$out/$(s[2]).png", {X: x, Y: y, W: clip.X + clip.W + pad - x, H: clip.Y + clip.H + pad - y})?
+      taken = list.Append(s[2], taken)
+    end
+    sys.Sleep(0.25)
+  end
+  result.Ok(taken)
+end
+
+defn shoot(proc, profile, port, out, only)
+  (** Plays every scene, or those whose route holds only, in the browser of proc: an Ok of the names of the pictures. *)
+  start = sys.Now()
+  while not sys.Exists("$profile/DevToolsActivePort") and sys.Now() - start < 15
+    sys.Sleep(0.05)
+  end
+  debug = text.Split("\n", sys.Read("$profile/DevToolsActivePort")?)[1]
+  sys.Sleep(0.5)
+  targets = json.Parse(http.Fetch("http://127.0.0.1:$debug/json")?.Body)?
+  page = [x for x in targets if x["type"] == "page"][1]
+  conn = websocket.Dial(page["webSocketDebuggerUrl"])?
+  all = []
+  for k in 1..value.Len(scenes)
+    scene = scenes[k]
+    if only == "" or text.Contains(only, scene.Route)
+      got = play(conn, port, scene, k, out)?
+      io.Print("$(scene.Route): $(text.Join(", ", got))")
+      all = list.Concat(all, got)
+    end
+  end
+  result.Ok(all)
+end
+
+defn main()
+  (** Serves, opens the browser, plays the scenes, and stops the browser, whatever happened. *)
+  out = env("OUT", "docs/book/images")
+  profile = env("PROFILE", "/tmp/ceres-docshots")
+  l = net.Listen(0)?
+  port = net.Port(l)
+  fiber.Spawn(() -> http.Serve(http.App() then http.Static("/hello", "examples/hello") then http.Static("", "tools/docshots"), listener = l))
+  _ = sys.Remove("$profile/DevToolsActivePort")
+  proc = sys.Start(env("CHROME", "chrome"), args = ["--headless=new", "--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+    "--hide-scrollbars", "--window-size=800,600", "--remote-debugging-port=0", "--user-data-dir=$profile", "--lang=en", "http://127.0.0.1:$port/page.html"])?
+  got = shoot(proc, profile, port, out, env("ONLY", ""))
+  sys.Stop(proc)
+  got
+end
+
+got = main()
+io.Print(if result.IsOk(got) "docshots: $(value.Len(got.Value)) pictures" else "docshots: $(got.Error.Message)" end)
+sys.Exit(if result.IsOk(got) 0 else 1 end)

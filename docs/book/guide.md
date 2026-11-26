@@ -132,6 +132,8 @@ It needs `--allow ffi=SDL3,ffi=SDL3_ttf,net=127.0.0.1` and `read=` for the fonts
 `deps/www-celestial/ceres/src/sdl/fonts`. The window sleeps while nothing changes, and draws a frame when the server
 pushes a client or when you type: nothing else costs anything.
 
+![The page of clients in a window of SDL3, live from its server: Cave Lemoine of Nice was typed and sent with Enter, the line of the button says Sent., the form is empty again, and Cave Lemoine came under Latest from the server; the table of all clients is sorted by City with a click on its title, Brest first.](images/guide-clients.png)
+
 ## 6. A test without a window
 
 The page runs on the headless back-end against a server of `std/live` on a free port, whose show stands in for the

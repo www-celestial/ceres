@@ -29,6 +29,13 @@ the browser's ([Ceres in a web page](web.md)).
   with the actions it kept.
 - `web.Pages(name, p)`: the rows of a big table, which the server gives a window at a time, through the action `name`.
 
+![Three states of the line of the connection over a list of unpaid invoices: Live; then Offline — 2 actions waiting · next try in a few seconds, with Try now, after the network dropped and Pay F-2 and Pay F-3 were clicked; then Live — back after a break, nothing missed, F-2 and F-3 paid once and gone from the list.](images/live-connection.png)
+
+![A conflict under the line Live: rename was refused: This changed meanwhile: see its values now. For the field Name, seen Martin, now Martin & Co, yours Brun, with the buttons Keep mine and Take theirs.](images/live-conflict.png)
+
+`tools/docshots/connection.ce` takes both pictures in a window of SDL3, the page live from an app through a network that
+it cuts and gives back.
+
 ```cesia norun
 use deps/www-celestial/ceres/src/web
 
@@ -80,6 +87,8 @@ http.Serve(http.App() then live.Route("/live", s -> [live.Show("unpaid", changes
 the action with its reply.
 
 ## What the protocol carries
+
+![The messages of a live screen down the time, between the page and its app: Hello 2; a new screen and its settings; the whole answer of the show unpaid as frame 1, which the page confirms with Got 1; the action pay of Id 7; only what changed, F-2 removed; the reply to action 7. The network drops; the page comes back with its token and Got 3, gets the same screen and each change it missed once; Bye as it goes away.](images/live-protocol.svg)
 
 The page says `{Hello: 2}` once connected, or `{Hello: 2, Token, Got}` to come back to the screen it had after the
 frame `Got`. The server's first frame, `[{Token, Resumed, Heard, Who, Client}]`, says whether the screen is the one

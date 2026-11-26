@@ -1,0 +1,71 @@
+(** The pages of the pictures of the book: one route for each widget that docs/book/widgets.md and forms.md show, with
+    the data of their examples, which tools/docshots/shoot.ce opens in Chrome, plays as a person and cuts to the widget.
+    tools/docshots/page.ce runs them in a browser, compiled to WebAssembly. *)
+use src/form
+use src/web
+use std/math
+use std/plot
+
+saved = web.Signal(0)
+name = web.Signal("")
+pass = web.Signal("")
+client = web.Signal("")
+city = web.Signal(missing)
+cities = [{Id: 1, Name: "Lyon"}, {Id: 2, Name: "Nice"}]
+people = web.Signal([{Id: 1, Name: "Ana"}, {Id: 2, Name: "Bo"}])
+months = web.Signal([{Month: "Jul", Total: 120}, {Month: "Aug", Total: 260}, {Month: "Sep", Total: 190}, {Month: "Oct", Total: 340}, {Month: "Nov", Total: 80}])
+clients = ["Martin & Co", "Atelier Brun", "Cave Lemoine", "Garage Roux", "Boulangerie Petit", "Fleurs Morel"]
+invoices = [{Number: "F-$k", Client: clients[math.Mod(k * 7, 6) + 1], Total: math.Mod(k * 37, 900) + 12.5} for k in 1..100000]
+
+Invoice = {
+  Client: [form.Required("Choose a client.")],
+  Amount: [form.Required("Give an amount."), form.Above(0, "More than zero.")],
+}
+firms = [{Id: 3, Name: "Atelier Brun"}, {Id: 4, Name: "Cave Lemoine"}]
+sent = web.Signal([])
+
+label(s) = web.Stack([web.Text(s)], width = 80)   (* A label before its field, the width of the longest. *)
+
+defn formPage(p)
+  (** The form of the chapter Forms: a client among two, an amount above zero. *)
+  draft = form.New({Client: missing, Amount: missing}, Invoice)
+  form.View(draft, () -> web.Set(sent, [form.Values(draft)]), [
+    form.Choice("Client", firms, c -> c.Id, c -> c.Name),
+    form.Number("Amount"),
+    form.Submit("Add"),
+  ])
+end
+
+Routes = [
+  web.Route("/text", _ -> web.Stack([web.Title("Invoices"), web.Text(42), web.Text("unpaid", font = "strong")])),
+  web.Route("/layout", _ -> web.Stack([
+    web.Row([web.Text("Total"), web.Spacer(), web.Text(12.5)]),
+    web.Divider(),
+    web.Row([web.Text("Client"), web.Grow(web.Input(client, label = "Client")), web.Button("Find", () -> missing)], gap = 8),
+  ], gap = 8, width = 420)),
+  web.Route("/button", _ -> web.Row([web.Button("Save", () -> web.Set(saved, web.Get(saved) + 1), key = "C-s"), () -> web.Text("Saved $(web.Get(saved)) times")], gap = 12)),
+  web.Route("/input", _ -> web.Stack([
+    web.Row([label("Name"), web.Input(name, label = "Name", width = 200)]),
+    web.Row([label("Password"), web.Input(pass, label = "Password", secret = true, width = 200)]),
+  ])),
+  web.Route("/select", _ -> web.Row([web.Text("City"), web.Select(city, cities, c -> c.Id, c -> c.Name, name = "City", width = 160)], gap = 8)),
+  web.Route("/each", _ -> web.Stack([
+    web.Button("Change the rows", () -> web.Set(people, [{Id: 2, Name: "Bo"}, {Id: 3, Name: "Cy"}])),
+    web.Each(people, r -> r.Id, r -> web.Text(r.Name)),
+  ])),
+  web.Route("/table", _ -> web.Table(invoices, [web.Column("Number", r -> r.Number, sort = "Number"), web.Column("Client", r -> r.Client, sort = "Client"),
+    web.Column("Total", r -> web.Money(r.Total), sort = "Total")], height = 220, width = 440, label = "Invoices")),
+  web.Route("/plot", _ -> web.Plot(() -> plot.Of([plot.Bars([m.Month for m in web.Get(months)], [m.Total for m in web.Get(months)])], title = "Unpaid by month"), height = 220, width = 440)),
+  web.Route("/money", _ -> web.Stack([
+    web.Row([web.Text("Bread"), web.Spacer(), web.Money(3.2)]),
+    web.Row([web.Text("Rent"), web.Spacer(), web.Money(1234.5)]),
+    web.Divider(),
+    web.Row([web.Text("Total", font = "strong"), web.Spacer(), web.Money(1237.7)]),
+  ], width = 240)),
+  web.Route("/link", p -> web.Link("Invoice 42", "/invoices/42")),
+  web.Route("/invoices/:id", p -> web.Title("Invoice $(p.Params.id)")),
+  web.Route("/keys", _ -> web.Row([web.Text("Name"), web.Input(name, label = "Name", width = 200), web.Button("Save", () -> missing, key = "C-s")], gap = 8)),
+  web.Route("/form", formPage),
+]
+
+App = web.App(Routes, title = "Ceres — the pictures of the book")

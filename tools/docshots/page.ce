@@ -1,0 +1,6 @@
+(* The pages of the pictures of the book in a browser, compiled to WebAssembly by cesia build --target wasm
+   tools/docshots/page.ce; page.html opens the route its address names after #, as #/table. *)
+use src/browser
+use tools/docshots/gallery
+
+browser.Run(gallery.App)

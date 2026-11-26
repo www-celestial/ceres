@@ -73,3 +73,11 @@
 - A test page whose address holds `?ceres-check` checks the hidden DOM after every frame (`tests/web/check.js`): the
   tree it keeps is `web.Semantics`, and each element says what its node says.
 - `bench/web/table.ce` and `tests/web/table.html` measure a table of 100,000 rows in a browser (`cesia do webtable`).
+
+### Docs
+
+- A picture of each widget in the book, taken in Chrome from the page compiled to WebAssembly after the steps it says
+  (a table sorted by a click, a field with its error, a select open, the band of keys); the tutorial's page in a window
+  of SDL3; the line of the connection as the network drops and comes back, and a conflict; drawings of a signal and its
+  live part, of the protocol of a live screen and of the loop of a page in the browser. `tools/docshots.sh` takes them
+  all again.

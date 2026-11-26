@@ -1,0 +1,124 @@
+(* The drawings of a mechanism in the book, written as SVG into OUT (docs/book/images): a signal and its live part
+   (widgets-signals.svg), what the protocol of a live screen carries (live-protocol.svg), and the loop of a page in the
+   browser (web-loop.svg). Each is a drawing of SVG's shapes and texts on white, readable on a light page and a dark
+   one, as the site wants it: no script, no link, no file it would load. *)
+use std/io
+use std/list
+use std/math
+use std/sys
+use std/text
+use std/value
+
+dollar = "$"   (* A dollar written as itself, not the start of a value in a text. *)
+esc(s) = text.Replace("\"", "&quot;", text.Replace(">", "&gt;", text.Replace("<", "&lt;", text.Replace("&", "&amp;", s))))
+
+style = "<style>
+text{font-family:system-ui,sans-serif;font-size:13px;fill:#111}
+.c{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+.m{fill:#5c5c5c}
+.a{fill:#0b57d0}
+.h{font-weight:600}
+.b{fill:#fff;stroke:#111;stroke-width:1}
+.ba{fill:#fff;stroke:#0b57d0;stroke-width:1.6}
+.g{fill:#f2f2f2;stroke:#cfcfcf;stroke-width:1}
+.l{stroke:#111;stroke-width:1.2;fill:none}
+.la{stroke:#0b57d0;stroke-width:1.4;fill:none}
+.d{stroke:#5c5c5c;stroke-width:1.2;stroke-dasharray:4 3;fill:none}
+.hd{fill:#111}
+.hda{fill:#0b57d0}
+.hdd{fill:#5c5c5c}
+</style>"
+
+defn svg(w, h, title, parts)
+  (** A drawing of w by h pixels on white, its title for those who can't see it. *)
+  head = ["<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"$w\" height=\"$h\" viewBox=\"0 0 $w $h\">", "<title>$(esc(title))</title>", style,
+    "<rect width=\"$w\" height=\"$h\" fill=\"#fff\"/>"]
+  text.Join("\n", list.Concat(head, list.Concat(parts, ["</svg>", ""])))
+end
+
+t(x, y, s, cls = "", anchor = "start") = "<text x=\"$x\" y=\"$y\"$(if cls == "" "" else " class=\"$cls\"" end)$(if anchor == "start" "" else " text-anchor=\"$anchor\"" end)>$(esc(s))</text>"
+box(x, y, w, h, cls = "b") = "<rect class=\"$cls\" x=\"$x\" y=\"$y\" width=\"$w\" height=\"$h\"/>"
+
+defn arrow(x1, y1, x2, y2, cls = "l")
+  (** A line from x1, y1 to x2, y2 and its head at the end, a triangle. *)
+  len = math.Sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))
+  ux = (x2 - x1) / len
+  uy = (y2 - y1) / len
+  bx = x2 - ux * 8
+  by = y2 - uy * 8
+  head = if cls == "la" "hda" else if cls == "d" "hdd" else "hd" end
+  r(v) = math.Round(v * 10) / 10
+  "<line class=\"$cls\" x1=\"$x1\" y1=\"$y1\" x2=\"$(r(bx))\" y2=\"$(r(by))\"/><polygon class=\"$head\" points=\"$x2,$y2 $(r(bx - uy * 4)),$(r(by + ux * 4)) $(r(bx + uy * 4)),$(r(by - ux * 4))\"/>"
+end
+
+signals = svg(680, 280, "A page of three widgets: a title, a live part that shows n, and a button. At its first run the live part reads the signal n, which notes it. A click on the button calls web.Set(n, 2): the live part runs again, it alone, and shows n is 2; the title and the button are not looked at again.", [
+  t(20, 26, "the page", "h"), box(20, 36, 324, 176, "g"),
+  box(36, 52, 292, 40), t(48, 70, "web.Title(\"Invoices\")", "c"), t(48, 85, "runs once", "m"),
+  box(36, 104, 292, 46, "ba"), t(48, 123, "() -> web.Text(\"n is $(dollar)(web.Get(n))\")", "c"), t(48, 141, "a live part: runs again when n changes", "a"),
+  box(36, 162, 292, 40), t(48, 180, "web.Button(\"Add one\", () -> ...)", "c"), t(48, 195, "runs once", "m"),
+  t(470, 26, "the signal", "h"), box(470, 104, 190, 46), t(482, 123, "n = web.Signal(1)", "c"), t(482, 141, "1, then 2", "m"),
+  arrow(328, 114, 470, 114, "d"), t(399, 106, "reads n: noted", "m", "middle"),
+  arrow(470, 140, 328, 140, "la"), t(399, 158, "runs it again", "a", "middle"),
+  "<polyline class=\"l\" points=\"328,182 565,182 565,158\"/>", arrow(565, 166, 565, 150), t(446, 176, "web.Set(n, 2)", "c", "middle"),
+  t(20, 236, "1. Each part runs once and notes the signals it read.  2. A click: web.Set(n, 2)."),
+  t(20, 254, "3. Only the parts that read n run again, then the frame draws what changed."),
+  t(20, 272, "Nothing is compared, and nothing runs while nothing changes.", "m"),
+])
+
+(* The protocol, a message a row: who sends it (page or app), what it says, and what it is for. *)
+lanes = {Page: 100, App: 660}
+messages = [
+  ["page", "{Hello: 2}", "once connected"],
+  ["app", "[{Token, Resumed: false, Heard: 0, Who, Client}]", "a new screen, and the page's settings"],
+  ["app", "[{Seq: 1}, {Show: \"unpaid\", Group: 1, Rows: [F-1, F-2, F-3]}]", "each show's whole answer"],
+  ["page", "{Got: 1}", "the page has frame 1"],
+  ["page", "{Act: \"pay\", Id: 7, Args: {Id: 2}, Key, Base}", "a click on Pay F-2"],
+  ["app", "[{Seq: 2}, {Show: \"unpaid\", Group: 2, Added: [], Removed: [F-2]}]", "only what changed"],
+  ["app", "[{Seq: 3}, {Ack: 7, Ok: {Paid: 2}}]", "the reply to action 7"],
+  ["break", "", ""],
+  ["page", "{Hello: 2, Token, Got: 3}", "back to the screen it had, after frame 3"],
+  ["app", "[{Token, Resumed: true, Heard: 7, ...}], then the frames after 3", "the same screen: each change missed comes once"],
+  ["page", "{Bye: 1}", "the page goes away"],
+]
+
+defn protocol()
+  (** The sequence of the messages between a page and its app, down the time. *)
+  parts = [box(20, 12, 160, 30), t(100, 32, "page: Ceres", "h", "middle"), box(580, 12, 160, 30), t(660, 32, "app: std/live", "h", "middle")]
+  y = 66
+  for m in messages
+    if m[1] == "break"
+      parts = list.Concat(parts, [box(20, y - 6, 720, 34, "g"),
+        t(380, y + 15, "the network drops: the page says Offline and keeps its actions; the app keeps the screen", "m", "middle")])
+      y += 44
+    else
+      from = if m[1] == "page" lanes.Page else lanes.App end
+      to = if m[1] == "page" lanes.App else lanes.Page end
+      parts = list.Concat(parts, [t(380, y, m[2], "c", "middle"), arrow(from, y + 7, to, y + 7, if m[1] == "page" "la" else "l" end), t(380, y + 25, m[3], "m", "middle")])
+      y += 50
+    end
+  end
+  lines = ["<line class=\"d\" x1=\"100\" y1=\"42\" x2=\"100\" y2=\"$(y - 14)\"/>", "<line class=\"d\" x1=\"660\" y1=\"42\" x2=\"660\" y2=\"$(y - 14)\"/>"]
+  svg(760, y - 6, "The messages of a live screen down the time, between the page and its app: the page says Hello 2; the app gives a new screen, then the whole answer of the show unpaid as frame 1, which the page confirms with Got 1; a click sends the action pay of Id 7; the app sends only what changed, F-2 removed, then the reply to action 7. The network drops; the page comes back with its token and Got 3, gets the same screen and each change it missed once; it says Bye as it goes away.",
+    list.Concat(lines, parts))
+end
+
+loop = svg(720, 336, "The loop of a page in the browser. The browser's events, a click, a key, a text typed, a new size, and the pushes of the live screen go on one channel, where the page's code waits and runs nothing. An event: web.Handle, web.Update; when the page changed, Wake asks for the browser's next frame; at the frame, web.Encoded and web.Patch give only what changed, which ceres.js paints with WebGL2 in one draw call and writes into the hidden DOM.", [
+  t(150, 24, "the browser: web/ceres.js", "h", "middle"), t(570, 24, "the page, in WebAssembly: src/browser", "h", "middle"),
+  box(20, 40, 260, 40), t(32, 65, "a click, a key, a text typed, a size"),
+  box(440, 40, 260, 40, "ba"), t(452, 65, "fiber.Receive(events): waits", "c"),
+  arrow(280, 60, 440, 60, "l"), t(360, 53, "each event", "m", "middle"),
+  box(20, 96, 260, 40), t(32, 121, "a push of the app, on the WebSocket"), arrow(280, 112, 440, 74, "l"), t(360, 104, "wakes it", "m", "middle"),
+  box(440, 96, 260, 40), t(452, 121, "web.Handle, then web.Update", "c"), arrow(570, 80, 570, 96),
+  box(440, 152, 260, 40), t(452, 177, "the page changed: Wake()", "c"), arrow(570, 136, 570, 152),
+  box(20, 152, 260, 40), t(32, 177, "at the browser's next frame"), arrow(440, 172, 280, 172, "l"), t(360, 165, "asks a frame", "m", "middle"),
+  box(440, 208, 260, 40), t(452, 233, "web.Encoded, web.Patch", "c"), arrow(280, 186, 440, 222, "l"), t(330, 214, "\"frame\"", "c", "middle"),
+  box(20, 264, 260, 52), t(32, 285, "Paint: WebGL2, one draw call"), t(32, 304, "Patch: the hidden DOM"),
+  arrow(440, 240, 280, 280, "l"), t(392, 278, "what changed", "m", "middle"),
+  t(440, 288, "Between two events the page's code"), t(440, 306, "doesn't run: a still page costs nothing.", "m"),
+])
+
+out = if value.IsText(sys.Env("OUT")) sys.Env("OUT") else "docs/book/images" end
+for f in [["widgets-signals.svg", signals], ["live-protocol.svg", protocol()], ["web-loop.svg", loop]]
+  sys.Write("$out/$(f[1])", f[2])!
+  io.Print("$out/$(f[1])")
+end

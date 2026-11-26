@@ -66,9 +66,13 @@ texts, in English; a page in another language gives their translation to `web.Ap
 function of each English text, already filled in, to the text shown, as Centauri's admin pages do in French with
 their catalogue.
 
+![The page Hello in Chrome after two clicks on Add one and Ana typed: Clicked 2 times beside the button, which shows its key C-a; the field Your name holds Ana, and the line under it says Hello, Ana!; the band of keys at the bottom.](images/web-hello.png)
+
 ## 2. What runs
 
 `browser.Run(app)` is the loop of `src/sdl`, its window the canvas:
+
+![The loop of a page in the browser: the browser's events and the pushes of the live screen go on one channel, where the page's code waits and runs nothing; an event, then web.Handle and web.Update; when the page changed, Wake asks for the browser's next frame; at the frame, web.Encoded and web.Patch give only what changed, which ceres.js paints with WebGL2 in one draw call and writes into the hidden DOM.](images/web-loop.svg)
 
 1. It asks `ceres.js` to set the canvas up and to send each event of the page, a click, a key, a text typed, a new size,
    as the list of its fields on a channel of `std/fiber`; `ceres.js` gives back the canvas's size and the page's origin.
