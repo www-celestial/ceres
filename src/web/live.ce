@@ -169,7 +169,7 @@ defn dialing(s, headers)
       bound = list.Min([most, bound * 2])
       while sys.Now() < until
         tell({Kind: "wait", Until: until}, s)
-        n = fiber.Select([s.Net, s.Stop], timeout = list.Min([1, until - sys.Now()]))
+        n = fiber.Select([s.Net, s.Stop], timeout = list.Max([0, list.Min([1, until - sys.Now()])]))
         if result.IsErr(n)
           break if n.Error.Kind == "closed"
         else
