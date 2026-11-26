@@ -6,12 +6,18 @@
 // The page calls it by js.Call("./ceres.js", name, args), from src/browser (docs/book/backends.md); a text comes as the
 // Uint8Array of its bytes, a channel as a handle whose send(value) gives the page a value:
 //   Start(events, form, net) the canvas of the page set up, each event sent on events as JSON text, {Kind: 'mouse'|
-//                            'key'|'text'|'resize', ...} as web.Handle takes it, or with form "lists" as a list of its
-//                            fields: ['mouse', Action, X, Y, Button, Amount], ['key', Key, Ctrl, Alt, Shift], ['text',
-//                            Text], ['resize', Width, Height], which the page reads with no JSON; gives [width, height,
-//                            origin, path, check], check true when the page's address holds ceres-check; net, a
-//                            channel, gets the browser's 'online' and 'offline', and 'now' when the tab is shown
-//   Measure(text, size, font)  the width of a text in pixels, font 'body', 'strong' or 'code'; Line(size) a line's height
+//                            'key'|'text'|'resize'|'scheme', ...} as web.Handle takes it, or with form "lists" as a list
+//                            of its fields: ['mouse', Action, X, Y, Button, Amount], ['key', Key, Ctrl, Alt, Shift],
+//                            ['text', Text], ['resize', Width, Height], ['scheme', Dark], which the page reads with no
+//                            JSON; gives [width, height, origin, path, check, dark], check true when the page's address
+//                            holds ceres-check, dark whether the system's colors are dark (prefers-color-scheme), whose
+//                            changes come as 'scheme'; net, a channel, gets the browser's 'online' and 'offline', and
+//                            'now' when the tab is shown
+//   Measure(text, size, font)  the width of a text in pixels, font 'body', 'strong', 'code' or 'icon'; Line(size) a
+//                            line's height
+//   Cursor(name)             the mouse's cursor over the canvas, as CSS names it: 'default', 'text', 'col-resize'...
+//   Keep(name, text), Kept(name)  a text kept in the browser's local storage for the page, as a web.Dock keeps its
+//                            layout, and read again ('' for none)
 //   Paint(bytes)             paints the bytes of a draw list, web.Encode's or web.Encoded's
 //   Mirror(json)             the hidden DOM of the semantics tree, as JSON text (web.Semantics)
 //   Patch(json)              the hidden DOM changed as a patch of the tree says, the JSON text of web.Patch
@@ -19,7 +25,11 @@
 //   Wake()                   sends "frame" on events at the browser's next frame: the page paints then
 // Nothing is drawn while nothing changes: a frame is asked only by Wake.
 
-const FONTS = ['system-ui, sans-serif', '600 system-ui, sans-serif', 'ui-monospace, Menlo, Consolas, monospace']
+const FONTS = ['system-ui, sans-serif', '600 system-ui, sans-serif', 'ui-monospace, Menlo, Consolas, monospace', 'ceres-icons']
+// The font of the icons (web/icons.js adds it to the document's fonts): until it is ready, an icon isn't drawn, and the
+// page is painted again once it is.
+const iconsReady = () => globalThis.ceresIcons === 'ready'
+let iconsMissed = false
 // A vertex: its place p, its color c, its place in the atlas t, the box b of its rectangle (center, half sizes), r its
 // corner's radius and whether it is an edge (r.x -1 for a text), k the clip in pixels of the canvas (x, y from its
 // bottom, width, height): what a scissor would cut, so that a whole frame is one draw call.
@@ -85,16 +95,16 @@ export function painter(canvas) {
   let stripFont = '', due0 = ATLAS, due1 = 0, dueH = 0
   const meter = document.createElement('canvas').getContext('2d')
   let meterFont = ''
-  let runs = [new Map(), new Map(), new Map()], shelfX = 0, shelfY = 0, shelfH = 0 // per font, size -> text -> run
-  let widths = [new Map(), new Map(), new Map()], measured = 0 // per font, size -> text -> width
+  let runs = [new Map(), new Map(), new Map(), new Map()], shelfX = 0, shelfY = 0, shelfH = 0 // per font, size -> text -> run
+  let widths = [new Map(), new Map(), new Map(), new Map()], measured = 0 // per font, size -> text -> width
   let verts = new Float32Array(65536), n = 0, dpr = 1, width = 0, height = 0
-  const css = [new Map(), new Map(), new Map()] // per font, size in px -> the CSS font
+  const css = [new Map(), new Map(), new Map(), new Map()] // per font, size in px -> the CSS font
   function font(f, size) {
     let s = css[f].get(size)
     if (s === undefined) { s = FONTS[f].replace(/^(\d+ )?/, m => m + size + 'px '); css[f].set(size, s) }
     return s
   }
-  function restart() { runs = [new Map(), new Map(), new Map()]; shelfX = shelfY = shelfH = 0; due0 = ATLAS; due1 = dueH = 0; strip.clearRect(0, 0, ATLAS, strip.canvas.height) }
+  function restart() { runs = [new Map(), new Map(), new Map(), new Map()]; shelfX = shelfY = shelfH = 0; due0 = ATLAS; due1 = dueH = 0; strip.clearRect(0, 0, ATLAS, strip.canvas.height) }
 
   // The part of the strip drawn since the last upload, into the atlas at the shelf: its pixels read from the strip, a
   // canvas in memory, and sent as bytes (Firefox took 0.6 ms to send a part of a canvas, as many as a frame's texts).
@@ -199,9 +209,11 @@ export function painter(canvas) {
       } else if (op === 3 || op === 9) {
         const len = f[k + (op === 3 ? 8 : 7)], start = op === 3 ? f[k + 7] : next
         const text = whole ? all.substring(place[start], place[start + len]) : dec.decode(tb.subarray(start, start + len))
-        const e = run(text, f[k + 3], f[k + 6])
-        color(f[k + 4], f[k + 5])
-        quad(f[k + 1] + dx - 1 / dpr, f[k + 2] + dy - 1 / dpr, e.w, e.h, -1, 0, e.u0, e.v0, e.u1, e.v1)
+        if (f[k + 6] !== 3 || iconsReady()) {
+          const e = run(text, f[k + 3], f[k + 6])
+          color(f[k + 4], f[k + 5])
+          quad(f[k + 1] + dx - 1 / dpr, f[k + 2] + dy - 1 / dpr, e.w, e.h, -1, 0, e.u0, e.v0, e.u1, e.v1)
+        } else iconsMissed = true
         if (op === 9) next += len
         k += op === 3 ? 10 : 9
       } else if (op === 4) {
@@ -257,7 +269,8 @@ export function painter(canvas) {
   // The width of a text, measured once for each font and size: whole pixels, as SDL3_ttf measures, which the layout
   // divides.
   function measure(text, size, name) {
-    const f = name === 'strong' ? 1 : name === 'code' ? 2 : 0
+    const f = name === 'strong' ? 1 : name === 'code' ? 2 : name === 'icon' ? 3 : 0
+    if (f === 3) return size // an icon is a square
     let bySize = widths[f].get(size)
     if (bySize === undefined) { bySize = new Map(); widths[f].set(size, bySize) }
     let w = bySize.get(text)
@@ -265,7 +278,7 @@ export function painter(canvas) {
     const c = font(f, size)
     if (meterFont !== c) { meter.font = c; meterFont = c }
     w = Math.ceil(meter.measureText(text).width)
-    if (++measured > 65536) { widths = [new Map(), new Map(), new Map()]; measured = 0; bySize = new Map(); widths[f].set(size, bySize) }
+    if (++measured > 65536) { widths = [new Map(), new Map(), new Map(), new Map()]; measured = 0; bySize = new Map(); widths[f].set(size, bySize) }
     bySize.set(text, w)
     return w
   }
@@ -283,7 +296,8 @@ export function painter(canvas) {
 // leaves it leaves the tree, with its own kids.
 const TAGS = { heading: 'h2', button: 'button', link: 'a', textbox: 'input', list: 'ul', listitem: 'li' }
 const NAMED = { text: true, heading: true, cell: true, columnheader: true } // roles whose element holds its name as text
-const EXTRAS = ['Href', 'Invalid', 'Secret', 'Expanded', 'Count', 'Index']
+const EXTRAS = ['Href', 'Invalid', 'Secret', 'Expanded', 'Count', 'Index', 'Level', 'Selected']
+const FOCUSED = { tree: true, tablist: true, table: true } // roles of widgets that take the focus, on a <div>
 const NONE = [undefined, undefined, undefined, undefined, undefined, undefined, 0, undefined, false, null]
 const field = (e, name) => e[9] ? e[9][name] : undefined
 export function mirror(layer, host) {
@@ -319,13 +333,19 @@ export function mirror(layer, host) {
       if (el) { while (el.firstChild) made.appendChild(el.firstChild); el.replaceWith(made) }
       el = k.el = made; k.tag = tag; o = NONE
     }
-    if (o[1] !== role) { if (!TAGS[role] && role !== 'text') el.setAttribute('role', role); else el.removeAttribute('role') }
+    if (o[1] !== role) {
+      if (!TAGS[role] && role !== 'text') el.setAttribute('role', role); else el.removeAttribute('role')
+      if (FOCUSED[role]) el.tabIndex = -1; else if (el.hasAttribute('tabindex') && tag === 'div') el.removeAttribute('tabindex')
+    }
     if (o[2] !== e[2] || o[1] !== role) {
       if (e[2]) el.setAttribute('aria-label', e[2]); else el.removeAttribute('aria-label')
       if (NAMED[role]) el.textContent = e[2]
     }
     if (e[9] || o[9]) {
       const href = field(e, 'Href'), expanded = field(e, 'Expanded'), invalid = field(e, 'Invalid'), index = field(e, 'Index'), count = field(e, 'Count')
+      const level = field(e, 'Level'), selected = field(e, 'Selected')
+      if (level !== field(o, 'Level')) { if (level !== undefined) el.setAttribute('aria-level', level); else el.removeAttribute('aria-level') }
+      if (selected !== field(o, 'Selected')) { if (selected !== undefined) el.setAttribute('aria-selected', selected); else el.removeAttribute('aria-selected') }
       if (role === 'link' && href !== field(o, 'Href')) el.href = href
       if (expanded !== field(o, 'Expanded')) { if (expanded !== undefined) el.setAttribute('aria-expanded', expanded); else el.removeAttribute('aria-expanded') }
       if (!invalid !== !field(o, 'Invalid')) { if (invalid) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid') }
@@ -431,7 +451,7 @@ const text = b => typeof b === 'string' ? b : dec.decode(b)
 // Sets up the canvas of the page (the first <canvas> of the document): it fills its parent, the events go to the page
 // on events, as JSON text or, with form "lists", as lists. Gives the page its width, height, origin and first path.
 const listed = e => e.Kind === 'mouse' ? ['mouse', e.Action, e.X, e.Y, e.Button, e.Amount] : e.Kind === 'key' ? ['key', e.Key, e.Ctrl, e.Alt, e.Shift]
-  : e.Kind === 'text' ? ['text', e.Text] : ['resize', e.Width, e.Height]
+  : e.Kind === 'text' ? ['text', e.Text] : e.Kind === 'scheme' ? ['scheme', e.Dark] : ['resize', e.Width, e.Height]
 export function Start(events, form, net) {
   const canvas = document.querySelector('canvas')
   canvas.style.display = 'block'
@@ -471,7 +491,12 @@ export function Start(events, form, net) {
     const k = keyName(ev, false)
     if (k) { ev.preventDefault(); send(keyOf(k, ev)) }
   })
-  return [Math.floor(r.width), Math.floor(r.height), location.origin, canvas.dataset.path || '/', /[?&]ceres-check\b/.test(location.search)]
+  // the icons left out while their font loaded: the same size sent again, which paints the page again
+  const again = () => { if (iconsMissed) { iconsMissed = false; const r = canvas.parentNode.getBoundingClientRect(); send({ Kind: 'resize', Width: r.width, Height: r.height }) } }
+  addEventListener('ceres-icons', again)
+  const scheme = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
+  if (scheme) scheme.addEventListener('change', () => send({ Kind: 'scheme', Dark: scheme.matches }))
+  return [Math.floor(r.width), Math.floor(r.height), location.origin, canvas.dataset.path || '/', /[?&]ceres-check\b/.test(location.search), scheme ? scheme.matches : null]
 }
 
 export const Measure = (t, size, font) => glue.p.measure(text(t), size, text(font))
@@ -487,6 +512,10 @@ export const Patch = json => {
 // for a test that checks the hidden DOM against it (tests/web/check.js).
 export const Check = json => dispatchEvent(new CustomEvent('ceres-check', { detail: text(json) }))
 export const Wake = () => glue.wake()
+let cursor = 'default'
+export const Cursor = name => { const c = text(name); if (c !== cursor) { cursor = c; document.querySelector('canvas').style.cursor = c } }
+export const Keep = (name, value) => { try { localStorage.setItem('ceres ' + text(name), text(value)) } catch (e) { } }
+export const Kept = name => { try { return localStorage.getItem('ceres ' + text(name)) || '' } catch (e) { return '' } }
 export function Paint(bytes) {
   const start = performance.now()
   glue.p.paint(bytes)

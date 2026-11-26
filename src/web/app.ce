@@ -12,9 +12,12 @@ use std/value
     missing for an app without. title names its window. say gives the text shown for each of Ceres's own English
     texts, those of the band of keys and of the page of no route, already filled in ("No page of this app is at /x."):
     a page in another language passes its translation, as t -> i18n.Say(words, "fr", t); missing shows the English.
+    theme is its look: web.Dark, web.Light, web.System() which follows the system, a theme made from one of them with
+    a field changed, or missing for web.Theme, the plain look of ink on paper.
 
-      App([], say = t -> if t == "Nothing here" "Rien ici" else t end).Say("Nothing here") --> "Rien ici" *)
-App(routes, live = missing, title = "Ceres", say = missing) = {Routes: routes, Live: live, Title: title, Say: say}
+      App([], say = t -> if t == "Nothing here" "Rien ici" else t end).Say("Nothing here") --> "Rien ici"
+      App([], theme = Dark).Theme.Name --> "dark" *)
+App(routes, live = missing, title = "Ceres", say = missing, theme = missing) = {Routes: routes, Live: live, Title: title, Say: say, Theme: theme}
 
 said(say, t) = if value.IsMissing(say) t else say(t) end   (* One of Ceres's own texts, in the app's language. *)
 
@@ -59,19 +62,26 @@ end
 (** Goes to another route of the app, as a link does. *)
 Go(path, p) = Set(p.Nav, path)
 
-defn Start(app, width, height, measure, origin = missing, path = "/", theme = Theme, headers = [], wake = missing, net = missing)
+defn Start(app, width, height, measure, origin = missing, path = "/", theme = missing, headers = [], wake = missing, net = missing, dark = missing, store = missing)
   (** Mounts an app in a window of width by height pixels, at a path: the state that a back-end keeps and gives to
-      Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels}, font "body", "strong" or
-      "code". With
+      Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels}, font "body", "strong",
+      "code" or "icon". With
       origin, as "http://127.0.0.1:8080", an app with live opens its screen there, sending headers with it; wake is as
-      for the live screen (web.Connect), and net, the channel of the browser's online, offline and now. *)
-  ui = newUi(width, height, measure, theme)
+      for the live screen (web.Connect), and net, the channel of the browser's online, offline and now. theme is the
+      app's (App's theme) unless given here; dark tells whether the system is dark, for web.System, missing when the
+      back-end can't tell; store is where a web.Dock keeps its layout, {Get: name -> text or missing, Put: (name, text)
+      -> missing}, as the browser's local storage, or missing for nowhere. *)
+  choice = if value.IsSome(theme) theme else if value.IsSome(dict.Get("Theme", app)) app.Theme else Theme end
+  ui = newUi(width, height, measure, themeFor(choice, dark))
+  ui.Choice = choice
+  ui.Dark = dark
+  ui.Store = store
   ui.Say = dict.Get("Say", app)
   screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net) else missing end
   nav = Signal(path)
   ui.Nav = nav
   ui.Screens = if value.IsSome(screen) [screen] else [] end
-  made = mount(Stack([routed(app, nav, screen)], pad = theme.Page), 0, ui)
+  made = mount(Stack([routed(app, nav, screen)], pad = ui.Theme.Page), 0, ui)
   u = made.Ui
   u.Root = made.Id
   Update(u)
@@ -125,7 +135,7 @@ defn Frame(ui)
     y = math.Div((seen - bar) * ui.ScrollY, root.H - seen)
     page = list.Append(rect(ui.Width - 6, y, 4, bar, t.Muted), page)
   end
-  list.Concat(list.Concat(page, popupItems(ui)), bandItems(ui))
+  list.Concat(list.Concat(list.Concat(page, popupItems(ui)), dropItems(ui)), bandItems(ui))
 end
 
 bandHeight(ui) = lineOf(ui.Theme.Size, ui) + 8 if ui.Theme.Keys else 0   (* The height of the band of keys. *)
@@ -155,6 +165,12 @@ defn Keys(ui)
     [["Enter Space", "press"], ["Tab S-Tab", "next field, previous"]]
   else if k == "table"
     [["Up Down PgUp PgDn", "scroll"], ["Home End", "first row, last"], ["click a title", "sort"], ["Tab", "next field"]]
+  else if k == "tree"
+    [["Up Down", "choose"], ["Left Right", "close, open"], ["Enter", "open"], ["Tab", "next field"]]
+  else if k == "tabs"
+    [["Left Right", "previous tab, next"], ["Tab", "next field"]]
+  else if k == "section"
+    [["Enter Space", "open or close"], ["Tab S-Tab", "next field, previous"]]
   else
     [["Tab", "first field"], ["PgUp PgDn", "scroll the page"]]
   end
@@ -173,7 +189,7 @@ defn bandItems(ui)
   out = [rect(0, y, ui.Width, h, t.Band), rect(0, y, ui.Width, 1, t.Grid)]
   x = t.Page
   for pair in Keys(ui)
-    out = list.Append(words(x, y + 4, pair[1], t.Size, t.Accent, "code"), out)
+    out = list.Append(words(x, y + 4, pair[1], t.Size, role("Link", t), "code"), out)
     x += widthOf(pair[1], t.Size, "code", ui) + 8
     out = list.Append(words(x, y + 4, pair[2], t.Size, t.Ink), out)
     x += widthOf(pair[2], t.Size, "body", ui) + 20
@@ -279,11 +295,48 @@ defn semOf(id, x0, y0, ui)
     [node("img", b.Cache.Text, b, x, y, ui)]
   else if k == "table"
     [tableSem(b, x, y, ui)]
+  else if k == "tree"
+    [treeSem(b, x, y, ui)]
+  else if k == "tabs"
+    tabsSem(b, x, y, ui, inner)
+  else if k == "section"
+    one = node("button", b.Cache.Text, b, x, y, ui)
+    one.Expanded = b.Cache.Open
+    [one]
+  else if k == "toolbar"
+    [node("toolbar", "", b, x, y, ui, kids = inner)]
   else if k == "each"
     [node("list", "", b, x, y, ui, kids = [{Id: "$(c)i", Role: "listitem", Name: "", Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: semOf(c, x, y, ui)} for c in b.Kids])]
   else
     inner
   end
+end
+
+defn treeSem(b, x, y, ui)
+  (** The semantics of a tree: a node of each row in sight, with its level, whether it is open and whether chosen. *)
+  c = b.Cache
+  rows = []
+  for k in 1..value.Len(c.Rows)
+    r = c.Rows[k]
+    one = {Id: "$(b.Id)t$k", Role: "treeitem", Name: shown(r.Item.Label), Value: if value.IsMissing(r.Item.Count) missing else shown(r.Item.Count) end,
+      X: x, Y: y + (k - 1) * c.Row, W: b.W, H: c.Row, Focused: false, Kids: [], Level: r.Level, Selected: r.Item.Key == c.Chosen}
+    if r.Kids
+      one.Expanded = r.Open
+    end
+    rows = list.Append(one, rows)
+  end
+  node("tree", b.Node.Label, b, x, y, ui, kids = rows)
+end
+
+defn tabsSem(b, x, y, ui, inner)
+  (** The semantics of tabs: the list of the tabs, each a tab, the chosen one selected, then the chosen panel. *)
+  c = b.Cache
+  tabs = [{Id: "$(b.Id)l$k", Role: "tab", Name: c.Titles[k], Value: missing, X: x + c.Spans[k][1], Y: y, W: c.Spans[k][2], H: c.Tab, Focused: false, Kids: [],
+    Selected: k == c.Chosen} for k in 1..value.Len(c.Titles)]
+  strip = {Id: "$(b.Id)l", Role: "tablist", Name: b.Node.Label, Value: missing, X: x, Y: y, W: b.W, H: c.Tab, Focused: ui.Focus == b.Id, Kids: tabs}
+  panel = {Id: b.Id, Role: "tabpanel", Name: if value.IsEmpty(c.Titles) "" else c.Titles[c.Chosen] end, Value: missing, X: x, Y: y + c.Tab, W: b.W,
+    H: b.H - c.Tab, Focused: false, Kids: inner}
+  [strip, panel]
 end
 
 defn tableSem(b, x, y, ui)

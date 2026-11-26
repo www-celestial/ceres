@@ -12,11 +12,36 @@ use std/sys
 use std/text
 use std/value
 
-(** The measures of the headless text: a character is half the size wide, a line one size and a half high. *)
-Measure = {Width: (s, size, font) -> value.Len(s) * math.Div(size, 2), Line: size -> size + math.Div(size, 2)}
+(** The measures of the headless text: a character is half the size wide, an icon a square, a line one size and a
+    half high. *)
+Measure = {Width: (s, size, font) -> size if font == "icon" else value.Len(s) * math.Div(size, 2), Line: size -> size + math.Div(size, 2)}
 
-(** An app mounted in a page of width by height pixels at path, its live screen at origin if it has one. *)
-Open(app, width = 800, height = 600, origin = missing, path = "/") = web.Start(app, width, height, Measure, origin = origin, path = path)
+(** An app mounted in a page of width by height pixels at path, its live screen at origin if it has one; dark says
+    whether the system is dark, for a theme that follows it, and store is where a web.Dock keeps its layout
+    (headless.Store()), nowhere by default. *)
+Open(app, width = 800, height = 600, origin = missing, path = "/", dark = missing, store = missing) = web.Start(app, width, height, Measure, origin = origin, path = path, dark = dark, store = store)
+
+defn Store()
+  (** A store in memory, as a back-end gives web.Start one, for a test of what a page keeps: the same store given to
+      two pages keeps for the second what the first put. *)
+  c = fiber.Channel(size = 1)
+  fiber.Send(dict.Dict(), c)
+  look = defn ()
+    v = fiber.Receive(c, timeout = 0).Value
+    fiber.Send(v, c)
+    v
+  end
+  {Get: name -> dict.Get(name, look()), Put: defn (name, v)
+    d = fiber.Receive(c, timeout = 0).Value
+    fiber.Send(dict.Put(name, v, d), c)
+  end}
+end
+
+(** The scheme of the system turned dark (true) or light (false), as a window or a browser says it. *)
+Scheme(dark, page) = web.Handle({Kind: "scheme", Dark: dark}, page)
+
+(** The mouse moved to x, y with no button held, as the hover of a widget follows it. *)
+Move(x, y, page) = web.Handle({Kind: "mouse", Action: "move", X: x, Y: y, Button: 0, Amount: 0}, page)
 
 defn Click(x, y, page)
   (** A click of the left button at x, y of the window: down, then up. *)
@@ -102,6 +127,8 @@ defn lines(items, dx, dy, w, h, pad)
       round = if dict.GetOr("Radius", 0, one) > 0 " r$(number(one.Radius))" else "" end
       alpha = if dict.GetOr("Alpha", 255, one) < 255 " a$(one.Alpha)" else "" end
       out = list.Append("$pad$k $(number(x)),$(number(y)) $(number(one.W))x$(number(one.H)) $(color(one.Color))$round$alpha", out)
+    else if k == "text" and one.Font == "icon"
+      out = list.Append("$(pad)icon $(number(x)),$(number(y)) \"$(dict.GetOr("Icon", "?", one))\" $(one.Size) $(color(one.Color))", out)
     else if k == "text"
       strong = if one.Font != "body" " $(one.Font)" else "" end
       turned = if dict.GetOr("Angle", 0, one) != 0 " turned" else "" end
@@ -142,6 +169,12 @@ defn treeLines(n, pad)
   if "Index" in n and n.Index > 0
     more = "$more #$(n.Index)"
   end
+  if "Level" in n
+    more = "$more level $(n.Level)"
+  end
+  if dict.GetOr("Selected", false, n)
+    more = "$more selected"
+  end
   place = if n.W > 0 " at $(number(n.X)),$(number(n.Y)) $(number(n.W))x$(number(n.H))" else "" end
   list.Prepend("$pad$(n.Role)$name$v$more$place", list.FlatMap(c -> treeLines(c, "$pad  "), n.Kids))
 end
@@ -165,7 +198,7 @@ defn ClickOn(name, page)
   (** A click in the middle of the widget whose name is name in the semantics tree: a button's label, a field's; a
       widget that takes the mouse before a text of the same name. *)
   tree = web.Semantics(page)
-  n = find(name, tree, ["button", "link", "textbox", "combobox", "table"])
+  n = find(name, tree, ["button", "link", "textbox", "combobox", "table", "tab", "treeitem"])
   if value.IsMissing(n)
     n = find(name, tree, missing)
   end

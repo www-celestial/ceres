@@ -14,8 +14,30 @@ defn Handle(e, ui)
   else if e.Kind == "key" key(e, ui)
   else if e.Kind == "text" typed(e.Text, ui)
   else if e.Kind == "resize" resized(e, ui)
+  else if e.Kind == "scheme" schemed(e.Dark, ui)
   else ui end
   Update(u)
+end
+
+defn schemed(dark, ui)
+  (** The system turned dark or light: a page whose theme follows it (web.System) is drawn again in the other. *)
+  u = ui
+  u.Dark = dark
+  if not isSystem(u.Choice)
+    return u
+  end
+  u.Theme = themeFor(u.Choice, dark)
+  restyled(u)
+end
+
+defn restyled(ui)
+  (** Every box laid out and drawn again, as a new theme asks. *)
+  u = ui
+  for id in dict.Keys(u.Boxes)
+    u.Boxes[id].Dirty = true
+  end
+  u.Changed = true
+  u
 end
 
 defn resized(e, ui)
@@ -25,7 +47,7 @@ defn resized(e, ui)
   touch(u.Root, u)
 end
 
-active = ["button", "link", "input", "select", "table"]   (* The kinds of widgets that take the mouse. *)
+active = ["button", "link", "input", "select", "table", "split", "tabs", "tree", "scroll", "section"]   (* The kinds of widgets that take the mouse. *)
 
 defn hitIn(id, x, y, ui)
   (** The deepest box under x, y, given in the box's own coordinates, or 0. *)
@@ -90,7 +112,7 @@ defn mouse(e, ui)
   if e.Action == "wheel"
     return wheel(e, u)
   else if e.Action == "move"
-    return dragged(e, u)
+    return if value.IsMissing(u.Drag) hovered(e, u) else dragged(e, u) end
   else if e.Action == "up"
     return released(e, u)
   end
@@ -104,10 +126,12 @@ defn mouse(e, ui)
   end
   n = u.Boxes[h.Id].Node
   k = n.Kind
-  if k == "button" or k == "link"
+  if k == "button" or k == "link" or k == "section"
     u.Pressed = h.Id
     u = touch(h.Id, u)
-    return if k == "button" focus(h.Id, u) else u end
+    return if k == "link" u else focus(h.Id, u) end
+  else if k == "split" or k == "tabs" or k == "tree" or k == "scroll"
+    return dockDown(h, e, u)
   else if k == "input"
     u = focus(h.Id, u)
     u.Caret = caretAt(h.X - 6 + dict.GetOr("Shift", 0, u.Boxes[h.Id].Cache), h.Id, u)
@@ -151,7 +175,11 @@ end
 defn released(e, ui)
   (** The button of the mouse comes up: a press on a button or a link that ends on it is a click. *)
   u = ui
+  d = u.Drag
   u.Drag = missing
+  if value.IsSome(d) and dict.Get("Kind", d) in ["split", "tab"]
+    return dockUp(d, e, u)
+  end
   if u.Pressed == 0
     return u
   end
@@ -172,6 +200,8 @@ defn clicked(id, ui)
     n.On()
   else if n.Kind == "link"
     Set(ui.Nav, n.To)
+  else if n.Kind == "section"
+    Set(n.Open, not Get(n.Open))
   end
   ui
 end
@@ -182,6 +212,13 @@ defn wheel(e, ui)
   h = hit(e.X, e.Y, ui)
   if value.IsSome(h) and ui.Boxes[h.Id].Node.Kind == "table"
     return scrollTable(h.Id, by, ui)
+  end
+  s = if value.IsSome(h) scrollAbove(h.Id, ui) else 0 end
+  if s != 0
+    n = ui.Boxes[s].Node
+    c = ui.Boxes[s].Cache
+    Set(n.Offset, list.Max(0, list.Min(c.Most, Get(n.Offset) + by)))
+    return ui
   end
   scrolled(ui.ScrollY + by, ui)
 end
@@ -220,6 +257,9 @@ defn dragged(e, ui)
   if value.IsMissing(d) or not (d.Box in ui.Boxes)
     return ui
   end
+  if dict.Get("Kind", d) in ["split", "tab"]
+    return dockDrag(d, e, ui)
+  end
   b = ui.Boxes[d.Box]
   c = b.Cache
   body = b.H - c.Row
@@ -246,7 +286,7 @@ defn focusables(id, ui)
   (** The boxes that take the focus, in the order of the page. *)
   b = ui.Boxes[id]
   k = b.Node.Kind
-  own = if k == "input" or k == "select" or k == "button" or k == "table" [id] else [] end
+  own = if k == "input" or k == "select" or k == "button" or k == "table" or k == "tree" or k == "tabs" or k == "section" [id] else [] end
   list.Concat(own, list.FlatMap(c -> focusables(c, ui), b.Kids))
 end
 
@@ -304,6 +344,12 @@ defn key(e, ui)
     selectKey(e, u)
   else if k == "table"
     tableKey(e, u)
+  else if k == "tree"
+    treeKey(e, u)
+  else if k == "tabs"
+    tabsKey(e, u)
+  else if k == "section"
+    if e.Key == "enter" or e.Key == "space" clicked(u.Focus, u) else u end
   else
     u
   end

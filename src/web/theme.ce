@@ -1,0 +1,179 @@
+(* The themes of a desktop tool, dark and light, the setting that follows the system, the colors named by their role,
+   and the icons. A color in a widget is a number 0xRRGGBB or the name of a role of the theme ("Panel", "Muted"), so a
+   page looks right in both themes without a color of its own. *)
+use std/bug
+use std/dict
+use std/math
+use std/text
+use std/value
+
+(** The dark theme of a desktop tool, as an editor of games or of code draws one: grey panels on a darker window,
+    fields and tables a step darker still, one blue for the choice and the focus, the text light grey; sizes on a grid
+    of 4 pixels, dense rows. Each pair of a text and its background reaches the contrast of WCAG 2.2 AA (4.5:1), and
+    the edge of a field and the ring of the focus 3:1 (web.Contrast measures them; tests/theme.test.ce checks it).
+    Its fields are those of web.Theme and these: Panel, the body of a panel; Header, the strip of its tabs, a toolbar
+    and the status bar; Raised, a button; Hover and Pressed, a widget under the mouse and held down; Disabled; Edge,
+    the edge of a table or a panel; Link; Warn and Ok, the colors of a warning and of a success; Rule, the grid of a
+    graph; Unit, the step of the grid of sizes; Icon, the size of an icon; Tab, the height of a strip of tabs; Bar,
+    that of a toolbar.
+
+      Dark.Name --> "dark" *)
+Dark = {Name: "dark", Size: 13, Title: 16, Unit: 4, Icon: 16, Tab: 28, Bar: 34,
+  Back: 0x151515, Panel: 0x242424, Header: 0x1c1c1c, Paper: 0x161616, Raised: 0x333333, Hover: 0x383838, Pressed: 0x111111,
+  Ink: 0xdcdcdc, Muted: 0xa8a8a8, Disabled: 0x6e6e6e, Line: 0x737373, Edge: 0x383838, Grid: 0x2e2e2e, Rule: 0x333333,
+  Accent: 0x3b82f0, Chosen: 0x1f5fb0, ChosenInk: 0xffffff, Link: 0x6cb4ff, Danger: 0xff7b7b, Warn: 0xe8a838, Ok: 0x5fcf75,
+  Band: 0x1c1c1c, Gap: 8, Pad: 4, Radius: 2, Field: 24, Row: 22, Page: 12, Keys: true}
+
+(** The light theme of the same tool: the same roles and sizes, grey panels around white fields and tables.
+
+      Light.Paper --> 0xffffff *)
+Light = {Name: "light", Size: 13, Title: 16, Unit: 4, Icon: 16, Tab: 28, Bar: 34,
+  Back: 0xd4d4d4, Panel: 0xf3f3f3, Header: 0xe4e4e4, Paper: 0xffffff, Raised: 0xfbfbfb, Hover: 0xd8d8d8, Pressed: 0xc4c4c4,
+  Ink: 0x1c1c1c, Muted: 0x595959, Disabled: 0x9a9a9a, Line: 0x7a7a7a, Edge: 0xc8c8c8, Grid: 0xe2e2e2, Rule: 0xe0e0e0,
+  Accent: 0x0a64d2, Chosen: 0x1a62c4, ChosenInk: 0xffffff, Link: 0x0055b3, Danger: 0xb82518, Warn: 0x7d5000, Ok: 0x1a6e2e,
+  Band: 0xe4e4e4, Gap: 8, Pad: 4, Radius: 2, Field: 24, Row: 22, Page: 12, Keys: true}
+
+(** The theme that follows the system: dark while the system says dark (the browser's prefers-color-scheme, SDL's
+    theme of the system), light while it says light, dark when it says nothing; it changes with it. web.App takes it
+    as its theme, as it takes Dark or Light.
+
+      System().Kind --> "system" *)
+System(dark = Dark, light = Light) = {Kind: "system", Dark: dark, Light: light}
+
+isSystem(t) = value.IsDict(t) and dict.Get("Kind", t) == "system"   (* Is this the theme that follows the system? *)
+
+defn themeFor(theme, dark)
+  (** The theme to draw with: theme itself, or for web.System its dark or its light one; dark is missing when the
+      back-end can't tell. *)
+  if not isSystem(theme)
+    return theme
+  end
+  if dark == false theme.Light else theme.Dark end
+end
+
+(* The roles that web.Theme, the plain theme of before, lacks: each the role it takes the color of, or its value. *)
+older = {Panel: "Paper", Header: "Band", Raised: "Paper", Hover: "Band", Pressed: "Grid", Edge: "Line", Link: "Accent",
+  Disabled: "Muted", Warn: 0x8a5a00, Ok: 0x1e6b2e, Rule: 0xe6eaef, Unit: 4, Icon: 16, Tab: 26, Bar: 32}
+
+defn role(name, t)
+  (** A field of the theme t, as "Panel": its own, or for a theme made before the field was, the one it stands for. *)
+  got = dict.Get(name, t)
+  if value.IsSome(got)
+    return got
+  end
+  instead = dict.Get(name, older)
+  if value.IsText(instead) dict.Get(instead, t) else instead end
+end
+
+defn tone(c, t)
+  (** A color as a number: c itself, or the color of the theme t that a name gives, "Panel" for t.Panel; missing
+      stays missing. *)
+  if value.IsText(c)
+    got = role(c, t)
+    if not value.IsNumber(got)
+      bug.Panic("The theme has no color named $c: a color is 0xRRGGBB or a role of the theme, as \"Muted\" or \"Panel\".")
+    end
+    return got
+  end
+  c
+end
+
+defn channel(v)
+  (** One channel of sRGB, 0 to 255, as light: WCAG 2.2's relative luminance of it. *)
+  s = v / 255.0
+  if s <= 0.04045 s / 12.92 else math.Exp(2.4 * math.Log((s + 0.055) / 1.055)) end
+end
+
+luminance(c) = 0.2126 * channel(math.Div(c, 65536)) + 0.7152 * channel(math.Mod(math.Div(c, 256), 256)) + 0.0722 * channel(math.Mod(c, 256))
+
+defn Contrast(a, b)
+  (** The contrast of two colors 0xRRGGBB as WCAG 2.2 measures it, from 1 to 21: a text needs 4.5 against its
+      background for AA, a large text, the edge of a field or a ring of focus 3.
+
+        Contrast(0x000000, 0xffffff) --> 21.0 *)
+  la = luminance(a)
+  lb = luminance(b)
+  hi = la if la > lb else lb
+  lo = lb if la > lb else la
+  math.Round((hi + 0.05) / (lo + 0.05) * 100) / 100
+end
+
+(* ---- Icons: Codicons (Microsoft, CC BY 4.0), the icons of a desktop tool drawn for a grid of 16 pixels, as the font
+   src/sdl/fonts/Codicons.ttf and web/icons.js hold them, the 161 of this table only (tools/icons.sh). *)
+
+(** The icons a widget names, by their names in Codicons, each its code point in the font of the icons. *)
+Icons = dict.Dict([
+  {Key: "account", Value: 0xeb99}, {Key: "add", Value: 0xea60}, {Key: "archive", Value: 0xea98},
+  {Key: "arrow-down", Value: 0xea9a}, {Key: "arrow-left", Value: 0xea9b}, {Key: "arrow-right", Value: 0xea9c},
+  {Key: "arrow-swap", Value: 0xebcb}, {Key: "arrow-up", Value: 0xeaa1}, {Key: "beaker", Value: 0xea79},
+  {Key: "bell", Value: 0xeaa2}, {Key: "bell-dot", Value: 0xeb9a}, {Key: "bold", Value: 0xeaa3},
+  {Key: "book", Value: 0xeaa4}, {Key: "bookmark", Value: 0xeaa5}, {Key: "broadcast", Value: 0xeaad},
+  {Key: "bug", Value: 0xeaaf}, {Key: "calendar", Value: 0xeab0}, {Key: "check", Value: 0xeab2},
+  {Key: "check-all", Value: 0xebb1}, {Key: "chevron-down", Value: 0xeab4}, {Key: "chevron-left", Value: 0xeab5},
+  {Key: "chevron-right", Value: 0xeab6}, {Key: "chevron-up", Value: 0xeab7}, {Key: "circle-filled", Value: 0xea71},
+  {Key: "circle-large", Value: 0xebb5}, {Key: "circle-slash", Value: 0xeabd}, {Key: "clear-all", Value: 0xeabf},
+  {Key: "clockface", Value: 0xec75}, {Key: "close", Value: 0xea76}, {Key: "cloud", Value: 0xebaa},
+  {Key: "cloud-download", Value: 0xeac2}, {Key: "cloud-upload", Value: 0xeac3}, {Key: "code", Value: 0xeac4},
+  {Key: "collapse-all", Value: 0xeac5}, {Key: "color-mode", Value: 0xeac6}, {Key: "comment", Value: 0xea6b},
+  {Key: "copy", Value: 0xebcc}, {Key: "credit-card", Value: 0xeac9}, {Key: "dashboard", Value: 0xeacd},
+  {Key: "database", Value: 0xeace}, {Key: "debug-console", Value: 0xeb9b}, {Key: "debug-pause", Value: 0xead1},
+  {Key: "debug-restart", Value: 0xead2}, {Key: "debug-start", Value: 0xead3}, {Key: "debug-stop", Value: 0xead7},
+  {Key: "discard", Value: 0xeae2}, {Key: "edit", Value: 0xea73}, {Key: "ellipsis", Value: 0xea7c},
+  {Key: "error", Value: 0xea87}, {Key: "expand-all", Value: 0xeb95}, {Key: "export", Value: 0xebac},
+  {Key: "eye", Value: 0xea70}, {Key: "eye-closed", Value: 0xeae7}, {Key: "file-code", Value: 0xeae9},
+  {Key: "file-text", Value: 0xec5e}, {Key: "files", Value: 0xeaf0}, {Key: "filter", Value: 0xeaf1},
+  {Key: "filter-filled", Value: 0xebce}, {Key: "flag", Value: 0xec3f}, {Key: "fold", Value: 0xeaf5},
+  {Key: "folder", Value: 0xea83}, {Key: "folder-opened", Value: 0xeaf7}, {Key: "gear", Value: 0xeaf8},
+  {Key: "gift", Value: 0xeaf9}, {Key: "globe", Value: 0xeb01}, {Key: "go-to-file", Value: 0xea94},
+  {Key: "grabber", Value: 0xeb02}, {Key: "graph", Value: 0xeb03}, {Key: "graph-line", Value: 0xebe2},
+  {Key: "gripper", Value: 0xeb04}, {Key: "history", Value: 0xea82}, {Key: "home", Value: 0xeb06},
+  {Key: "inbox", Value: 0xeb09}, {Key: "info", Value: 0xea74}, {Key: "kebab-vertical", Value: 0xeb10},
+  {Key: "key", Value: 0xeb11}, {Key: "law", Value: 0xeb12}, {Key: "layers", Value: 0xebd2},
+  {Key: "layout", Value: 0xebeb}, {Key: "layout-panel", Value: 0xebf2}, {Key: "layout-sidebar-left", Value: 0xebf3},
+  {Key: "layout-sidebar-right", Value: 0xebf4}, {Key: "lightbulb", Value: 0xea61}, {Key: "link", Value: 0xeb15},
+  {Key: "link-external", Value: 0xeb14}, {Key: "list-filter", Value: 0xeb83}, {Key: "list-flat", Value: 0xeb84},
+  {Key: "list-tree", Value: 0xeb86}, {Key: "list-unordered", Value: 0xeb17}, {Key: "location", Value: 0xeb1a},
+  {Key: "lock", Value: 0xea75}, {Key: "mail", Value: 0xeb1c}, {Key: "menu", Value: 0xeb94},
+  {Key: "milestone", Value: 0xeb20}, {Key: "new-file", Value: 0xea7f}, {Key: "new-folder", Value: 0xea80},
+  {Key: "note", Value: 0xeb26}, {Key: "organization", Value: 0xea7e}, {Key: "output", Value: 0xeb9d},
+  {Key: "package", Value: 0xeb29}, {Key: "pass", Value: 0xeba4}, {Key: "pass-filled", Value: 0xebb3},
+  {Key: "person", Value: 0xea67}, {Key: "person-add", Value: 0xebcd}, {Key: "pie-chart", Value: 0xebe4},
+  {Key: "pin", Value: 0xeb2b}, {Key: "pinned", Value: 0xeba0}, {Key: "play", Value: 0xeb2c},
+  {Key: "plug", Value: 0xeb2d}, {Key: "pulse", Value: 0xeb31}, {Key: "question", Value: 0xeb32},
+  {Key: "radio-tower", Value: 0xeb34}, {Key: "record", Value: 0xeba7}, {Key: "redo", Value: 0xebb0},
+  {Key: "refresh", Value: 0xeb37}, {Key: "remove", Value: 0xeb3b}, {Key: "rocket", Value: 0xeb44},
+  {Key: "rss", Value: 0xeb47}, {Key: "run-all", Value: 0xeb9e}, {Key: "save", Value: 0xeb4b},
+  {Key: "save-all", Value: 0xeb49}, {Key: "screen-full", Value: 0xeb4c}, {Key: "screen-normal", Value: 0xeb4d},
+  {Key: "search", Value: 0xea6d}, {Key: "send", Value: 0xec0f}, {Key: "server", Value: 0xeb50},
+  {Key: "server-process", Value: 0xeba2}, {Key: "settings-gear", Value: 0xeb51}, {Key: "shield", Value: 0xeb53},
+  {Key: "sign-in", Value: 0xea6f}, {Key: "sign-out", Value: 0xea6e}, {Key: "sort-precedence", Value: 0xeb55},
+  {Key: "split-horizontal", Value: 0xeb56}, {Key: "split-vertical", Value: 0xeb57},
+  {Key: "star-empty", Value: 0xea6a}, {Key: "star-full", Value: 0xeb59}, {Key: "stop-circle", Value: 0xeba5},
+  {Key: "symbol-boolean", Value: 0xea8f}, {Key: "symbol-class", Value: 0xeb5b}, {Key: "symbol-field", Value: 0xeb5f},
+  {Key: "symbol-numeric", Value: 0xea90}, {Key: "symbol-property", Value: 0xeb65},
+  {Key: "symbol-string", Value: 0xea93}, {Key: "symbol-variable", Value: 0xea88}, {Key: "sync", Value: 0xea77},
+  {Key: "table", Value: 0xebb7}, {Key: "tag", Value: 0xea66}, {Key: "target", Value: 0xebf8},
+  {Key: "terminal", Value: 0xea85}, {Key: "tools", Value: 0xeb6d}, {Key: "trash", Value: 0xea81},
+  {Key: "triangle-down", Value: 0xeb6e}, {Key: "triangle-right", Value: 0xeb70}, {Key: "unfold", Value: 0xeb73},
+  {Key: "unlock", Value: 0xeb74}, {Key: "verified", Value: 0xeb77}, {Key: "versions", Value: 0xeb23},
+  {Key: "warning", Value: 0xea6c}, {Key: "watch", Value: 0xeb7c}, {Key: "zoom-in", Value: 0xeb81},
+  {Key: "zoom-out", Value: 0xeb82}
+])
+
+defn glyph(name)
+  (** The text of an icon: its character in the font of the icons, from its name, or a code point of that font. *)
+  cp = if value.IsNumber(name) name else dict.Get(name, Icons) end
+  if value.IsMissing(cp)
+    bug.Panic("There is no icon named $name in web.Icons: its names are those of Codicons, as \"database\" or \"gear\".")
+  end
+  text.FromBytes([224 + math.Div(cp, 4096), 128 + math.Mod(math.Div(cp, 64), 64), 128 + math.Mod(cp, 64)])
+end
+
+defn Icon(name, size = missing, color = missing)
+  (** An icon of web.Icons, as "database", in a square of size pixels (the theme's Icon by default), in a color, the
+      text's by default: a number 0xRRGGBB or a role of the theme. A screen reader doesn't read it: what it says is in
+      the label beside it.
+
+        Icon("gear").Kind --> "icon" *)
+  {Kind: "icon", Name: name, Glyph: glyph(name), Size: size, Color: color}
+end

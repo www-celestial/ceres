@@ -1,0 +1,861 @@
+(* The layout of a desktop tool: panels with tabs docked around a center, splitters between them, a toolbar, an
+   outliner, an inspector and a status bar. A panel keeps its widgets when it moves: its body is made once, with its
+   signals. Each of these widgets is given a height by the one around it, as a window gives its height to the page;
+   inside a panel, what is taller than it scrolls. *)
+use std/dict
+use std/json
+use std/list
+use std/math
+use std/result
+use std/text
+use std/value
+
+(* ---- Constructors *)
+
+defn Panel(title, body, icon = missing, name = missing)
+  (** A panel of a web.Dock or a web.Tabs: its title on its tab, beside an icon of web.Icons, and its body, a widget,
+      4 pixels in, scrolled when it is taller than the panel; a body that fills the panel, as a table alone or a part
+      that web.Grow marks in a stack, takes its height and doesn't scroll. name tells it apart in the layout that a
+      dock keeps, its title by default.
+
+        Panel("Log", Text("…"), icon = "output").Title --> "Log" *)
+  {Kind: "panel", Title: title, Body: body, Icon: icon, Name: if value.IsMissing(name) title else name end,
+    View: Scroll(Stack([Grow(body)], pad = 4, gap = 0))}
+end
+
+defn Scroll(item, height = missing)
+  (** A widget in a place of a given height, a panel's or height pixels, that the wheel scrolls when it is taller:
+      a thin bar at its right shows where it is.
+
+        Scroll(Text("a")).Kind --> "scroll" *)
+  {Kind: "scroll", Kids: [kid(item)], Offset: Signal(0), Height: height}
+end
+
+defn Tabs(panels, chosen = 1, label = "")
+  (** Panels one over the other, the tabs of their titles above: a click on a tab shows its panel, and so do Left and
+      Right while the tabs have the focus. label names them for a screen reader.
+
+        Tabs([Panel("A", "a"), Panel("B", "b")]).Kind --> "tabs" *)
+  tabsOf(panels, Signal(chosen), label, missing, missing)
+end
+
+defn tabsOf(panels, chosen, label, dock, area)
+  (** The node of a group of tabs, of an area of a dock or of none. Its one child shows the body of the chosen panel. *)
+  ps = [p for p in panels]
+  {Kind: "tabs", Panels: ps, Chosen: chosen, Label: label, Dock: dock, Area: area,
+    Kids: [{Kind: "live", Fn: () -> shownPanel(ps, chosen)}]}
+end
+
+defn shownPanel(panels, chosen)
+  (** The body of the chosen panel of a group, in its scroll, or nothing. *)
+  if value.IsEmpty(panels)
+    return missing
+  end
+  panels[list.Max(1, list.Min(value.Len(panels), Get(chosen)))].View
+end
+
+defn Split(first, second, along = "row", size = 240, sized = "first", min = 60)
+  (** Two widgets side by side (along = "row") or one over the other ("column"), and a handle between them that the
+      mouse drags: the part that sized names, "first" or "second", is size pixels wide (or tall), the other takes the
+      rest. Neither gets less than min pixels.
+
+        Split(Text("a"), Text("b")).Kind --> "split" *)
+  splitOf(first, second, along, Signal(size), min, sized == "second", missing)
+end
+
+splitOf(first, second, along, size, min, last, dock) = {Kind: "split", Kids: [kid(first), kid(second)], Along: along, Size: size, Min: min, Last: last, Dock: dock}
+
+defn Dock(center, left = [], right = [], bottom = [], toolbar = missing, status = missing, name = missing, sizes = {})
+  (** The layout of a desktop tool, which fills the window: a toolbar on top, a status bar at the bottom, and between
+      them areas of panels (web.Panel), each a group of tabs, with splitters between them: left, the center, right,
+      and bottom under the center. A tab dragged onto another area moves its panel there, or onto the edge of an area
+      that is empty, which opens it. With name, the layout is kept on the machine, as the browser keeps a page's data
+      (and in a window, in the folder of the app's data): the size of each area, the panels of each and the one shown,
+      found again the next time. sizes gives the sizes at first, {Left: 240, Right: 320, Bottom: 200} by default.
+
+        Dock([Panel("Main", "…")], name = "admin").Kind --> "dock" *)
+  all = list.Concat(list.Concat(center, left), list.Concat(right, bottom))
+  panels = dict.Dict()
+  for p in all
+    panels[p.Name] = p
+  end
+  areas = {Left: [p.Name for p in left], Center: [p.Name for p in center], Right: [p.Name for p in right], Bottom: [p.Name for p in bottom]}
+  state = {Name: name, Panels: panels, Areas: Signal(areas), First: areas,
+    Sizes: {Left: Signal(dict.GetOr("Left", 240, sizes)), Right: Signal(dict.GetOr("Right", 320, sizes)), Bottom: Signal(dict.GetOr("Bottom", 200, sizes))},
+    Chosen: {Left: Signal(1), Center: Signal(1), Right: Signal(1), Bottom: Signal(1)}}
+  top = if value.IsMissing(toolbar) missing else kid(toolbar) end
+  foot = if value.IsMissing(status) missing else kid(status) end
+  {Kind: "dock", State: state, Top: value.IsSome(top), Foot: value.IsSome(foot),
+    Kids: kids([top, {Kind: "live", Fn: () -> dockBody(state)}, foot])}
+end
+
+defn dockBody(st)
+  (** The areas of a dock as splits of groups of tabs, as its layout says: an area without panels takes no room. *)
+  areas = Get(st.Areas)
+  tabs = defn (area)
+    tabsOf([st.Panels[n] for n in areas[area]], st.Chosen[area], area, st, area)
+  end
+  has = a -> not value.IsEmpty(areas[a])
+  middle = if has("Bottom") splitOf(tabs("Center"), tabs("Bottom"), "column", st.Sizes.Bottom, 60, true, st) else tabs("Center") end
+  wide = if has("Right") splitOf(middle, tabs("Right"), "row", st.Sizes.Right, 120, true, st) else middle end
+  if has("Left") splitOf(tabs("Left"), wide, "row", st.Sizes.Left, 120, false, st) else wide end
+end
+
+defn Toolbar(items)
+  (** A toolbar: buttons with an icon, their label and their key, flat until the mouse is over one; a web.Spacer
+      pushes the next to the right, a web.Divider is a thin line up between two groups.
+
+        Toolbar([Button("Save", () -> missing, icon = "save", key = "C-s")]).Kind --> "toolbar" *)
+  {Kind: "toolbar", Kids: [barred(x) for x in kids(items)], Gap: 2, Pad: 4, Fill: "Header", Border: missing, Radius: 0, Width: missing,
+    Height: missing, Align: "center", Grow: 0}
+end
+
+defn barred(w)
+  (** A child of a toolbar or a status bar: a button drawn flat, a divider as a line up. *)
+  if w.Kind == "button"
+    out = w
+    out.Flat = true
+    return out
+  end
+  if w.Kind == "divider" {Kind: "sep"} else w end
+end
+
+defn StatusBar(items)
+  (** The status bar at the bottom of a dock: short texts, as the state of the connection, who is signed in and
+      counts, a web.Spacer between those at the left and those at the right, a web.Divider a line up between two.
+
+        StatusBar(["Ready"]).Kind --> "statusbar" *)
+  {Kind: "statusbar", Kids: [barred(x) for x in kids(items)], Gap: 12, Pad: 4, Fill: "Header", Border: missing, Radius: 0, Width: missing,
+    Height: missing, Align: "center", Grow: 0}
+end
+
+defn Item(label, icon = missing, kids = [], on = missing, count = missing, key = missing)
+  (** A row of a web.Tree: its label, an icon of web.Icons, the rows under it, on(), what choosing it does (as
+      web.Go to a page), a count shown at its right, and key, what tells it apart, its label by default.
+
+        Item("Users", icon = "person", count = 7).Count --> 7 *)
+  {Label: label, Icon: icon, Kids: kids, On: on, Count: count, Key: if value.IsMissing(key) label else key end}
+end
+
+defn Tree(items, chosen = missing, closed = [], label = "")
+  (** An outliner: rows of web.Item under rows, each under its parent and further in; a triangle opens or closes a
+      row that has some, and a click chooses a row, which runs its on(). items is a list, a signal of one or a
+      function, a live part; chosen is the key of the row chosen at first, closed those of the rows closed at first.
+      Up and Down choose the row above or under, Left closes a row or goes to its parent, Right opens it, Enter runs
+      it. label names it for a screen reader.
+
+        Tree([Item("Data", kids = [Item("Invoices")])]).Kind --> "tree" *)
+  shut = dict.Dict()
+  for k in closed
+    shut[k] = true
+  end
+  {Kind: "tree", Items: items, Chosen: Signal(chosen), Closed: Signal(shut), Label: label}
+end
+
+defn Section(title, rows, open = true)
+  (** A part of an inspector under its title, which a click opens or closes, as Enter or Space does while it has the
+      focus: rows are widgets, web.Property for most.
+
+        Section("Fields", []).Kind --> "stack" *)
+  shown = Signal(open)
+  Stack([{Kind: "section", Title: title, Open: shown}, () -> if Get(shown) Stack(rows, gap = 2, pad = 4) else missing end], gap = 0)
+end
+
+defn Property(label, editor, note = missing, error = missing, width = 112)
+  (** A row of an inspector: a label at the left, in a column of width pixels, and its editor, a web.Input or any
+      widget, which a field fills to the right; note, a short text after it, as the type of a field, in the muted
+      color; error, a function that gives the text of what is wrong with it ("" or missing for nothing), shown under it
+      in the color of danger.
+
+        Property("Total", Input(Signal("12"))).Kind --> "row" *)
+  ed = kid(editor)
+  if (ed.Kind == "input" or ed.Kind == "select") and value.IsMissing(ed.Width)
+    ed.Width = 100000
+  end
+  line = Row([Stack([Text(label, color = "Muted")], width = width), Grow(ed), if value.IsMissing(note) missing else Text(note, color = "Muted") end], gap = 8)
+  if value.IsMissing(error) line else Stack([line, () -> wrongText(error())], gap = 2) end
+end
+
+wrongText(s) = if value.IsMissing(s) or s == "" missing else Text(s, color = "Danger") end   (* The error of a property, if any. *)
+
+defn Inspector(sections, label = "")
+  (** The properties of a thing, as a desktop tool's details panel: sections (web.Section) of rows (web.Property),
+      their labels in one column, dense, each field edited in place.
+
+        Inspector([]).Kind --> "stack" *)
+  Stack(sections, gap = 4)
+end
+
+(* ---- Layout: each of these is given its height by the one around it (layout's h), as a panel gives its own. *)
+
+fillKinds = ["dock", "split", "tabs", "scroll"]   (* The kinds that take the height they are given. *)
+
+defn grows(id, u)
+  (** Does the box id take a share of the height left in a stack: web.Grow marks it, or it is a spacer of no size? *)
+  n = u.Boxes[id].Node
+  dict.GetOr("Grow", 0, n) > 0 and (n.Kind != "spacer" or n.Size == 0)
+end
+
+defn fills(id, u)
+  (** Does the box id take the height it is given, rather than its own: a dock, a split, tabs, a scroll, a table or a
+      stack with a part that grows, or a live part that gives one of those? *)
+  b = u.Boxes[id]
+  k = b.Node.Kind
+  if k in fillKinds
+    return true
+  end
+  if k == "live"
+    return not value.IsEmpty(b.Kids) and fills(b.Kids[1], u)
+  end
+  if k == "table"
+    return dict.GetOr("Grow", 0, b.Node) > 0
+  end
+  k == "stack" and value.Len([c for c in b.Kids if grows(c, u)]) > 0
+end
+
+defn pageFills(u)
+  (** Is the page a dock, which fills the window edge to edge? *)
+  r = u.Boxes[u.Root]
+  if value.IsEmpty(r.Kids)
+    return false
+  end
+  live = u.Boxes[r.Kids[1]]
+  not value.IsEmpty(live.Kids) and u.Boxes[live.Kids[1]].Node.Kind == "dock"
+end
+
+iconItem(x, y, name, size, color) = {Kind: "text", X: x, Y: y, Text: glyph(name), Size: size, Color: color, Font: "icon", Icon: name}   (* An icon as a draw item. *)
+
+defn layIcon(id, ui)
+  n = ui.Boxes[id].Node
+  t = ui.Theme
+  s = if value.IsMissing(n.Size) role("Icon", t) else n.Size end
+  lh = lineOf(t.Size, ui)
+  (* as tall as a line of text, the icon where the letters of the line are: they sit high in it *)
+  h = list.Max(s, lh)
+  y = if lh > s math.Div(lh - s, 2) - 2 else 0 end
+  sized(id, s, h, [iconItem(0, y, n.Name, s, if value.IsMissing(n.Color) t.Ink else tone(n.Color, t) end)], ui)
+end
+
+layLine(id, ui) = sized(id, 1, 16, [rect(0, 0, 1, 16, role("Edge", ui.Theme))], ui)   (* A line up between two groups of a toolbar. *)
+
+defn laySplit(id, maxW, ui)
+  (** Two parts and the handle between them, each part cut to its place. *)
+  b = ui.Boxes[id]
+  n = b.Node
+  got = watched(id, () -> Get(n.Size), ui)
+  u = got.Ui
+  t = u.Theme
+  gap = role("Unit", t)
+  row = n.Along == "row"
+  h0 = if value.IsSome(b.Gh) b.Gh else if row missing else 2 * got.Value + gap end
+  total = (maxW if row else h0) - gap
+  lo = list.Min(n.Min, math.Div(total, 2))
+  s = list.Max(lo, list.Min(total - lo, got.Value))
+  a = total - s if n.Last else s
+  c = total - a
+  k1 = b.Kids[1]
+  k2 = b.Kids[2]
+  u = layout(k1, a if row else maxW, false, u, h = h0 if row else a)
+  u = layout(k2, c if row else maxW, false, u, h = h0 if row else c)
+  hh = if value.IsSome(h0) h0 else list.Max(u.Boxes[k1].H, u.Boxes[k2].H) end
+  u = place(k1, 0, 0, u)
+  u = place(k2, a + gap if row else 0, 0 if row else a + gap, u)
+  handle = if row [a, 0, gap, hh] else [0, a, maxW, gap] end
+  hot = u.Hover == id or value.IsSome(u.Drag) and dict.Get("Box", u.Drag) == id
+  own = if hot [rect(handle[1], handle[2], handle[3], handle[4], t.Accent)] else [] end
+  b1 = u.Boxes[k1]
+  b2 = u.Boxes[k2]
+  parts = [group(0, 0, a if row else maxW, hh if row else a, true, b1.Items), group(b2.X, b2.Y, c if row else maxW, hh if row else c, true, b2.Items)]
+  boxed(id, maxW, hh, list.Concat(own, parts), {Handle: handle, Room: total, Size: s, Row: row}, u)
+end
+
+defn layScroll(id, maxW, ui)
+  (** Its child at its scroll, cut to the place, and a thin bar at the right when it is taller. *)
+  b = ui.Boxes[id]
+  n = b.Node
+  got = watched(id, () -> Get(n.Offset), ui)
+  u = got.Ui
+  t = u.Theme
+  h = if value.IsSome(b.Gh) b.Gh else if value.IsSome(n.Height) n.Height else 300 end
+  c = b.Kids[1]
+  u = layout(c, maxW, false, u, h = h if fills(c, u) else missing)
+  ch = u.Boxes[c].H
+  most = list.Max(0, ch - h)
+  off = list.Max(0, list.Min(most, got.Value))
+  u = place(c, 0, -off, u)
+  over = []
+  if most > 0
+    bar = list.Max(20, math.Div(h * h, ch))
+    over = [rect(maxW - 6, math.Div((h - bar) * off, most), 4, bar, t.Line, radius = 2)]
+  end
+  wrap = group(0, 0, maxW, h, true, [group(0, -off, u.Boxes[c].W, ch, false, u.Boxes[c].Items)])
+  boxed(id, maxW, h, list.Concat([wrap], over), {Most: most, Offset: off, Seen: h}, u, over = value.Len(over), wrap = true)
+end
+
+defn layTabs(id, maxW, ui)
+  (** The strip of the tabs, the chosen one the color of the panel under it, and the chosen panel's body. *)
+  b = ui.Boxes[id]
+  n = b.Node
+  got = watched(id, () -> Get(n.Chosen), ui)
+  u = got.Ui
+  t = u.Theme
+  th = role("Tab", t)
+  h = if value.IsSome(b.Gh) b.Gh else 300 end
+  ps = n.Panels
+  chosen = list.Max(1, list.Min(value.Len(ps), got.Value))
+  c = b.Kids[1]
+  u = layout(c, maxW, false, u, h = h - th)
+  u = place(c, 0, th, u)
+  inside = holdsFocus(id, u)
+  lh = lineOf(t.Size, u)
+  ic = role("Icon", t)
+  items = [rect(0, 0, maxW, th, role("Header", t)), rect(0, th, maxW, h - th, role("Panel", t))]
+  x = 0
+  spans = []
+  titles = []
+  for k in 1..value.Len(ps)
+    p = ps[k]
+    title = shown(p.Title)
+    iw = if value.IsMissing(p.Icon) 0 else ic + 6 end
+    tw = 24 + iw + widthOf(title, t.Size, "body", u)
+    on = k == chosen
+    hov = u.Hover == id and u.HoverPart == k
+    if on
+      items = list.Append(rect(x, 0, tw, th, role("Panel", t)), items)
+      items = list.Append(rect(x, 0, tw, 2, t.Accent if inside else role("Edge", t)), items)
+    else if hov
+      items = list.Append(rect(x, 2, tw, th - 2, role("Hover", t)), items)
+    end
+    ink = t.Ink if on or hov else t.Muted
+    if value.IsSome(p.Icon)
+      items = list.Append(iconItem(x + 12, math.Div(th - ic, 2), p.Icon, ic, t.Link if on and inside else ink), items)
+    end
+    items = list.Append(words(x + 12 + iw, math.Div(th - t.Size, 2), title, t.Size, ink), items)
+    if on and u.Focus == id and u.Ring
+      items = list.Append(frame(x + 1, 1, tw - 2, th - 2, t.Accent), items)
+    end
+    spans = list.Append([x, tw], spans)
+    titles = list.Append(title, titles)
+    x += tw + 1
+  end
+  items = list.Append(group(0, th, maxW, h - th, true, u.Boxes[c].Items), items)
+  boxed(id, maxW, h, items, {Spans: spans, Titles: titles, Tab: th, Chosen: chosen}, u)
+end
+
+defn holdsFocus(id, u)
+  (** Is the widget in focus the box id or inside it? *)
+  k = u.Focus
+  while k != 0 and k in u.Boxes
+    return true if k == id
+    k = u.Boxes[k].Parent
+  end
+  false
+end
+
+defn layDock(id, maxW, ui)
+  (** The toolbar on top, the status bar at the bottom, the areas between, the window's color in the gaps. *)
+  u = ui
+  b = u.Boxes[id]
+  n = b.Node
+  t = u.Theme
+  gap = role("Unit", t)
+  h = if value.IsSome(b.Gh) b.Gh else seenHeight(u) - (0 if pageFills(u) else 2 * t.Page) end
+  ks = b.Kids
+  top = 0
+  i = 1
+  if n.Top
+    u = layout(ks[1], maxW, false, u)
+    u = place(ks[1], 0, 0, u)
+    top = u.Boxes[ks[1]].H + gap
+    i = 2
+  end
+  foot = 0
+  if n.Foot
+    f = ks[i + 1]
+    u = layout(f, maxW, false, u)
+    foot = u.Boxes[f].H + gap
+    u = place(f, 0, h - u.Boxes[f].H, u)
+  end
+  body = ks[i]
+  bh = list.Max(0, h - top - foot)
+  u = layout(body, maxW, false, u, h = bh)
+  u = place(body, 0, top, u)
+  parts = [group(u.Boxes[k].X, u.Boxes[k].Y, maxW, bh if k == body else u.Boxes[k].H, k == body, u.Boxes[k].Items) for k in ks]
+  boxed(id, maxW, h, list.Prepend(rect(0, 0, maxW, h, t.Back), parts), {Body: body, Top: top, Height: bh}, u)
+end
+
+defn itemsOf(n)
+  (** The items of a tree: a list, a signal's or a live part's. *)
+  x = n.Items
+  if value.IsFunction(x) x() else if isSignal(x) Get(x) else x end
+end
+
+defn rowsOf(items, closed, level)
+  (** The rows in sight of a tree, each {Item, Level, Kids, Open}: the rows under a closed one left out. *)
+  out = []
+  for one in items
+    has = not value.IsEmpty(one.Kids)
+    open = not (one.Key in closed)
+    out = list.Append({Item: one, Level: level, Kids: has, Open: has and open}, out)
+    if has and open
+      out = list.Concat(out, rowsOf(one.Kids, closed, level + 1))
+    end
+  end
+  out
+end
+
+defn layTree(id, maxW, ui)
+  (** The rows of an outliner, one under the other: further in for each level, a triangle before those that have rows
+      under them, the chosen row in the color of the choice, the row under the mouse lighter. *)
+  b = ui.Boxes[id]
+  n = b.Node
+  got = watched(id, () -> {Items: itemsOf(n), Chosen: Get(n.Chosen), Closed: Get(n.Closed)}, ui)
+  u = got.Ui
+  t = u.Theme
+  rows = rowsOf(got.Value.Items, got.Value.Closed, 1)
+  rh = t.Row
+  lh = lineOf(t.Size, u)
+  ic = role("Icon", t)
+  ty = math.Div(rh - t.Size, 2)
+  iy = math.Div(rh - ic, 2)
+  items = []
+  for k in 1..value.Len(rows)
+    r = rows[k]
+    one = r.Item
+    y = (k - 1) * rh
+    on = one.Key == got.Value.Chosen
+    if on
+      items = list.Append(rect(0, y, maxW, rh, t.Chosen), items)
+    else if u.Hover == id and u.HoverPart == k
+      items = list.Append(rect(0, y, maxW, rh, role("Hover", t)), items)
+    end
+    ink = t.ChosenInk if on else t.Ink
+    soft = t.ChosenInk if on else t.Muted
+    x = 4 + (r.Level - 1) * 14
+    if r.Kids
+      items = list.Append(iconItem(x, y + iy, "chevron-down" if r.Open else "chevron-right", ic, soft), items)
+    end
+    x += ic + 2
+    if value.IsSome(one.Icon)
+      items = list.Append(iconItem(x, y + iy, one.Icon, ic, ink if on else t.Muted), items)
+      x += ic + 6
+    end
+    items = list.Append(words(x, y + ty, shown(one.Label), t.Size, ink), items)
+    if value.IsSome(one.Count)
+      s = shown(one.Count)
+      items = list.Append(words(maxW - 8 - widthOf(s, t.Size, "code", u), y + ty, s, t.Size, soft, "code"), items)
+    end
+  end
+  if u.Focus == id and u.Ring
+    items = list.Append(frame(0, 0, maxW, list.Max(rh, value.Len(rows) * rh), t.Accent), items)
+  end
+  cached(id, maxW, list.Max(rh, value.Len(rows) * rh), items, {Rows: rows, Row: rh, Chosen: got.Value.Chosen, Text: n.Label}, u)
+end
+
+defn laySection(id, maxW, ui)
+  (** The title of a section of an inspector, on a band, a triangle before it that says whether it is open. *)
+  n = ui.Boxes[id].Node
+  got = watched(id, () -> Get(n.Open), ui)
+  u = got.Ui
+  t = u.Theme
+  h = t.Row + 2
+  ic = role("Icon", t)
+  title = shown(n.Title)
+  items = [rect(0, 0, maxW, h, role("Hover", t) if u.Hover == id else role("Header", t)),
+    iconItem(4, math.Div(h - ic, 2), "chevron-down" if got.Value else "chevron-right", ic, t.Muted),
+    words(8 + ic, math.Div(h - t.Size, 2), title, t.Size, t.Ink, "strong")]
+  if u.Focus == id and u.Ring
+    items = list.Append(frame(0, 0, maxW, h, t.Accent), items)
+  end
+  cached(id, maxW, h, items, {Text: title, Open: got.Value}, u)
+end
+
+(* ---- The mouse and the keys *)
+
+defn tabAt(x, y, b)
+  (** The tab of a group of tabs at x, y in its box, or missing. *)
+  c = b.Cache
+  if y >= c.Tab
+    return missing
+  end
+  for k in 1..value.Len(c.Spans)
+    s = c.Spans[k]
+    return k if x >= s[1] and x < s[1] + s[2]
+  end
+  missing
+end
+
+defn rowAt(y, b)
+  (** The row of a tree at y in its box, or missing. *)
+  k = math.Div(y, b.Cache.Row) + 1
+  if k >= 1 and k <= value.Len(b.Cache.Rows) k else missing end
+end
+
+defn onHandle(h, b)
+  (** Is the point h, in the box b of a split, on its handle? *)
+  hh = b.Cache.Handle
+  h.X >= hh[1] and h.X < hh[1] + hh[3] and h.Y >= hh[2] and h.Y < hh[2] + hh[4]
+end
+
+defn hovered(e, ui)
+  (** The mouse moves, no button held: the widget under it, and its part (a tab, a row of a tree), are drawn lighter,
+      and the cursor says what a press would do there, as a split's handle that a press drags. Only the widgets it
+      leaves and enters are laid out again: a move inside one costs no frame. *)
+  h = hit(e.X, e.Y, ui)
+  id = 0
+  part = missing
+  cursor = "default"
+  if value.IsSome(h)
+    b = ui.Boxes[h.Id]
+    k = b.Node.Kind
+    if k == "split" and onHandle(h, b)
+      id = h.Id
+      cursor = "col-resize" if b.Cache.Row else "row-resize"
+    else if k == "tabs"
+      part = tabAt(h.X, h.Y, b)
+      id = if value.IsSome(part) h.Id else 0 end
+    else if k == "tree"
+      part = rowAt(h.Y, b)
+      id = h.Id
+    else if k == "button" or k == "section"
+      id = h.Id
+    else if k == "input"
+      cursor = "text"
+    end
+  end
+  u = ui
+  u.Cursor = cursor
+  if id == u.Hover and same(part, u.HoverPart)
+    return u
+  end
+  was = u.Hover
+  u.Hover = id
+  u.HoverPart = part
+  if was != 0 and was in u.Boxes
+    u = touch(was, u)
+  end
+  if id != 0
+    u = touch(id, u)
+  end
+  u
+end
+
+defn dockDown(h, e, ui)
+  (** A press on a split's handle starts to drag it, on a tab shows its panel and may start to drag it to another
+      area, on a row of a tree chooses it or opens it. *)
+  u = ui
+  b = u.Boxes[h.Id]
+  k = b.Node.Kind
+  if k == "split"
+    if not onHandle(h, b)
+      return focus(0, u)
+    end
+    u.Drag = {Kind: "split", Box: h.Id, At: e.X if b.Cache.Row else e.Y, Size: b.Cache.Size}
+    return touch(h.Id, u)
+  else if k == "tabs"
+    i = tabAt(h.X, h.Y, b)
+    if value.IsMissing(i)
+      return u
+    end
+    Set(b.Node.Chosen, i)
+    u = keepDock(b.Node.Dock, focus(h.Id, u))
+    u.Drag = {Kind: "tab", Box: h.Id, Index: i, X: e.X, Y: e.Y, Moved: false}
+    return u
+  else if k == "tree"
+    return treeDown(h, u)
+  end
+  focus(0, u)
+end
+
+defn dockDrag(d, e, ui)
+  (** The mouse moves while it drags a split's handle, which moves with it, or a tab, whose panel would go to the
+      area under it, which shows lit. *)
+  u = ui
+  b = u.Boxes[d.Box]
+  n = b.Node
+  if d.Kind == "split"
+    moved = (e.X if b.Cache.Row else e.Y) - d.At
+    Set(n.Size, list.Max(0, d.Size + (0 - moved if n.Last else moved)))
+    return u
+  end
+  if not d.Moved and math.Abs(e.X - d.X) + math.Abs(e.Y - d.Y) <= 6
+    return u
+  end
+  dd = d
+  dd.Moved = true
+  u.Drag = dd
+  u.Cursor = "grabbing"
+  target = dropAt(e.X, e.Y, d.Box, u)
+  if not value.Equal(target, u.Drop)
+    u.Drop = target
+    u.Changed = true
+  end
+  u
+end
+
+defn dockUp(d, e, ui)
+  (** The mouse comes up after a drag: a split keeps its new size, a tab dropped onto another area moves its panel
+      there; the dock keeps its layout. *)
+  u = ui
+  if not (d.Box in u.Boxes)
+    return u
+  end
+  b = u.Boxes[d.Box]
+  n = b.Node
+  if d.Kind == "split"
+    Set(n.Size, b.Cache.Size)
+    return keepDock(n.Dock, touch(d.Box, u))
+  end
+  drop = u.Drop
+  u.Drop = missing
+  u.Changed = true
+  u.Cursor = "default"
+  if not d.Moved or value.IsMissing(drop)
+    return u
+  end
+  movePanel(n.Dock, n.Panels[d.Index].Name, n.Area, drop.Area)
+  keepDock(n.Dock, u)
+end
+
+defn movePanel(st, name, from, to)
+  (** Moves the panel name of a dock from an area to another, where it is then shown. *)
+  areas = Get(st.Areas)
+  areas[from] = [x for x in areas[from] if x != name]
+  areas[to] = list.Append(name, areas[to])
+  Set(st.Areas, areas)
+  Set(st.Chosen[to], value.Len(areas[to]))
+  Set(st.Chosen[from], list.Max(1, list.Min(Get(st.Chosen[from]), value.Len(areas[from]))))
+end
+
+defn above(id, kind, u)
+  (** The nearest box of a kind at id or above it, or 0. *)
+  k = id
+  while k != 0 and k in u.Boxes
+    return k if u.Boxes[k].Node.Kind == kind
+    k = u.Boxes[k].Parent
+  end
+  0
+end
+
+defn scrollAbove(id, u)
+  (** The nearest scroll at id or above it that has more than it shows, or 0. *)
+  k = above(id, "scroll", u)
+  while k != 0
+    c = u.Boxes[k].Cache
+    return k if value.IsDict(c) and c.Most > 0
+    k = above(u.Boxes[k].Parent, "scroll", u)
+  end
+  0
+end
+
+defn dropAt(x, y, src, u)
+  (** Where a tab of the group src dropped at x, y of the window would go: {Area, X, Y, W, H}, the area and the place
+      it lights, or missing. An empty area of the dock is at its edge, 48 pixels wide. *)
+  st = u.Boxes[src].Node.Dock
+  dk = above(src, "dock", u)
+  if value.IsMissing(st) or dk == 0
+    return missing
+  end
+  db = u.Boxes[dk]
+  p = at(dk, u)
+  top = p.Y + db.Cache.Top
+  bh = db.Cache.Height
+  if y < top or y >= top + bh
+    return missing
+  end
+  areas = Get(st.Areas)
+  from = u.Boxes[src].Node.Area
+  edge = 48
+  if value.IsEmpty(areas.Left) and x < p.X + edge
+    return {Area: "Left", X: p.X, Y: top, W: Get(st.Sizes.Left), H: bh}
+  else if value.IsEmpty(areas.Right) and x >= p.X + db.W - edge
+    w = Get(st.Sizes.Right)
+    return {Area: "Right", X: p.X + db.W - w, Y: top, W: w, H: bh}
+  else if value.IsEmpty(areas.Bottom) and y >= top + bh - edge
+    h = Get(st.Sizes.Bottom)
+    return {Area: "Bottom", X: p.X, Y: top + bh - h, W: db.W, H: h}
+  end
+  h = hit(x, y, u)
+  t = if value.IsMissing(h) 0 else above(h.Id, "tabs", u) end
+  if t == 0 or above(t, "dock", u) != dk or u.Boxes[t].Node.Area == from
+    return missing
+  end
+  q = at(t, u)
+  {Area: u.Boxes[t].Node.Area, X: q.X, Y: q.Y, W: u.Boxes[t].W, H: u.Boxes[t].H}
+end
+
+defn dropItems(ui)
+  (** The area where a dragged tab would go, lit over the page. *)
+  d = ui.Drop
+  if value.IsMissing(d)
+    return []
+  end
+  t = ui.Theme
+  [{Kind: "rect", X: d.X, Y: d.Y, W: d.W, H: d.H, Color: t.Accent, Radius: 0, Alpha: 56}, frame(d.X, d.Y, d.W, d.H, t.Accent)]
+end
+
+defn treeDown(h, ui)
+  (** A press on a row of a tree: on its triangle, or on a row that only holds others, it opens or closes it; else it
+      chooses it. *)
+  u = focus(h.Id, ui)
+  b = u.Boxes[h.Id]
+  k = rowAt(h.Y, b)
+  if value.IsMissing(k)
+    return u
+  end
+  r = b.Cache.Rows[k]
+  if r.Kids and (h.X < 4 + (r.Level - 1) * 14 + role("Icon", u.Theme) + 2 or value.IsMissing(r.Item.On))
+    toggleRow(b.Node, r)
+  else
+    chooseRow(b.Node, r)
+  end
+  u
+end
+
+defn toggleRow(n, r)
+  (** Opens a row of a tree, or closes it. *)
+  shut = Get(n.Closed)
+  Set(n.Closed, if r.Item.Key in shut dict.Drop(r.Item.Key, shut) else dict.Put(r.Item.Key, true, shut) end)
+end
+
+defn chooseRow(n, r)
+  (** Chooses a row of a tree and runs what it does. *)
+  Set(n.Chosen, r.Item.Key)
+  if value.IsFunction(r.Item.On)
+    r.Item.On()
+  end
+end
+
+defn treeKey(e, ui)
+  (** The keys of a tree in focus: Up and Down choose the row above or under, Home and End the first and the last,
+      Right opens a row or goes into it, Left closes it or goes to its parent, Enter and Space run it. *)
+  b = ui.Boxes[ui.Focus]
+  n = b.Node
+  rows = b.Cache.Rows
+  if value.IsEmpty(rows)
+    return ui
+  end
+  i = 0
+  for k in 1..value.Len(rows)
+    if i == 0 and rows[k].Item.Key == b.Cache.Chosen
+      i = k
+    end
+  end
+  r = if i == 0 missing else rows[i] end
+  k = e.Key
+  if k == "down" or k == "up" or k == "home" or k == "end"
+    j = if k == "down" list.Min(value.Len(rows), i + 1) else if k == "up" list.Max(1, i - 1) else if k == "home" 1 else value.Len(rows) end
+    if j != i
+      chooseRow(n, rows[j])
+    end
+  else if value.IsMissing(r)
+    return ui
+  else if k == "right" and r.Kids
+    if r.Open chooseRow(n, rows[i + 1]) else toggleRow(n, r) end
+  else if k == "left"
+    if r.Kids and r.Open
+      toggleRow(n, r)
+    else if r.Level > 1
+      up = 0
+      for j in 1..(i - 1)
+        if rows[j].Level == r.Level - 1
+          up = j
+        end
+      end
+      if up > 0
+        chooseRow(n, rows[up])
+      end
+    end
+  else if k == "enter" or k == "space"
+    if value.IsFunction(r.Item.On) r.Item.On() else if r.Kids toggleRow(n, r) end
+  end
+  ui
+end
+
+defn tabsKey(e, ui)
+  (** The keys of tabs in focus: Left and Right show the panel before or after, Home and End the first and the last. *)
+  b = ui.Boxes[ui.Focus]
+  n = b.Node
+  count = value.Len(n.Panels)
+  i = b.Cache.Chosen
+  j = if e.Key == "left" list.Max(1, i - 1) else if e.Key == "right" list.Min(count, i + 1) else if e.Key == "home" 1 else if e.Key == "end" count else i end
+  if j == i or count == 0
+    return ui
+  end
+  Set(n.Chosen, j)
+  keepDock(n.Dock, ui)
+end
+
+(* ---- The layout that a dock keeps *)
+
+defn keepDock(st, ui)
+  (** Writes the layout of a dock where the back-end keeps it, when the dock has a name: its areas, sizes and chosen
+      panels, as JSON. *)
+  if value.IsMissing(st) or value.IsMissing(st.Name) or value.IsMissing(ui.Store)
+    return ui
+  end
+  areas = ["Left", "Center", "Right", "Bottom"]
+  ui.Store.Put("dock $(st.Name)", json.Text({Areas: Get(st.Areas), Sizes: {Left: Get(st.Sizes.Left), Right: Get(st.Sizes.Right), Bottom: Get(st.Sizes.Bottom)},
+    Chosen: dict.Dict([{Key: a, Value: Get(st.Chosen[a])} for a in areas])}))
+  ui
+end
+
+quiet(s, v) = put({Value: v, Version: version(s) + 1}, s.Cell)   (* A signal set before anything reads it. *)
+
+defn restored(st, ui)
+  (** The layout of a dock that the back-end kept, set in its signals as the dock is mounted: only the panels the dock
+      has, each once; a panel that the layout kept doesn't know stays where the app put it; a size out of reason or
+      a text that isn't the layout's JSON is left out. *)
+  if value.IsMissing(st.Name) or value.IsMissing(ui.Store)
+    return ui
+  end
+  raw = ui.Store.Get("dock $(st.Name)")
+  got = if value.IsText(raw) and raw != "" json.Parse(raw) else result.Err({Message: "none"}) end
+  if result.IsErr(got) or not value.IsDict(got.Value)
+    return ui
+  end
+  v = got.Value
+  names = ["Left", "Center", "Right", "Bottom"]
+  areas = dict.Get("Areas", v)
+  if value.IsDict(areas)
+    seen = dict.Dict()
+    out = {Left: [], Center: [], Right: [], Bottom: []}
+    for a in names
+      xs = dict.Get(a, areas)
+      for x in if value.IsArray(xs) xs else [] end
+        if value.IsText(x) and x in st.Panels and not (x in seen)
+          seen[x] = true
+          out[a] = list.Append(x, out[a])
+        end
+      end
+    end
+    for a in names
+      for x in st.First[a]
+        if not (x in seen)
+          seen[x] = true
+          out[a] = list.Append(x, out[a])
+        end
+      end
+    end
+    quiet(st.Areas, out)
+  end
+  sizes = dict.Get("Sizes", v)
+  if value.IsDict(sizes)
+    for a in ["Left", "Right", "Bottom"]
+      s = dict.Get(a, sizes)
+      if value.IsNumber(s) and s >= 40 and s <= 4000
+        quiet(st.Sizes[a], math.Div(math.Round(s), 1))
+      end
+    end
+  end
+  chosen = dict.Get("Chosen", v)
+  if value.IsDict(chosen)
+    for a in names
+      c = dict.Get(a, chosen)
+      if value.IsNumber(c) and c >= 1 and c <= 1000
+        quiet(st.Chosen[a], math.Div(math.Round(c), 1))
+      end
+    end
+  end
+  ui
+end

@@ -13,7 +13,8 @@ defn newUi(width, height, measure, theme)
   (** An empty page of this size. *)
   {Boxes: dict.Dict(), Root: 0, Comps: dict.Dict(), Deps: dict.Dict(), Subs: dict.Dict(), Width: width, Height: height,
     Measure: measure, Theme: theme, Focus: 0, Ring: false, Caret: 0, Pressed: 0, Popup: 0, Drag: missing, ScrollY: 0, Changed: true,
-    Screens: [], Nav: missing, Memos: dict.Dict(), SemSeq: 0, SemPage: "", SemKids: ""}
+    Screens: [], Nav: missing, Memos: dict.Dict(), SemSeq: 0, SemPage: "", SemKids: "", Hover: 0, HoverPart: missing, Drop: missing,
+    Store: missing, Cursor: "default", Choice: theme, Dark: missing}
 end
 
 defn mount(node, parent, ui)
@@ -21,9 +22,13 @@ defn mount(node, parent, ui)
   n = kid(node)
   id = fresh()
   u = ui
-  u.Boxes[id] = {Id: id, Parent: parent, Node: n, Kids: [], W: 0, H: 0, X: 0, Y: 0, Cw: -1, Fit: false, Dirty: true, Items: [], Cache: missing, Laid: 0, Sem: missing, Enc: missing}
+  u.Boxes[id] = {Id: id, Parent: parent, Node: n, Kids: [], W: 0, H: 0, X: 0, Y: 0, Cw: -1, Fit: false, Dirty: true, Items: [], Cache: missing, Laid: 0, Sem: missing, Enc: missing,
+    Gh: missing, Over: 0, Wrap: false}
   k = n.Kind
-  if k == "stack" or k == "row"
+  if k == "dock"
+    u = restored(n.State, u)
+  end
+  if k in holders
     ids = []
     for c in n.Kids
       got = mount(c, id, u)
@@ -38,6 +43,8 @@ defn mount(node, parent, ui)
   end
   {Id: id, Ui: u}
 end
+
+holders = ["stack", "row", "split", "scroll", "tabs", "dock", "toolbar", "statusbar"]   (* The kinds whose Kids are widgets. *)
 
 defn partNode(v)
   (** What a live part gave, as one widget: a list is stacked, missing is an empty stack. *)
@@ -118,6 +125,9 @@ defn unmount(id, ui)
   end
   if u.Popup == id
     u.Popup = 0
+  end
+  if u.Hover == id
+    u.Hover = 0
   end
   u.Boxes = dict.Drop(id, u.Boxes)
   u

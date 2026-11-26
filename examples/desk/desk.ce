@@ -1,0 +1,6 @@
+(* The page of examples/desk/page.ce in a browser, compiled to WebAssembly by cesia build --target wasm
+   examples/desk/desk.ce, served by examples/desk/serve.ce: cesia do desk, then http://127.0.0.1:8080/. *)
+use examples/desk/page
+use src/browser
+
+browser.Run(page.App())

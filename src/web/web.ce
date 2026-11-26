@@ -81,13 +81,15 @@ Spacer(size = 0) = {Kind: "spacer", Size: size, Grow: 1}
 (** A thin line across, between parts. *)
 Divider() = {Kind: "divider"}
 
-defn Button(label, onClick, key = missing)
+defn Button(label, onClick, key = missing, icon = missing)
   (** A plain button: onClick() runs when it is clicked, pressed with Enter or Space while it has the focus, or, with
       key, when that key is typed anywhere in the page: "C-s" for Ctrl and s, "M-n" for Alt and n, "f5". The button
-      shows its key beside its label, and the band of keys lists it: every action is in sight, with its key.
+      shows its key beside its label, and the band of keys lists it: every action is in sight, with its key. icon, a
+      name of web.Icons, stands before its label; in a web.Toolbar the button is flat.
 
-        Button("Save", () -> missing, key = "C-s").Key --> "C-s" *)
-  {Kind: "button", Label: label, On: onClick, Key: key}
+        Button("Save", () -> missing, key = "C-s").Key --> "C-s"
+        Button("Save", () -> missing, icon = "save").Icon --> "save" *)
+  {Kind: "button", Label: label, On: onClick, Key: key, Icon: icon}
 end
 
 defn Input(v, label = "", placeholder = "", width = missing, onEnter = missing, invalid = missing, secret = false)

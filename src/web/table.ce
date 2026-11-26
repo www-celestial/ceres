@@ -109,28 +109,32 @@ end
 
 scrollBar = 8   (* The width of a table's scroll bar, in pixels. *)
 
-defn tableGeometry(n, u)
-  (** The row height and the height of a table's body. *)
+defn tableGeometry(n, u, h)
+  (** The row height and the height of a table's body, the table h pixels high. *)
   rh = u.Theme.Row if value.IsMissing(n.RowHeight) else n.RowHeight
-  {Row: rh, Body: n.Height - rh}
+  {Row: rh, Body: h - rh}
 end
 
 defn layTable(id, maxW, ui)
-  n = ui.Boxes[id].Node
+  (** A table as high as its height, or, when web.Grow marks it in a place that has a height (a panel's), as that
+      place leaves it. *)
+  b = ui.Boxes[id]
+  n = b.Node
   w = list.Min(maxW, 10000 if value.IsMissing(n.Width) else n.Width)
-  got = watched(id, () -> tableView(id, n, w, ui), ui)
+  h = if value.IsSome(b.Gh) and dict.GetOr("Grow", 0, n) > 0 list.Max(2 * (ui.Theme.Row), b.Gh) else n.Height end
+  got = watched(id, () -> tableView(id, n, w, ui, h), ui)
   u = got.Ui
-  cached(id, w, n.Height, got.Value.Items, got.Value.Cache, u)
+  cached(id, w, h, got.Value.Items, got.Value.Cache, u)
 end
 
-defn tableView(id, n, w, u)
+defn tableView(id, n, w, u, height)
   (** The items of a table at its scroll, and what its box keeps: {Items, Cache}. A table has real edges: a line under
       its header, between its rows and between its columns. Numbers and amounts sit at the right of their column, in
       the code font; the chosen row is ink on paper turned round. The items of each row in sight are kept, in Lines,
       at the row's place in the whole table, and a group moves them by the scroll: a row that stays in sight with the
       same values, the same widths and the same choice is not made again. *)
   t = u.Theme
-  g = tableGeometry(n, u)
+  g = tableGeometry(n, u, height)
   rh = g.Row
   order = Get(n.Sort)
   data = if isPages(n.Source) missing else sortedRows(id, n, order, u) end
@@ -152,7 +156,7 @@ defn tableView(id, n, w, u)
   sample = list.FindFirst(r -> value.IsSome(r), slice)
   rights = [col.Align == "right" or (value.IsMissing(col.Align) and value.IsSome(sample) and fontOf(col.Cell(sample)) == "code") for col in n.Columns]
   old = u.Boxes[id].Cache
-  kept = if value.IsDict(old) and "Lines" in old and value.Equal(old.Widths, cw) and value.Equal(old.Rights, rights) old.Lines else dict.Dict() end
+  kept = if value.IsDict(old) and "Lines" in old and value.Equal(old.Widths, cw) and value.Equal(old.Rights, rights) and value.Equal(dict.Get("Look", old), t) old.Lines else dict.Dict() end
   lines = dict.Dict()
   for k in 1..value.Len(slice)
     i = first + k - 1
@@ -171,7 +175,11 @@ defn tableView(id, n, w, u)
     end
   end
   top = (first + value.Len(slice)) * rh
-  items = [rect(0, 0, w, n.Height, t.Paper)]
+  items = [rect(0, 0, w, height, t.Paper)]
+  band = dict.Get("Header", t)
+  if value.IsSome(band)
+    items = list.Append(rect(0, 0, w, rh, band), items)
+  end
   rows = [group(0, -offset, inner, top, false, list.FlatMap(k -> lines[first + k - 1].Back, 1..value.Len(slice)))]
   texts = [lines[first + k - 1].Texts for k in 1..value.Len(slice)]
   x = 0
@@ -184,22 +192,22 @@ defn tableView(id, n, w, u)
     cells = [lines[first + k - 1].Cells[c] for k in 1..value.Len(slice)]
     rows = list.Append(group(x, 0, cw[c], g.Body, true, [group(0, -offset, cw[c], top, false, cells)]), rows)
     if c > 1
-      items = list.Append(rect(x, 0, 1, n.Height, t.Grid), items)
+      items = list.Append(rect(x, 0, 1, height, t.Grid), items)
     end
     x += cw[c]
   end
   items = list.Append(group(0, rh, inner, g.Body, true, rows), items)
-  items = list.Append(rect(0, rh - 1, w, 1, t.Line), items)
-  items = list.Append(rect(inner, 0, 1, n.Height, t.Grid), items)
+  items = list.Append(rect(0, rh - 1, w, 1, role("Edge", t) if value.IsSome(band) else t.Line), items)
+  items = list.Append(rect(inner, 0, 1, height, t.Grid), items)
   if most > 0
     thumb = list.Max(20, math.Div(g.Body * g.Body, count * rh))
     y0 = rh + math.Div((g.Body - thumb) * offset, most)
     items = list.Append(rect(inner + 2, y0, scrollBar - 4, thumb, t.Muted), items)
   end
-  items = list.Append(frame(0, 0, w, n.Height, t.Accent if u.Focus == id else t.Line), items)
+  items = list.Append(frame(0, 0, w, height, t.Accent if u.Focus == id else role("Edge", t)), items)
   keep = if value.IsMissing(data) missing else {Ver: data.Ver, Order: order, Rows: data.Rows} end
   {Items: items, Cache: {Sorted: keep, First: first, Seen: seen, Count: count, Most: most, Offset: offset, Widths: cw, Row: rh,
-    Texts: texts, Lines: lines, Rights: rights}}
+    Texts: texts, Lines: lines, Rights: rights, Look: t}}
 end
 
 defn line(i, row, on, columns, cw, rights, inner, rh, ty, t, u)

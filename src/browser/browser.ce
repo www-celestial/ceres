@@ -4,7 +4,9 @@
     nothing runs: the live screen wakes it when the app pushed something. The browser's online and offline, and the
     tab shown again, reach the live screen, which then tries at once or knows it is cut. The hidden DOM gets what changed in the
     semantics tree at each frame, web.Patch; a page whose address holds ceres-check, as page.html?ceres-check, also
-    sends the whole tree, which ceres.js checks the hidden DOM against (Stats().checks). *)
+    sends the whole tree, which ceres.js checks the hidden DOM against (Stats().checks). The icons' font comes in
+    web/icons.js, which the build puts beside the page too; a web.Dock keeps its layout in the browser's local storage,
+    and a page whose theme is web.System follows the browser's prefers-color-scheme. *)
 use src/web
 use std/fiber
 use std/js
@@ -18,16 +20,24 @@ defn Measure()
   {Width: (t, size, font) -> js.Call("../../web/ceres.js", "Measure", [t, size, font]), Line: size -> js.Call("../../web/ceres.js", "Line", [size])}
 end
 
+defn Store()
+  (** Where a page keeps what it keeps on the machine, as web.Start takes it: the browser's local storage. *)
+  {Get: name -> js.Call("../../web/ceres.js", "Kept", [name]), Put: (name, v) -> js.Call("../../web/ceres.js", "Keep", [name, v])}
+end
+
 defn Run(app, origin = missing, path = missing)
   (** Runs the app in the page's canvas, until the page closes. Its live screen, if it has one, opens at origin, the
       page's own by default; path is the route shown first, the canvas's data-path or "/". *)
   events = fiber.Channel()
   net = fiber.Channel()
+  js.Call("../../web/icons.js", "Load", [])
   page = js.Call("../../web/ceres.js", "Start", [events, "lists", net])
+  dark = if value.Len(page) >= 6 and value.IsBool(page[6]) page[6] else missing end
   ui = web.Start(app, page[1], page[2], Measure(), origin = if value.IsMissing(origin) page[3] else origin end,
-    path = if value.IsMissing(path) page[4] else path end, wake = events, net = net)
+    path = if value.IsMissing(path) page[4] else path end, wake = events, net = net, dark = dark, store = Store())
   check = value.Len(page) >= 5 and page[5] == true
   asked = false
+  cursor = "default"
   while true
     if web.Changed(ui) and not asked
       js.Call("../../web/ceres.js", "Wake", [])
@@ -46,6 +56,10 @@ defn Run(app, origin = missing, path = missing)
       end
     end
     ui = web.Update(ui)
+    if ui.Cursor != cursor
+      cursor = ui.Cursor
+      js.Call("../../web/ceres.js", "Cursor", [cursor])
+    end
     if frame
       asked = false
       if web.Changed(ui)
@@ -75,6 +89,8 @@ defn event(x)
     {Kind: k, Key: x[2], Ctrl: x[3], Alt: x[4], Shift: x[5]}
   else if k == "text"
     {Kind: k, Text: x[2]}
+  else if k == "scheme"
+    {Kind: k, Dark: x[2] == true}
   else
     {Kind: k, Width: x[2], Height: x[3]}
   end

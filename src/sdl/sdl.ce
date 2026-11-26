@@ -63,7 +63,8 @@ sdlSpecs = {Version: ["SDL_GetVersion", [], "i32"], Init: ["SDL_Init", ["u32"], 
   Poll: ["SDL_PollEvent", ["ptr"], "bool"], Wait: ["SDL_WaitEventTimeout", ["ptr", "i32"], "bool"], StartText: ["SDL_StartTextInput", ["ptr"], "bool"],
   Read: ["SDL_RenderReadPixels", ["ptr", "ptr"], "ptr"], Convert: ["SDL_ConvertSurface", ["ptr", "u32"], "ptr"],
   DestroySurface: ["SDL_DestroySurface", ["ptr"], "void"], DestroyRenderer: ["SDL_DestroyRenderer", ["ptr"], "void"],
-  DestroyWindow: ["SDL_DestroyWindow", ["ptr"], "void"], Quit: ["SDL_QuitSubSystem", ["u32"], "void"], SetTitle: ["SDL_SetWindowTitle", ["ptr", "text"], "bool"]}
+  DestroyWindow: ["SDL_DestroyWindow", ["ptr"], "void"], Quit: ["SDL_QuitSubSystem", ["u32"], "void"], SetTitle: ["SDL_SetWindowTitle", ["ptr", "text"], "bool"],
+  SystemTheme: ["SDL_GetSystemTheme", [], "i32"]}
 
 ttfSpecs = {Init: ["TTF_Init", [], "bool"], Engine: ["TTF_CreateRendererTextEngine", ["ptr"], "ptr"], Open: ["TTF_OpenFont", ["text", "f32"], "ptr"],
   Make: ["TTF_CreateText", ["ptr", "ptr", "text", "u64"], "ptr"], Color: ["TTF_SetTextColor", ["ptr", "u8", "u8", "u8", "u8"], "bool"],
@@ -76,10 +77,11 @@ fontFolders = ["src/sdl/fonts", "deps/www-celestial/ceres/src/sdl/fonts"]
 
 defn defaultFonts()
   (** The fonts of Ceres, as Cemacs has them: Adwaita Sans for the body, Noto Sans Medium for the strong face and
-      JetBrains Mono for code and numbers, all under the SIL Open Font License. *)
+      JetBrains Mono for code and numbers, all under the SIL Open Font License; and the icons of web.Icons, cut from
+      Codicons (CC BY 4.0, Codicons-CC-BY-4.0.txt). *)
   at = list.FindFirst(f -> sys.Exists("$f/AdwaitaSans-Regular.ttf"), fontFolders)
   f = fontFolders[1] if value.IsMissing(at) else at
-  {Body: "$f/AdwaitaSans-Regular.ttf", Strong: "$f/NotoSans-Medium.ttf", Code: "$f/JetBrainsMono-Regular.ttf"}
+  {Body: "$f/AdwaitaSans-Regular.ttf", Strong: "$f/NotoSans-Medium.ttf", Code: "$f/JetBrainsMono-Regular.ttf", Icon: "$f/Codicons.ttf"}
 end
 
 failed(w) = result.Err({Kind: "sdl", Message: w.Sdl.Error()})   (* An Err with the last reason SDL gave. *)
@@ -141,7 +143,7 @@ defn fontOf(size, face, w)
   if key in fonts
     return result.Ok(fonts[key])
   end
-  path = w.Paths.Strong if face == "strong" else w.Paths.Code if face == "code" else w.Paths.Body
+  path = w.Paths.Strong if face == "strong" else w.Paths.Code if face == "code" else iconFont(w) if face == "icon" else w.Paths.Body
   f = w.Ttf.Open(path, px * 1.0)
   if value.IsMissing(f)
     return result.Err({Kind: "sdl", Message: "The font $path can't be opened: $(w.Sdl.Error())"})
@@ -151,6 +153,8 @@ defn fontOf(size, face, w)
   put(fonts, w.Fonts)
   result.Ok(f)
 end
+
+iconFont(w) = dict.GetOr("Icon", defaultFonts().Icon, w.Paths)   (* The font of the icons: the window's, or Ceres's. *)
 
 font(size, face, w) = result.Unwrap(fontOf(size, face, w))   (* A font that must open: a missing font is a bug here. *)
 
@@ -427,6 +431,8 @@ defn decoded(e)
   code = c.Get("u32", 0, e)
   if code == 0x100
     {Kind: "quit"}
+  else if code == 0x108
+    {Kind: "theme"}
   else if code == 0x206
     {Kind: "resize", Width: c.Get("i32", 20, e), Height: c.Get("i32", 24, e)}
   else if code == 0x300
@@ -453,11 +459,19 @@ defn Events(w)
   out = []
   while w.Sdl.Poll(w.Event)
     one = decoded(w.Event)
-    if value.IsSome(one)
+    if value.IsSome(one) and one.Kind == "theme"
+      out = list.Append({Kind: "scheme", Dark: dark(w) != false}, out)
+    else if value.IsSome(one)
       out = list.Append(one, out)
     end
   end
   if sys.StopAsked() list.Append({Kind: "quit"}, out) else out end
+end
+
+defn dark(w)
+  (** Is the system's theme dark, as SDL tells it: true, false, or missing when it can't tell. *)
+  t = w.Sdl.SystemTheme()
+  if t == 2 true else if t == 1 false else missing end
 end
 
 defn Run(app, origin = missing, title = missing, width = 1100, height = 860, path = "/", fonts = missing, driver = missing, hidden = false)
@@ -466,7 +480,7 @@ defn Run(app, origin = missing, title = missing, width = 1100, height = 860, pat
       changed or the window asks for one; a still page waits in SDL, waking every 50 ms with a live screen, so that
       what the app pushes is drawn, and every 250 ms without. driver and hidden are as for Open. *)
   w = Open(if value.IsMissing(title) app.Title else title end, width, height, fonts = fonts, driver = driver, hidden = hidden)?
-  ui = web.Start(app, width, height, Measure(w), origin = origin, path = path)
+  ui = web.Start(app, width, height, Measure(w), origin = origin, path = path, dark = dark(w))
   rest = 50 if value.IsSome(app.Live) and value.IsSome(origin) else 250
   while true
     events = Events(w)
@@ -520,7 +534,7 @@ defn Shot(app, path, origin = missing, width = 1100, height = 860, settle = miss
       settle(page) waits for, at most 5 seconds, and steps(page) gave the page after the events it sends, as
       web.Handle takes them; writes it as a PNG at path: Ok(path), or an Err. It needs write= for path. *)
   w = Open(app.Title, width, height, fonts = fonts, vsync = false, driver = "dummy")?
-  ui = web.Start(app, width, height, Measure(w), origin = origin)
+  ui = web.Start(app, width, height, Measure(w), origin = origin, dark = dark(w))
   start = sys.Now()
   while value.IsSome(settle) and not settle(ui) and sys.Now() - start < 5
     sys.Sleep(0.01)

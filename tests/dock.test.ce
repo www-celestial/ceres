@@ -1,0 +1,98 @@
+(* The layout of a desktop tool on the headless back-end: a dock with its toolbar, outliner, tabs, inspector, console
+   and status bar; a tab chosen, a splitter dragged, a panel moved to another area by its tab, the layout found again in
+   a second page from the store, the theme that follows the system, a tree driven by its keys, and the contrast of the
+   two themes. *)
+use src/web
+use src/headless
+use std/list
+use std/test
+use std/text
+use std/value
+
+rows = [{Number: "F-$(k)", Client: "Client $(k)", Total: k * 10.5} for k in 1..200]
+
+defn page(p)
+  chosen = web.Signal("Invoices")
+  name = web.Signal("Martin & Co")
+  tree = web.Tree([web.Item("Dashboard", icon = "dashboard", on = () -> web.Set(chosen, "Dashboard")),
+    web.Item("Data", icon = "database", kids = [web.Item("Invoices", icon = "table", count = 200, on = () -> web.Set(chosen, "Invoices")),
+      web.Item("Clients", icon = "person", count = 12, on = () -> web.Set(chosen, "Clients"))])], chosen = "Invoices", label = "Sections")
+  table = web.Grow(web.Table(rows, [web.Column("Number", r -> r.Number, sort = "Number", width = 90), web.Column("Client", r -> r.Client),
+    web.Column("Total", r -> web.Money(r.Total), width = 110)], label = "Invoices"))
+  web.Dock([web.Panel("Invoices", web.Stack([table, web.Text("200 rows", color = "Muted")]), icon = "table"), web.Panel("Notes", web.Text("Nothing yet."), icon = "note")],
+    left = [web.Panel("Outliner", tree, icon = "list-tree")],
+    right = [web.Panel("Details", web.Inspector([web.Section("Invoice", [web.Property("Client", web.Input(name, label = "Client"), note = "text"),
+      web.Property("Total", web.Input(web.Signal("10.5"), label = "Total"), note = "money")])]), icon = "settings-gear")],
+    bottom = [web.Panel("Log", web.Text("ready"), icon = "output"), web.Panel("Jobs", web.Text("none"), icon = "tools")],
+    toolbar = web.Toolbar([web.Button("Save", () -> missing, icon = "save", key = "C-s"), web.Divider(), web.Button("Refresh", () -> missing, icon = "refresh", key = "f5"),
+      web.Spacer(), web.Text(() -> web.Get(chosen), color = "Muted")]),
+    status = web.StatusBar([web.Text("Live", color = "Ok"), web.Divider(), web.Text("super@app.test"), web.Spacer(), web.Text("200 invoices", color = "Muted")]),
+    name = "test", sizes = {Left: 200, Right: 260, Bottom: 120})
+end
+
+app = web.App([web.Route("/", page)], theme = web.Dark)
+
+defn isDockFillsTheWindow()
+  p = headless.Open(app, width = 1000, height = 640)
+  tree = headless.Tree(p)
+  list.All([text.Contains("tablist", tree), text.Contains("treeitem \"Invoices\" = \"200\" level 2 selected", tree), text.Contains("tab \"Invoices\" selected at", tree),
+    text.Contains("toolbar", tree), test.Snapshot(tree), test.Snapshot(headless.Draw(p))])
+end
+
+defn isTabChosen()
+  p = headless.ClickOn("Jobs", headless.Open(app, width = 1000, height = 640))
+  tree = headless.Tree(p)
+  text.Contains("text \"none\"", tree) and not text.Contains("text \"ready\"", tree) and text.Contains("tabpanel \"Jobs\"", tree)
+end
+
+defn isTreeByKeys()
+  p = headless.ClickOn("Invoices", headless.Open(app, width = 1000, height = 640))
+  p = headless.Press("down", p)
+  down = text.Contains("treeitem \"Clients\" = \"12\" level 2 selected", headless.Tree(p)) and text.Contains("text \"Clients\"", headless.Tree(p))
+  p = headless.Press("left", p)
+  p = headless.Press("left", p)
+  closed = not text.Contains("treeitem \"Clients\"", headless.Tree(p))
+  down and closed
+end
+
+defn isLayoutKept()
+  store = headless.Store()
+  p = headless.Open(app, width = 1000, height = 640, store = store)
+  (* the handle between the outliner and the rest, at x 200, dragged 60 pixels right *)
+  p = headless.Drag(202, 300, 262, 300, p)
+  (* the tab Log dragged onto the area of the details, at the right *)
+  p = web.Handle({Kind: "mouse", Action: "down", X: 280, Y: 470, Button: 1, Amount: 0}, p)
+  p = web.Handle({Kind: "mouse", Action: "move", X: 400, Y: 300, Button: 1, Amount: 0}, p)
+  p = web.Handle({Kind: "mouse", Action: "move", X: 900, Y: 300, Button: 1, Amount: 0}, p)
+  p = web.Handle({Kind: "mouse", Action: "up", X: 900, Y: 300, Button: 1, Amount: 0}, p)
+  again = headless.Open(app, width = 1000, height = 640, store = store)
+  t = headless.Tree(again)
+  kept = store.Get("dock test")
+  list.All([value.IsText(kept), text.Contains("\"Left\":260", kept), text.Contains("\"Right\":[\"Details\",\"Log\"]", kept),
+    text.Contains("tabpanel \"Log\"", t), test.Snapshot(t)])
+end
+
+defn isSystemTheme()
+  sys = web.App([web.Route("/", page)], theme = web.System())
+  dark = headless.Draw(headless.Open(sys, width = 1000, height = 640, dark = true))
+  light = headless.Open(sys, width = 1000, height = 640, dark = false)
+  back = headless.Draw(headless.Scheme(true, light))
+  list.All([text.Contains("#151515", dark), not text.Contains("#151515", headless.Draw(light)), text.Contains("#d4d4d4", headless.Draw(light)), back == dark])
+end
+
+defn isContrastAA()
+  (* each text on each background it sits on, 4.5:1; the edge of a field and the focus, 3:1 *)
+  ok = true
+  for t in [web.Dark, web.Light]
+    for fg in ["Ink", "Muted", "Link", "Danger", "Warn", "Ok"]
+      for bg in ["Panel", "Header", "Paper", "Raised"]
+        ok = ok and web.Contrast(t[fg], t[bg]) >= 4.5
+      end
+    end
+    ok = ok and web.Contrast(t.ChosenInk, t.Chosen) >= 4.5 and web.Contrast(t.Ink, t.Hover) >= 4.5
+    for bg in ["Panel", "Paper", "Header"]
+      ok = ok and web.Contrast(t.Line, t[bg]) >= 3 and web.Contrast(t.Accent, t[bg]) >= 3
+    end
+  end
+  ok and web.Contrast(0x000000, 0xffffff) == 21
+end
