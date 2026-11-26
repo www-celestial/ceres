@@ -255,7 +255,7 @@ defn Act(name, args, p, base = missing)
 end
 
 (* The key of an action, made when it is asked: 128 random bits, as hex. *)
-newKey() = encode.Hex(text.FromBytes([math.Floor(random.Float() * 256) for k in 1..16]))
+newKey() = encode.Hex(text.FromBytes([math.Div(math.Floor(random.Float() * 256), 1) for k in 1..16]))
 
 defn actThen(name, args, screen, reply, base = missing)
   (** Sends an action, or keeps it until the screen is up, and calls reply(m) with its reply, {Ack, Ok} or {Ack, Err},
