@@ -61,7 +61,10 @@ http.Serve(http.App() then http.Static("", "examples/hello"))!
 
 Open <http://127.0.0.1:8080/>. Two clicks on Add one and "Ana" typed in the field give "Clicked 2 times" and "Hello,
 Ana!", in Chrome 158 and in Firefox 160. The canvas fills its parent; Tab goes from field to field, and the band of keys
-at the bottom shows the keys, as in a window.
+at the bottom shows the keys, as in a window. The band and the page of a path that no route takes are Ceres's own
+texts, in English; a page in another language gives their translation to `web.App(routes, say = t -> ...)`, a
+function of each English text, already filled in, to the text shown, as Centauri's admin pages do in French with
+their catalogue.
 
 ## 2. What runs
 

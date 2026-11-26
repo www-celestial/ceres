@@ -9,8 +9,14 @@ use std/text
 use std/value
 
 (** An app: its routes, web.Route, and the path of its live screens on the server, as live.Route serves them, or
-    missing for an app without. title names its window. *)
-App(routes, live = missing, title = "Ceres") = {Routes: routes, Live: live, Title: title}
+    missing for an app without. title names its window. say gives the text shown for each of Ceres's own English
+    texts, those of the band of keys and of the page of no route, already filled in ("No page of this app is at /x."):
+    a page in another language passes its translation, as t -> i18n.Say(words, "fr", t); missing shows the English.
+
+      App([], say = t -> if t == "Nothing here" "Rien ici" else t end).Say("Nothing here") --> "Rien ici" *)
+App(routes, live = missing, title = "Ceres", say = missing) = {Routes: routes, Live: live, Title: title, Say: say}
+
+said(say, t) = if value.IsMissing(say) t else say(t) end   (* One of Ceres's own texts, in the app's language. *)
 
 (** A route of an app: a path, where :name takes one part of it into p.Params, and the page, a function of p. *)
 Route(pattern, page) = {Pattern: pattern, Page: page}
@@ -47,7 +53,7 @@ defn pageAt(app, path, nav, screen)
       return r.Page({Path: path, Params: params, Screen: screen, Nav: nav})
     end
   end
-  Stack([Title("Nothing here"), Text("No page of this app is at $path.")])
+  Stack([Title(said(dict.Get("Say", app), "Nothing here")), Text(said(dict.Get("Say", app), "No page of this app is at $path."))])
 end
 
 (** Goes to another route of the app, as a link does. *)
@@ -60,6 +66,7 @@ defn Start(app, width, height, measure, origin = missing, path = "/", theme = Th
       origin, as "http://127.0.0.1:8080", an app with live opens its screen there, sending headers with it; wake is as
       for the live screen (web.Connect), and net, the channel of the browser's online, offline and now. *)
   ui = newUi(width, height, measure, theme)
+  ui.Say = dict.Get("Say", app)
   screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net) else missing end
   nav = Signal(path)
   ui.Nav = nav
@@ -135,7 +142,7 @@ end
 
 defn Keys(ui)
   (** The keys of the widget in focus, and those of the page's buttons: [keys, what they do] for each, as the band
-      at the bottom of the window shows them. *)
+      at the bottom of the window shows them, in the app's language (App's say). *)
   f = ui.Focus
   k = if f != 0 and f in ui.Boxes ui.Boxes[f].Node.Kind else "" end
   own = if k == "input"
@@ -151,7 +158,8 @@ defn Keys(ui)
   else
     [["Tab", "first field"], ["PgUp PgDn", "scroll the page"]]
   end
-  list.Concat(own, buttonKeys(ui.Root, ui))
+  say = dict.Get("Say", ui)
+  list.Concat(if value.IsMissing(say) own else [[say(x[1]), say(x[2])] for x in own] end, buttonKeys(ui.Root, ui))
 end
 
 defn bandItems(ui)

@@ -17,6 +17,12 @@
   `screen.Conflicts`; `web.Connect`'s `net` and `settings`; `web.Start`'s `net`; `ceres.js`'s `Start(events, form,
   net)` passes the browser's `online`, `offline` and a tab shown again.
 
+### Added
+
+- `web.App(routes, say = f)`: Ceres's own texts, the band of keys and the page of a path that no route takes, in the
+  language of the page: `f` gives the text shown for each English text, already filled in (`"No page of this app is
+  at /x."`); without it they stay in English. Centauri's admin pages pass their French catalogue.
+
 ### Speed
 
 - A frame of a page in a browser costs what changed in it. Measured on a table of 100,000 rows kept in the page

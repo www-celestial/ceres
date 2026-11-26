@@ -2,6 +2,7 @@
    the routes of an app. *)
 use src/web
 use src/headless
+use std/dict
 use std/list
 use std/plot
 use std/test
@@ -75,4 +76,15 @@ defn isRoutes()
   app = web.App([web.Route("/", home), web.Route("/invoices/:id", invoice)])
   p = headless.ClickOn("Invoice 42", headless.Open(app))
   list.All([text.Contains("heading \"Invoice 42\"", headless.Tree(p)), text.Contains("Nothing here", headless.Tree(headless.Open(app, path = "/nope")))])
+end
+
+defn isSaidInTheAppsLanguage()
+  (** A page in another language: Ceres's own texts, the page of no route and the band of keys, as the app's say gives
+      them; the keys themselves and a text say doesn't know stay as they are. *)
+  fr = {"Nothing here": "Rien ici", "No page of this app is at /nope.": "Aucune page de cette app à /nope.", "first field": "premier champ"}
+  app = web.App([web.Route("/", p -> web.Title("Accueil"))], say = t -> dict.GetOr(t, t, fr))
+  none = headless.Tree(headless.Open(app, path = "/nope"))
+  keys = web.Keys(headless.Open(app))
+  list.All([text.Contains("Rien ici", none), text.Contains("Aucune page de cette app à /nope.", none), value.Equal(keys[1], ["Tab", "premier champ"]),
+    value.Equal(keys[2], ["PgUp PgDn", "scroll the page"]), value.Equal(web.Keys(headless.Open(web.App([web.Route("/", p -> web.Title("Home"))])))[1], ["Tab", "first field"])])
 end
