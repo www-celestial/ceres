@@ -94,16 +94,9 @@ defn layout(id, maxW, fit, ui, h = missing)
   else if k == "table" layTable(id, maxW, u)
   else if k == "plot" layPlot(id, maxW, u)
   else if k == "toolbar" or k == "statusbar" layRow(id, maxW, fit, u)
-  else if k == "dock" layDock(id, maxW, u)
-  else if k == "split" laySplit(id, maxW, u)
-  else if k == "tabs" layTabs(id, maxW, u)
-  else if k == "scroll" layScroll(id, maxW, u)
-  else if k == "tree" layTree(id, maxW, u)
-  else if k == "section" laySection(id, maxW, u)
-  else if k == "icon" layIcon(id, u)
-  else if k == "sep" layLine(id, u)
   else if k == "spacer" sized(id, 0 if fit else maxW, b.Node.Size, [], u)
   else if k == "divider" sized(id, maxW, 1, [rect(0, 0, maxW, 1, u.Theme.Line)], u)
+  else if value.IsSome(u.Kit) u.Kit.Lay(id, maxW, u)
   else bug.Panic("No layout for the widget kind $k.") end
   done = u.Boxes[id]
   done.Cw = maxW
@@ -313,7 +306,7 @@ defn layButton(id, ui)
   u = ui
   n = u.Boxes[id].Node
   t = u.Theme
-  if value.IsSome(dict.Get("Raised", t)) or value.IsSome(dict.Get("Icon", n)) or dict.GetOr("Flat", false, n)
+  if tooled(n, t)
     return layTool(id, u)
   end
   label = shown(n.Label)
@@ -334,6 +327,9 @@ defn layButton(id, ui)
   end
   cached(id, w, h, out, {Text: label}, u)
 end
+
+(* Is a button drawn as a desktop tool draws one: in such a theme (one that has Raised), with an icon, or in a toolbar? *)
+tooled(n, t) = value.IsSome(dict.Get("Raised", t)) or value.IsSome(dict.Get("Icon", n)) or dict.GetOr("Flat", false, n)
 
 defn layTool(id, ui)
   (** A button of a desktop tool: raised, or flat in a toolbar, lighter under the mouse, darker held down; its icon,

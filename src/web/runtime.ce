@@ -14,7 +14,7 @@ defn newUi(width, height, measure, theme)
   {Boxes: dict.Dict(), Root: 0, Comps: dict.Dict(), Deps: dict.Dict(), Subs: dict.Dict(), Width: width, Height: height,
     Measure: measure, Theme: theme, Focus: 0, Ring: false, Caret: 0, Pressed: 0, Popup: 0, Drag: missing, ScrollY: 0, Changed: true,
     Screens: [], Nav: missing, Memos: dict.Dict(), SemSeq: 0, SemPage: "", SemKids: "", Hover: 0, HoverPart: missing, Drop: missing,
-    Store: missing, Cursor: "default", Choice: theme, Dark: missing}
+    Store: missing, Cursor: "default", Choice: theme, Dark: missing, Kit: missing}
 end
 
 defn mount(node, parent, ui)
@@ -25,8 +25,12 @@ defn mount(node, parent, ui)
   u.Boxes[id] = {Id: id, Parent: parent, Node: n, Kids: [], W: 0, H: 0, X: 0, Y: 0, Cw: -1, Fit: false, Dirty: true, Items: [], Cache: missing, Laid: 0, Sem: missing, Enc: missing,
     Gh: missing, Over: 0, Wrap: false}
   k = n.Kind
+  if value.IsMissing(u.Kit) and value.IsSome(dict.Get("Kit", n))
+    (* the first widget of a desktop tool: the page takes their functions, which a page without them never holds *)
+    u.Kit = n.Kit()
+  end
   if k == "dock"
-    u = restored(n.State, u)
+    u = u.Kit.Mounted(n.State, u)
   end
   if k in holders
     ids = []

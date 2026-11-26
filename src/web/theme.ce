@@ -105,64 +105,54 @@ end
 (* ---- Icons: Codicons (Microsoft, CC BY 4.0), the icons of a desktop tool drawn for a grid of 16 pixels, as the font
    src/sdl/fonts/Codicons.ttf and web/icons.js hold them, the 161 of this table only (tools/icons.sh). *)
 
-(** The icons a widget names, by their names in Codicons, each its code point in the font of the icons. *)
-Icons = dict.Dict([
-  {Key: "account", Value: 0xeb99}, {Key: "add", Value: 0xea60}, {Key: "archive", Value: 0xea98},
-  {Key: "arrow-down", Value: 0xea9a}, {Key: "arrow-left", Value: 0xea9b}, {Key: "arrow-right", Value: 0xea9c},
-  {Key: "arrow-swap", Value: 0xebcb}, {Key: "arrow-up", Value: 0xeaa1}, {Key: "beaker", Value: 0xea79},
-  {Key: "bell", Value: 0xeaa2}, {Key: "bell-dot", Value: 0xeb9a}, {Key: "bold", Value: 0xeaa3},
-  {Key: "book", Value: 0xeaa4}, {Key: "bookmark", Value: 0xeaa5}, {Key: "broadcast", Value: 0xeaad},
-  {Key: "bug", Value: 0xeaaf}, {Key: "calendar", Value: 0xeab0}, {Key: "check", Value: 0xeab2},
-  {Key: "check-all", Value: 0xebb1}, {Key: "chevron-down", Value: 0xeab4}, {Key: "chevron-left", Value: 0xeab5},
-  {Key: "chevron-right", Value: 0xeab6}, {Key: "chevron-up", Value: 0xeab7}, {Key: "circle-filled", Value: 0xea71},
-  {Key: "circle-large", Value: 0xebb5}, {Key: "circle-slash", Value: 0xeabd}, {Key: "clear-all", Value: 0xeabf},
-  {Key: "clockface", Value: 0xec75}, {Key: "close", Value: 0xea76}, {Key: "cloud", Value: 0xebaa},
-  {Key: "cloud-download", Value: 0xeac2}, {Key: "cloud-upload", Value: 0xeac3}, {Key: "code", Value: 0xeac4},
-  {Key: "collapse-all", Value: 0xeac5}, {Key: "color-mode", Value: 0xeac6}, {Key: "comment", Value: 0xea6b},
-  {Key: "copy", Value: 0xebcc}, {Key: "credit-card", Value: 0xeac9}, {Key: "dashboard", Value: 0xeacd},
-  {Key: "database", Value: 0xeace}, {Key: "debug-console", Value: 0xeb9b}, {Key: "debug-pause", Value: 0xead1},
-  {Key: "debug-restart", Value: 0xead2}, {Key: "debug-start", Value: 0xead3}, {Key: "debug-stop", Value: 0xead7},
-  {Key: "discard", Value: 0xeae2}, {Key: "edit", Value: 0xea73}, {Key: "ellipsis", Value: 0xea7c},
-  {Key: "error", Value: 0xea87}, {Key: "expand-all", Value: 0xeb95}, {Key: "export", Value: 0xebac},
-  {Key: "eye", Value: 0xea70}, {Key: "eye-closed", Value: 0xeae7}, {Key: "file-code", Value: 0xeae9},
-  {Key: "file-text", Value: 0xec5e}, {Key: "files", Value: 0xeaf0}, {Key: "filter", Value: 0xeaf1},
-  {Key: "filter-filled", Value: 0xebce}, {Key: "flag", Value: 0xec3f}, {Key: "fold", Value: 0xeaf5},
-  {Key: "folder", Value: 0xea83}, {Key: "folder-opened", Value: 0xeaf7}, {Key: "gear", Value: 0xeaf8},
-  {Key: "gift", Value: 0xeaf9}, {Key: "globe", Value: 0xeb01}, {Key: "go-to-file", Value: 0xea94},
-  {Key: "grabber", Value: 0xeb02}, {Key: "graph", Value: 0xeb03}, {Key: "graph-line", Value: 0xebe2},
-  {Key: "gripper", Value: 0xeb04}, {Key: "history", Value: 0xea82}, {Key: "home", Value: 0xeb06},
-  {Key: "inbox", Value: 0xeb09}, {Key: "info", Value: 0xea74}, {Key: "kebab-vertical", Value: 0xeb10},
-  {Key: "key", Value: 0xeb11}, {Key: "law", Value: 0xeb12}, {Key: "layers", Value: 0xebd2},
-  {Key: "layout", Value: 0xebeb}, {Key: "layout-panel", Value: 0xebf2}, {Key: "layout-sidebar-left", Value: 0xebf3},
-  {Key: "layout-sidebar-right", Value: 0xebf4}, {Key: "lightbulb", Value: 0xea61}, {Key: "link", Value: 0xeb15},
-  {Key: "link-external", Value: 0xeb14}, {Key: "list-filter", Value: 0xeb83}, {Key: "list-flat", Value: 0xeb84},
-  {Key: "list-tree", Value: 0xeb86}, {Key: "list-unordered", Value: 0xeb17}, {Key: "location", Value: 0xeb1a},
-  {Key: "lock", Value: 0xea75}, {Key: "mail", Value: 0xeb1c}, {Key: "menu", Value: 0xeb94},
-  {Key: "milestone", Value: 0xeb20}, {Key: "new-file", Value: 0xea7f}, {Key: "new-folder", Value: 0xea80},
-  {Key: "note", Value: 0xeb26}, {Key: "organization", Value: 0xea7e}, {Key: "output", Value: 0xeb9d},
-  {Key: "package", Value: 0xeb29}, {Key: "pass", Value: 0xeba4}, {Key: "pass-filled", Value: 0xebb3},
-  {Key: "person", Value: 0xea67}, {Key: "person-add", Value: 0xebcd}, {Key: "pie-chart", Value: 0xebe4},
-  {Key: "pin", Value: 0xeb2b}, {Key: "pinned", Value: 0xeba0}, {Key: "play", Value: 0xeb2c},
-  {Key: "plug", Value: 0xeb2d}, {Key: "pulse", Value: 0xeb31}, {Key: "question", Value: 0xeb32},
-  {Key: "radio-tower", Value: 0xeb34}, {Key: "record", Value: 0xeba7}, {Key: "redo", Value: 0xebb0},
-  {Key: "refresh", Value: 0xeb37}, {Key: "remove", Value: 0xeb3b}, {Key: "rocket", Value: 0xeb44},
-  {Key: "rss", Value: 0xeb47}, {Key: "run-all", Value: 0xeb9e}, {Key: "save", Value: 0xeb4b},
-  {Key: "save-all", Value: 0xeb49}, {Key: "screen-full", Value: 0xeb4c}, {Key: "screen-normal", Value: 0xeb4d},
-  {Key: "search", Value: 0xea6d}, {Key: "send", Value: 0xec0f}, {Key: "server", Value: 0xeb50},
-  {Key: "server-process", Value: 0xeba2}, {Key: "settings-gear", Value: 0xeb51}, {Key: "shield", Value: 0xeb53},
-  {Key: "sign-in", Value: 0xea6f}, {Key: "sign-out", Value: 0xea6e}, {Key: "sort-precedence", Value: 0xeb55},
-  {Key: "split-horizontal", Value: 0xeb56}, {Key: "split-vertical", Value: 0xeb57},
-  {Key: "star-empty", Value: 0xea6a}, {Key: "star-full", Value: 0xeb59}, {Key: "stop-circle", Value: 0xeba5},
-  {Key: "symbol-boolean", Value: 0xea8f}, {Key: "symbol-class", Value: 0xeb5b}, {Key: "symbol-field", Value: 0xeb5f},
-  {Key: "symbol-numeric", Value: 0xea90}, {Key: "symbol-property", Value: 0xeb65},
-  {Key: "symbol-string", Value: 0xea93}, {Key: "symbol-variable", Value: 0xea88}, {Key: "sync", Value: 0xea77},
-  {Key: "table", Value: 0xebb7}, {Key: "tag", Value: 0xea66}, {Key: "target", Value: 0xebf8},
-  {Key: "terminal", Value: 0xea85}, {Key: "tools", Value: 0xeb6d}, {Key: "trash", Value: 0xea81},
-  {Key: "triangle-down", Value: 0xeb6e}, {Key: "triangle-right", Value: 0xeb70}, {Key: "unfold", Value: 0xeb73},
-  {Key: "unlock", Value: 0xeb74}, {Key: "verified", Value: 0xeb77}, {Key: "versions", Value: 0xeb23},
-  {Key: "warning", Value: 0xea6c}, {Key: "watch", Value: 0xeb7c}, {Key: "zoom-in", Value: 0xeb81},
-  {Key: "zoom-out", Value: 0xeb82}
-])
+(* The icons as texts of name:code, the code point in hex, a space between: a table of records would make every page
+   carry ten times its bytes in its module. tools/icons.sh reads the code points from here. *)
+iconCodes = [
+  "account:eb99 add:ea60 archive:ea98 arrow-down:ea9a arrow-left:ea9b arrow-right:ea9c arrow-swap:ebcb",
+  "arrow-up:eaa1 beaker:ea79 bell:eaa2 bell-dot:eb9a bold:eaa3 book:eaa4 bookmark:eaa5 broadcast:eaad",
+  "bug:eaaf calendar:eab0 check:eab2 check-all:ebb1 chevron-down:eab4 chevron-left:eab5 chevron-right:eab6",
+  "chevron-up:eab7 circle-filled:ea71 circle-large:ebb5 circle-slash:eabd clear-all:eabf clockface:ec75",
+  "close:ea76 cloud:ebaa cloud-download:eac2 cloud-upload:eac3 code:eac4 collapse-all:eac5 color-mode:eac6",
+  "comment:ea6b copy:ebcc credit-card:eac9 dashboard:eacd database:eace debug-console:eb9b debug-pause:ead1",
+  "debug-restart:ead2 debug-start:ead3 debug-stop:ead7 discard:eae2 edit:ea73 ellipsis:ea7c error:ea87",
+  "expand-all:eb95 export:ebac eye:ea70 eye-closed:eae7 file-code:eae9 file-text:ec5e files:eaf0",
+  "filter:eaf1 filter-filled:ebce flag:ec3f fold:eaf5 folder:ea83 folder-opened:eaf7 gear:eaf8 gift:eaf9",
+  "globe:eb01 go-to-file:ea94 grabber:eb02 graph:eb03 graph-line:ebe2 gripper:eb04 history:ea82 home:eb06",
+  "inbox:eb09 info:ea74 kebab-vertical:eb10 key:eb11 law:eb12 layers:ebd2 layout:ebeb layout-panel:ebf2",
+  "layout-sidebar-left:ebf3 layout-sidebar-right:ebf4 lightbulb:ea61 link:eb15 link-external:eb14",
+  "list-filter:eb83 list-flat:eb84 list-tree:eb86 list-unordered:eb17 location:eb1a lock:ea75 mail:eb1c",
+  "menu:eb94 milestone:eb20 new-file:ea7f new-folder:ea80 note:eb26 organization:ea7e output:eb9d",
+  "package:eb29 pass:eba4 pass-filled:ebb3 person:ea67 person-add:ebcd pie-chart:ebe4 pin:eb2b pinned:eba0",
+  "play:eb2c plug:eb2d pulse:eb31 question:eb32 radio-tower:eb34 record:eba7 redo:ebb0 refresh:eb37",
+  "remove:eb3b rocket:eb44 rss:eb47 run-all:eb9e save:eb4b save-all:eb49 screen-full:eb4c",
+  "screen-normal:eb4d search:ea6d send:ec0f server:eb50 server-process:eba2 settings-gear:eb51 shield:eb53",
+  "sign-in:ea6f sign-out:ea6e sort-precedence:eb55 split-horizontal:eb56 split-vertical:eb57",
+  "star-empty:ea6a star-full:eb59 stop-circle:eba5 symbol-boolean:ea8f symbol-class:eb5b symbol-field:eb5f",
+  "symbol-numeric:ea90 symbol-property:eb65 symbol-string:ea93 symbol-variable:ea88 sync:ea77 table:ebb7",
+  "tag:ea66 target:ebf8 terminal:ea85 tools:eb6d trash:ea81 triangle-down:eb6e triangle-right:eb70",
+  "unfold:eb73 unlock:eb74 verified:eb77 versions:eb23 warning:ea6c watch:eb7c zoom-in:eb81 zoom-out:eb82"
+]
+
+defn iconTable(lines)
+  (** The table of the icons, from their texts. *)
+  out = dict.Dict()
+  for line in lines
+    for one in text.Split(" ", line)
+      p = text.Split(":", one)
+      cp = 0
+      for b in text.Bytes(p[2])
+        cp = cp * 16 + (b - 48 if b < 58 else b - 87)
+      end
+      out[p[1]] = cp
+    end
+  end
+  out
+end
+
+(** The icons a widget names, by their names in Codicons, each its code point in the font of the icons.
+
+      Icons["gear"] --> 0xeaf8 *)
+Icons = iconTable(iconCodes)
 
 defn glyph(name)
   (** The text of an icon: its character in the font of the icons, from its name, or a code point of that font. *)
@@ -179,5 +169,5 @@ defn Icon(name, size = missing, color = missing)
       the label beside it.
 
         Icon("gear").Kind --> "icon" *)
-  {Kind: "icon", Name: name, Glyph: glyph(name), Size: size, Color: color}
+  {Kind: "icon", Name: name, Glyph: glyph(name), Size: size, Color: color, Kit: kit}
 end

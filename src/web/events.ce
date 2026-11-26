@@ -1,6 +1,6 @@
 (* Events: a back-end gives each one to Handle as {Kind: "mouse", Action: "down", "up", "move" or "wheel", X, Y,
    Amount}, {Kind: "key", Key, Ctrl, Shift, Alt}, {Kind: "text", Text} or {Kind: "resize", Width, Height}, the same on
-   every platform. A move does nothing unless the mouse drags a scroll bar: a mouse that moves over a page costs no frame. *)
+   every platform. A move costs no frame unless the mouse drags or enters a widget that it lights. *)
 use std/dict
 use std/list
 use std/math
@@ -104,9 +104,41 @@ defn focus(id, ui, ring = false)
     end
     u = touch(id, u)
   end
-  if ring and id != 0
+  if ring and id != 0 and value.IsSome(u.Kit)
     (* the keyboard moved it: the panels it is in scroll to show it *)
-    u = reveal(id, u)
+    u = u.Kit.Reveal(id, u)
+  end
+  u
+end
+
+defn hovered(e, ui)
+  (** The mouse moves, no button held: the widget under it, and its part (a tab, a row of a tree), are drawn lighter,
+      and the cursor says what a press would do there, as a split's handle that a press drags or a field's text. Only
+      the widgets it leaves and enters are laid out again: a move inside one costs no frame, and a page that draws
+      no hover (web.Theme's buttons) none. *)
+  h = hit(e.X, e.Y, ui)
+  over = {Id: 0, Part: missing, Cursor: "default"}
+  if value.IsSome(h)
+    n = ui.Boxes[h.Id].Node
+    k = n.Kind
+    over = if k == "button" and tooled(n, ui.Theme) or k == "section" {Id: h.Id, Part: missing, Cursor: "default"}
+    else if k == "input" {Id: 0, Part: missing, Cursor: "text"}
+    else if value.IsSome(ui.Kit) ui.Kit.Hover(h, ui)
+    else over end
+  end
+  u = ui
+  u.Cursor = over.Cursor
+  if over.Id == u.Hover and same(over.Part, u.HoverPart)
+    return u
+  end
+  was = u.Hover
+  u.Hover = over.Id
+  u.HoverPart = over.Part
+  if was != 0 and was in u.Boxes
+    u = touch(was, u)
+  end
+  if over.Id != 0
+    u = touch(over.Id, u)
   end
   u
 end
@@ -135,7 +167,7 @@ defn mouse(e, ui)
     u = touch(h.Id, u)
     return if k == "link" u else focus(h.Id, u) end
   else if k == "split" or k == "tabs" or k == "tree" or k == "scroll"
-    return dockDown(h, e, u)
+    return u.Kit.Down(h, e, u)
   else if k == "input"
     u = focus(h.Id, u)
     u.Caret = caretAt(h.X - 6 + dict.GetOr("Shift", 0, u.Boxes[h.Id].Cache), h.Id, u)
@@ -182,7 +214,7 @@ defn released(e, ui)
   d = u.Drag
   u.Drag = missing
   if value.IsSome(d) and dict.Get("Kind", d) in ["split", "tab"]
-    return dockUp(d, e, u)
+    return u.Kit.Up(d, e, u)
   end
   if u.Pressed == 0
     return u
@@ -217,11 +249,7 @@ defn wheel(e, ui)
   if value.IsSome(h) and ui.Boxes[h.Id].Node.Kind == "table"
     return scrollTable(h.Id, by, ui)
   end
-  s = if value.IsSome(h) scrollAbove(h.Id, ui) else 0 end
-  if s != 0
-    n = ui.Boxes[s].Node
-    c = ui.Boxes[s].Cache
-    Set(n.Offset, list.Max(0, list.Min(c.Most, Get(n.Offset) + by)))
+  if value.IsSome(h) and value.IsSome(ui.Kit) and ui.Kit.Wheel(h.Id, by, ui)
     return ui
   end
   scrolled(ui.ScrollY + by, ui)
@@ -262,7 +290,7 @@ defn dragged(e, ui)
     return ui
   end
   if dict.Get("Kind", d) in ["split", "tab"]
-    return dockDrag(d, e, ui)
+    return ui.Kit.Drag(d, e, ui)
   end
   b = ui.Boxes[d.Box]
   c = b.Cache
@@ -342,18 +370,16 @@ defn key(e, ui)
   k = n.Kind
   if k == "input"
     edited(e, u)
-  else if (k == "button" or k == "section") and (e.Key == "pagedown" or e.Key == "pageup")
-    paneKey(e, u)
+  else if (k == "button" or k == "section") and (e.Key == "pagedown" or e.Key == "pageup") and value.IsSome(u.Kit)
+    u.Kit.Key(e, u)
   else if k == "button"
     if e.Key == "enter" or e.Key == "space" clicked(u.Focus, u) else u end
   else if k == "select"
     selectKey(e, u)
   else if k == "table"
     tableKey(e, u)
-  else if k == "tree"
-    treeKey(e, u)
-  else if k == "tabs"
-    tabsKey(e, u)
+  else if k == "tree" or k == "tabs"
+    u.Kit.Key(e, u)
   else if k == "section"
     if e.Key == "enter" or e.Key == "space" clicked(u.Focus, u) else u end
   else

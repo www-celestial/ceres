@@ -135,7 +135,7 @@ defn Frame(ui)
     y = math.Div((seen - bar) * ui.ScrollY, root.H - seen)
     page = list.Append(rect(ui.Width - 6, y, 4, bar, t.Muted), page)
   end
-  list.Concat(list.Concat(list.Concat(page, popupItems(ui)), dropItems(ui)), bandItems(ui))
+  list.Concat(list.Concat(list.Concat(page, popupItems(ui)), dropped(ui)), bandItems(ui))
 end
 
 bandHeight(ui) = lineOf(ui.Theme.Size, ui) + 8 if ui.Theme.Keys else 0   (* The height of the band of keys. *)
@@ -295,48 +295,13 @@ defn semOf(id, x0, y0, ui)
     [node("img", b.Cache.Text, b, x, y, ui)]
   else if k == "table"
     [tableSem(b, x, y, ui)]
-  else if k == "tree"
-    [treeSem(b, x, y, ui)]
-  else if k == "tabs"
-    tabsSem(b, x, y, ui, inner)
-  else if k == "section"
-    one = node("button", b.Cache.Text, b, x, y, ui)
-    one.Expanded = b.Cache.Open
-    [one]
-  else if k == "toolbar"
-    [node("toolbar", "", b, x, y, ui, kids = inner)]
+  else if k == "tree" or k == "tabs" or k == "section" or k == "toolbar"
+    ui.Kit.Sem(b, x, y, ui, inner)
   else if k == "each"
     [node("list", "", b, x, y, ui, kids = [{Id: "$(c)i", Role: "listitem", Name: "", Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: semOf(c, x, y, ui)} for c in b.Kids])]
   else
     inner
   end
-end
-
-defn treeSem(b, x, y, ui)
-  (** The semantics of a tree: a node of each row in sight, with its level, whether it is open and whether chosen. *)
-  c = b.Cache
-  rows = []
-  for k in 1..value.Len(c.Rows)
-    r = c.Rows[k]
-    one = {Id: "$(b.Id)t$k", Role: "treeitem", Name: shown(r.Item.Label), Value: if value.IsMissing(r.Item.Count) missing else shown(r.Item.Count) end,
-      X: x, Y: y + (k - 1) * c.Row, W: b.W, H: c.Row, Focused: false, Kids: [], Level: r.Level, Selected: r.Item.Key == c.Chosen}
-    if r.Kids
-      one.Expanded = r.Open
-    end
-    rows = list.Append(one, rows)
-  end
-  node("tree", b.Node.Label, b, x, y, ui, kids = rows)
-end
-
-defn tabsSem(b, x, y, ui, inner)
-  (** The semantics of tabs: the list of the tabs, each a tab, the chosen one selected, then the chosen panel. *)
-  c = b.Cache
-  tabs = [{Id: "$(b.Id)l$k", Role: "tab", Name: c.Titles[k], Value: missing, X: x + c.Spans[k][1], Y: y, W: c.Spans[k][2], H: c.Tab, Focused: false, Kids: [],
-    Selected: k == c.Chosen} for k in 1..value.Len(c.Titles)]
-  strip = {Id: "$(b.Id)l", Role: "tablist", Name: b.Node.Label, Value: missing, X: x, Y: y, W: b.W, H: c.Tab, Focused: ui.Focus == b.Id, Kids: tabs}
-  panel = {Id: b.Id, Role: "tabpanel", Name: if value.IsEmpty(c.Titles) "" else c.Titles[c.Chosen] end, Value: missing, X: x, Y: y + c.Tab, W: b.W,
-    H: b.H - c.Tab, Focused: false, Kids: inner}
-  [strip, panel]
 end
 
 defn tableSem(b, x, y, ui)

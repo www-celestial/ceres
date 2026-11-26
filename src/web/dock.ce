@@ -2,7 +2,9 @@
    outliner, an inspector and a status bar. A panel keeps its widgets when it moves: its body is made once, with its
    signals. Each of these widgets is given a height by the one around it, as a window gives its height to the page;
    inside a panel, what is taller than it scrolls. *)
+use std/bug
 use std/dict
+use std/fiber
 use std/json
 use std/list
 use std/math
@@ -29,7 +31,7 @@ defn Scroll(item, height = missing)
       a thin bar at its right shows where it is.
 
         Scroll(Text("a")).Kind --> "scroll" *)
-  {Kind: "scroll", Kids: [kid(item)], Offset: Signal(0), Height: height}
+  {Kind: "scroll", Kids: [kid(item)], Offset: Signal(0), Height: height, Kit: kit}
 end
 
 defn Tabs(panels, chosen = 1, label = "")
@@ -44,7 +46,7 @@ defn tabsOf(panels, chosen, label, dock, area)
   (** The node of a group of tabs, of an area of a dock or of none. Its one child shows the body of the chosen panel. *)
   ps = [p for p in panels]
   {Kind: "tabs", Panels: ps, Chosen: chosen, Label: label, Dock: dock, Area: area,
-    Kids: [{Kind: "live", Fn: () -> shownPanel(ps, chosen)}]}
+    Kids: [{Kind: "live", Fn: () -> shownPanel(ps, chosen)}], Kit: kit}
 end
 
 defn shownPanel(panels, chosen)
@@ -64,7 +66,7 @@ defn Split(first, second, along = "row", size = 240, sized = "first", min = 60)
   splitOf(first, second, along, Signal(size), min, sized == "second", missing)
 end
 
-splitOf(first, second, along, size, min, last, dock) = {Kind: "split", Kids: [kid(first), kid(second)], Along: along, Size: size, Min: min, Last: last, Dock: dock}
+splitOf(first, second, along, size, min, last, dock) = {Kind: "split", Kids: [kid(first), kid(second)], Along: along, Size: size, Min: min, Last: last, Dock: dock, Kit: kit}
 
 defn Dock(center, left = [], right = [], bottom = [], toolbar = missing, status = missing, key = missing, sizes = {})
   (** The layout of a desktop tool, which fills the window: a toolbar on top, a status bar at the bottom, and between
@@ -87,7 +89,7 @@ defn Dock(center, left = [], right = [], bottom = [], toolbar = missing, status 
   top = if value.IsMissing(toolbar) missing else kid(toolbar) end
   foot = if value.IsMissing(status) missing else kid(status) end
   {Kind: "dock", State: state, Top: value.IsSome(top), Foot: value.IsSome(foot),
-    Kids: kids([top, {Kind: "live", Fn: () -> dockBody(state)}, foot])}
+    Kids: kids([top, {Kind: "live", Fn: () -> dockBody(state)}, foot]), Kit: kit}
 end
 
 defn dockBody(st)
@@ -108,7 +110,7 @@ defn Toolbar(items)
 
         Toolbar([Button("Save", () -> missing, icon = "save", key = "C-s")]).Kind --> "toolbar" *)
   {Kind: "toolbar", Kids: [barred(x) for x in kids(items)], Gap: 4, Pad: 4, Fill: "Header", Border: missing, Radius: 0, Width: missing,
-    Height: missing, Align: "center", Grow: 0}
+    Height: missing, Align: "center", Grow: 0, Kit: kit}
 end
 
 defn barred(w)
@@ -118,7 +120,7 @@ defn barred(w)
     out.Flat = true
     return out
   end
-  if w.Kind == "divider" {Kind: "sep"} else w end
+  if w.Kind == "divider" {Kind: "sep", Kit: kit} else w end
 end
 
 defn StatusBar(items)
@@ -127,7 +129,7 @@ defn StatusBar(items)
 
         StatusBar(["Ready"]).Kind --> "statusbar" *)
   {Kind: "statusbar", Kids: [barred(x) for x in kids(items)], Gap: 12, Pad: 4, Fill: "Header", Border: missing, Radius: 0, Width: missing,
-    Height: missing, Align: "center", Grow: 0}
+    Height: missing, Align: "center", Grow: 0, Kit: kit}
 end
 
 defn Item(label, icon = missing, kids = [], on = missing, count = missing, key = missing)
@@ -150,7 +152,7 @@ defn Tree(items, chosen = missing, closed = [], label = "")
   for k in closed
     shut[k] = true
   end
-  {Kind: "tree", Items: items, Chosen: Signal(chosen), Closed: Signal(shut), Label: label}
+  {Kind: "tree", Items: items, Chosen: Signal(chosen), Closed: Signal(shut), Label: label, Kit: kit}
 end
 
 defn Section(title, rows, open = true)
@@ -159,7 +161,7 @@ defn Section(title, rows, open = true)
 
         Section("Fields", []).Kind --> "stack" *)
   shown = Signal(open)
-  Stack([{Kind: "section", Title: title, Open: shown}, () -> if Get(shown) Stack(rows, gap = 2, pad = 4) else missing end], gap = 0)
+  Stack([{Kind: "section", Title: title, Open: shown, Kit: kit}, () -> if Get(shown) Stack(rows, gap = 2, pad = 4) else missing end], gap = 0)
 end
 
 defn Property(label, editor, note = missing, error = missing, width = 112)
@@ -185,6 +187,31 @@ defn Inspector(sections, label = "")
 
         Inspector([]).Kind --> "stack" *)
   Stack(sections, gap = 4)
+end
+
+(* ---- The kit: what the rest of Ceres calls of these widgets. Each of them carries kit, and the page takes it as it
+   mounts the first (u.Kit); the layout, the semantics, the patch and the events call them through it. So a page
+   that makes none of them never reaches their code, and its module holds none of it: the build of WebAssembly links
+   only what a page can reach. *)
+
+defn kit()
+  (** The functions of the widgets of a desktop tool, as a page calls them. *)
+  {Lay: layDesk, Mounted: restored, Sem: semDesk, Patch: patchDesk, Drop: dropItems, Hover: hoverDesk, Down: dockDown,
+    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk}
+end
+
+defn layDesk(id, maxW, ui)
+  (** Lays out a widget of a desktop tool in maxW pixels, as layout does the others. *)
+  k = ui.Boxes[id].Node.Kind
+  if k == "dock" layDock(id, maxW, ui)
+  else if k == "split" laySplit(id, maxW, ui)
+  else if k == "tabs" layTabs(id, maxW, ui)
+  else if k == "scroll" layScroll(id, maxW, ui)
+  else if k == "tree" layTree(id, maxW, ui)
+  else if k == "section" laySection(id, maxW, ui)
+  else if k == "icon" layIcon(id, ui)
+  else if k == "sep" layLine(id, ui)
+  else bug.Panic("No layout for the widget kind $k.") end
 end
 
 (* ---- Layout: each of these is given its height by the one around it (layout's h), as a panel gives its own. *)
@@ -495,47 +522,40 @@ defn onHandle(h, b)
   h.X >= hh[1] and h.X < hh[1] + hh[3] and h.Y >= hh[2] and h.Y < hh[2] + hh[4]
 end
 
-defn hovered(e, ui)
-  (** The mouse moves, no button held: the widget under it, and its part (a tab, a row of a tree), are drawn lighter,
-      and the cursor says what a press would do there, as a split's handle that a press drags. Only the widgets it
-      leaves and enters are laid out again: a move inside one costs no frame. *)
-  h = hit(e.X, e.Y, ui)
-  id = 0
-  part = missing
-  cursor = "default"
-  if value.IsSome(h)
-    b = ui.Boxes[h.Id]
-    k = b.Node.Kind
-    if k == "split" and onHandle(h, b)
-      id = h.Id
-      cursor = "col-resize" if b.Cache.Row else "row-resize"
-    else if k == "tabs"
-      part = tabAt(h.X, h.Y, b)
-      id = if value.IsSome(part) h.Id else 0 end
-    else if k == "tree"
-      part = rowAt(h.Y, b)
-      id = h.Id
-    else if k == "button" or k == "section"
-      id = h.Id
-    else if k == "input"
-      cursor = "text"
-    end
+defn hoverDesk(h, ui)
+  (** What the mouse is over in a widget of a desktop tool, h in its box: {Id, Part, Cursor}, the box it lights and its
+      part (a tab, a row of a tree), and the cursor, as a split's handle that a press drags. *)
+  b = ui.Boxes[h.Id]
+  k = b.Node.Kind
+  if k == "split" and onHandle(h, b)
+    return {Id: h.Id, Part: missing, Cursor: "col-resize" if b.Cache.Row else "row-resize"}
+  else if k == "tabs"
+    part = tabAt(h.X, h.Y, b)
+    return {Id: if value.IsSome(part) h.Id else 0 end, Part: part, Cursor: "default"}
+  else if k == "tree"
+    return {Id: h.Id, Part: rowAt(h.Y, b), Cursor: "default"}
   end
-  u = ui
-  u.Cursor = cursor
-  if id == u.Hover and same(part, u.HoverPart)
-    return u
+  {Id: 0, Part: missing, Cursor: "default"}
+end
+
+defn wheelDesk(id, by, ui)
+  (** The wheel over the box id scrolls the nearest panel above it that has more than it shows, by pixels: whether
+      one did. *)
+  s = scrollAbove(id, ui)
+  if s == 0
+    return false
   end
-  was = u.Hover
-  u.Hover = id
-  u.HoverPart = part
-  if was != 0 and was in u.Boxes
-    u = touch(was, u)
-  end
-  if id != 0
-    u = touch(id, u)
-  end
-  u
+  n = ui.Boxes[s].Node
+  c = ui.Boxes[s].Cache
+  Set(n.Offset, list.Max(0, list.Min(c.Most, Get(n.Offset) + by)))
+  true
+end
+
+defn keyDesk(e, ui)
+  (** A key for the widget of a desktop tool in focus: a tree's, tabs', or PgUp and PgDn on a button or a section,
+      which scroll its panel. *)
+  k = ui.Boxes[ui.Focus].Node.Kind
+  if k == "tree" treeKey(e, ui) else if k == "tabs" tabsKey(e, ui) else paneKey(e, ui) end
 end
 
 defn dockDown(h, e, ui)
@@ -716,6 +736,9 @@ defn dropAt(x, y, src, u)
   {Area: u.Boxes[t].Node.Area, X: q.X, Y: q.Y, W: u.Boxes[t].W, H: u.Boxes[t].H}
 end
 
+(* The area where a dragged tab would go, over the page; none while no tab is dragged. *)
+dropped(ui) = if value.IsMissing(ui.Drop) [] else ui.Kit.Drop(ui) end
+
 defn dropItems(ui)
   (** The area where a dragged tab would go, lit over the page. *)
   d = ui.Drop
@@ -816,6 +839,176 @@ defn tabsKey(e, ui)
   end
   Set(n.Chosen, j)
   keepDock(n.Dock, ui)
+end
+
+(* ---- The semantics tree and its patch *)
+
+defn semDesk(b, x, y, ui, inner)
+  (** The semantic nodes of a tree, tabs, a section or a toolbar, at x, y, inner those of its children. *)
+  k = b.Node.Kind
+  if k == "tree"
+    [treeSem(b, x, y, ui)]
+  else if k == "tabs"
+    tabsSem(b, x, y, ui, inner)
+  else if k == "section"
+    one = node("button", b.Cache.Text, b, x, y, ui)
+    one.Expanded = b.Cache.Open
+    [one]
+  else
+    [node("toolbar", "", b, x, y, ui, kids = inner)]
+  end
+end
+
+defn treeSem(b, x, y, ui)
+  (** The semantics of a tree: a node of each row in sight, with its level, whether it is open and whether chosen. *)
+  c = b.Cache
+  rows = []
+  for k in 1..value.Len(c.Rows)
+    r = c.Rows[k]
+    one = {Id: "$(b.Id)t$k", Role: "treeitem", Name: shown(r.Item.Label), Value: if value.IsMissing(r.Item.Count) missing else shown(r.Item.Count) end,
+      X: x, Y: y + (k - 1) * c.Row, W: b.W, H: c.Row, Focused: false, Kids: [], Level: r.Level, Selected: r.Item.Key == c.Chosen}
+    if r.Kids
+      one.Expanded = r.Open
+    end
+    rows = list.Append(one, rows)
+  end
+  node("tree", b.Node.Label, b, x, y, ui, kids = rows)
+end
+
+defn tabsSem(b, x, y, ui, inner)
+  (** The semantics of tabs: the list of the tabs, each a tab, the chosen one selected, then the chosen panel. *)
+  c = b.Cache
+  tabs = [{Id: "$(b.Id)l$k", Role: "tab", Name: c.Titles[k], Value: missing, X: x + c.Spans[k][1], Y: y, W: c.Spans[k][2], H: c.Tab, Focused: false, Kids: [],
+    Selected: k == c.Chosen} for k in 1..value.Len(c.Titles)]
+  strip = {Id: "$(b.Id)l", Role: "tablist", Name: b.Node.Label, Value: missing, X: x, Y: y, W: b.W, H: c.Tab, Focused: ui.Focus == b.Id, Kids: tabs}
+  panel = {Id: b.Id, Role: "tabpanel", Name: if value.IsEmpty(c.Titles) "" else c.Titles[c.Chosen] end, Value: missing, X: x, Y: y + c.Tab, W: b.W,
+    H: b.H - c.Tab, Focused: false, Kids: inner}
+  [strip, panel]
+end
+
+defn patchDesk(id, at, since, ui)
+  (** The patch of a tree, tabs, a section or a toolbar, as semWalk makes the others': at is [rx, ry, x, y], its place
+      from the nearest node above it that has a width and in the window. *)
+  b = ui.Boxes[id]
+  x = at[3]
+  y = at[4]
+  ax = x - at[1]
+  ay = y - at[2]
+  ex = at[1] if b.W > 0 else x
+  ey = at[2] if b.W > 0 else y
+  f = ui.Focus == id
+  k = b.Node.Kind
+  if k == "tree"
+    return treePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
+  else if k == "tabs"
+    return tabsPatch(id, b, ex, ey, x, y, f, ax, ay, at, since, ui)
+  end
+  old = b.Sem
+  had = value.IsSome(old)
+  was = if had old.Node else missing end
+  loose = b.W <= 0
+  if k == "section"
+    e = json.Text([id, "button", b.Cache.Text, missing, ex, ey, b.W, b.H, f, {Expanded: b.Cache.Open}])
+    sent(e, was)
+    return kept(id, at, loose, [id], e, ui)
+  end
+  e = json.Text([id, "toolbar", "", missing, ex, ey, b.W, b.H, f, missing])
+  sent(e, was)
+  nax = x if b.W > 0 else ax
+  nay = y if b.W > 0 else ay
+  u = ui
+  sids = []
+  for c in b.Kids
+    u = semWalk(c, nax, nay, x, y, since, u)
+    sids = list.Concat(sids, u.Boxes[c].Sem.Sids)
+    loose = loose or u.Boxes[c].Sem.Loose
+  end
+  ks = json.Text([id, sids])
+  if not had or ks != old.Kids
+    fiber.Send(ks, semKids)
+  end
+  kept(id, at, loose, [id], e, u, kids = ks)
+end
+
+defn treePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
+  (** The patch of a tree: its node and the rows that are new or changed, each a treeitem with its level, whether it
+      is open and whether it is chosen. *)
+  c = b.Cache
+  n = b.Node
+  old = b.Sem
+  had = value.IsSome(old)
+  e = json.Text([id, "tree", n.Label, missing, ex, ey, b.W, b.H, f, missing])
+  sent(e, if had old.Node else missing end)
+  nax = x if b.W > 0 else ax
+  nay = y if b.W > 0 else ay
+  before = if had old.Rows else dict.Dict() end
+  rows = dict.Dict()
+  ids = []
+  for k in 1..value.Len(c.Rows)
+    r = c.Rows[k]
+    rid = "$(id)t$k"
+    more = {Level: r.Level, Selected: r.Item.Key == c.Chosen}
+    if r.Kids
+      more.Expanded = r.Open
+    end
+    re = json.Text([rid, "treeitem", shown(r.Item.Label), if value.IsMissing(r.Item.Count) missing else shown(r.Item.Count) end,
+      x - nax, y + (k - 1) * c.Row - nay, b.W, c.Row, false, more])
+    w = dict.Get(rid, before)
+    sent(re, if value.IsSome(w) w else missing end)
+    rows[rid] = re
+    ids = list.Append(rid, ids)
+  end
+  ks = json.Text([id, ids])
+  if not had or ks != old.Kids
+    fiber.Send(ks, semKids)
+  end
+  kept(id, at, b.W <= 0, [id], e, ui, kids = ks, rows = rows)
+end
+
+defn tabsPatch(id, b, ex, ey, x, y, f, ax, ay, at, since, ui)
+  (** The patch of tabs: the list of the tabs, each tab with whether it is chosen, and the panel of the chosen one,
+      whose own nodes are those of its body. *)
+  c = b.Cache
+  n = b.Node
+  old = b.Sem
+  had = value.IsSome(old)
+  lid = "$(id)l"
+  strip = json.Text([lid, "tablist", n.Label, missing, ex, ey, b.W, c.Tab, f, missing])
+  sent(strip, if had old.Head else missing end)
+  before = if had old.Rows else dict.Dict() end
+  tabs = dict.Dict()
+  ids = []
+  for k in 1..value.Len(c.Titles)
+    tid = "$(lid)$k"
+    te = json.Text([tid, "tab", c.Titles[k], missing, c.Spans[k][1], 0, c.Spans[k][2], c.Tab, false, {Selected: k == c.Chosen}])
+    w = dict.Get(tid, before)
+    sent(te, if value.IsSome(w) w else missing end)
+    tabs[tid] = te
+    ids = list.Append(tid, ids)
+  end
+  lk = json.Text([lid, ids])
+  if not had or lk != old.Rows2
+    fiber.Send(lk, semKids)
+  end
+  title = if value.IsEmpty(c.Titles) "" else c.Titles[c.Chosen] end
+  e = json.Text([id, "tabpanel", title, missing, ex, ey + c.Tab, b.W, b.H - c.Tab, false, missing])
+  sent(e, if had old.Node else missing end)
+  nax = x if b.W > 0 else ax
+  nay = y + c.Tab if b.W > 0 else ay
+  u = ui
+  sids = []
+  loose = b.W <= 0
+  for k in b.Kids
+    u = semWalk(k, nax, nay, x, y, since, u)
+    sids = list.Concat(sids, u.Boxes[k].Sem.Sids)
+    loose = loose or u.Boxes[k].Sem.Loose
+  end
+  ks = json.Text([id, sids])
+  if not had or ks != old.Kids
+    fiber.Send(ks, semKids)
+  end
+  u.Boxes[id].Sem = {Rx: at[1], Ry: at[2], Ax: at[3], Ay: at[4], Loose: loose, Sids: [lid, id], Node: e, Kids: ks, Rows: tabs, Head: strip, Rows2: lk}
+  u
 end
 
 (* ---- The layout that a dock keeps *)

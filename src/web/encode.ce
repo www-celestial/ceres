@@ -102,7 +102,7 @@ defn Encoded(ui)
     y = math.Div((seen - bar) * u.ScrollY, root.H - seen)
     rest = [rect(u.Width - 6, y, 4, bar, t.Muted)]
   end
-  tail = encoded(list.Concat(list.Concat(list.Concat(rest, popupItems(u)), dropItems(u)), bandItems(u)), 0, seq = true)
+  tail = encoded(list.Concat(list.Concat(list.Concat(rest, popupItems(u)), dropped(u)), bandItems(u)), 0, seq = true)
   nums = text.Str(text.Join("", head.Chunks), text.FromNumbers("f32", [6, 0, -u.ScrollY, root.W, root.H, 0]), c.Nums,
     text.FromNumbers("f32", [7]), text.Join("", tail.Chunks))
   words = text.Str(text.Join("", head.Texts), c.Texts, text.Join("", tail.Texts))

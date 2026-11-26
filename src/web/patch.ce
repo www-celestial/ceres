@@ -105,31 +105,8 @@ defn semWalk(id, ax, ay, x0, y0, since, ui)
     return kept(id, at, loose, [id], e, ui)
   else if k == "table"
     return tablePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
-  else if k == "tree"
-    return treePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
-  else if k == "tabs"
-    return tabsPatch(id, b, ex, ey, x, y, f, ax, ay, at, since, ui)
-  else if k == "section"
-    e = json.Text([id, "button", b.Cache.Text, missing, ex, ey, b.W, b.H, f, {Expanded: b.Cache.Open}])
-    sent(e, was)
-    return kept(id, at, loose, [id], e, ui)
-  else if k == "toolbar"
-    e = json.Text([id, "toolbar", "", missing, ex, ey, b.W, b.H, f, missing])
-    sent(e, was)
-    nax = x if b.W > 0 else ax
-    nay = y if b.W > 0 else ay
-    u = ui
-    sids = []
-    for c in b.Kids
-      u = semWalk(c, nax, nay, x, y, since, u)
-      sids = list.Concat(sids, u.Boxes[c].Sem.Sids)
-      loose = loose or u.Boxes[c].Sem.Loose
-    end
-    ks = json.Text([id, sids])
-    if not had or ks != old.Kids
-      fiber.Send(ks, semKids)
-    end
-    return kept(id, at, loose, [id], e, u, kids = ks)
+  else if k == "tree" or k == "tabs" or k == "section" or k == "toolbar"
+    return ui.Kit.Patch(id, at, since, ui)
   else if k == "each"
     e = json.Text([id, "list", "", missing, ex, ey, b.W, b.H, f, missing])
     sent(e, was)
@@ -167,87 +144,6 @@ defn semWalk(id, ax, ay, x0, y0, since, ui)
     loose = loose or s.Loose
   end
   kept(id, at, loose, sids, missing, u)
-end
-
-defn treePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
-  (** The patch of a tree: its node and the rows that are new or changed, each a treeitem with its level, whether it
-      is open and whether it is chosen. *)
-  c = b.Cache
-  n = b.Node
-  old = b.Sem
-  had = value.IsSome(old)
-  e = json.Text([id, "tree", n.Label, missing, ex, ey, b.W, b.H, f, missing])
-  sent(e, if had old.Node else missing end)
-  nax = x if b.W > 0 else ax
-  nay = y if b.W > 0 else ay
-  before = if had old.Rows else dict.Dict() end
-  rows = dict.Dict()
-  ids = []
-  for k in 1..value.Len(c.Rows)
-    r = c.Rows[k]
-    rid = "$(id)t$k"
-    more = {Level: r.Level, Selected: r.Item.Key == c.Chosen}
-    if r.Kids
-      more.Expanded = r.Open
-    end
-    re = json.Text([rid, "treeitem", shown(r.Item.Label), if value.IsMissing(r.Item.Count) missing else shown(r.Item.Count) end,
-      x - nax, y + (k - 1) * c.Row - nay, b.W, c.Row, false, more])
-    w = dict.Get(rid, before)
-    sent(re, if value.IsSome(w) w else missing end)
-    rows[rid] = re
-    ids = list.Append(rid, ids)
-  end
-  ks = json.Text([id, ids])
-  if not had or ks != old.Kids
-    fiber.Send(ks, semKids)
-  end
-  kept(id, at, b.W <= 0, [id], e, ui, kids = ks, rows = rows)
-end
-
-defn tabsPatch(id, b, ex, ey, x, y, f, ax, ay, at, since, ui)
-  (** The patch of tabs: the list of the tabs, each tab with whether it is chosen, and the panel of the chosen one,
-      whose own nodes are those of its body. *)
-  c = b.Cache
-  n = b.Node
-  old = b.Sem
-  had = value.IsSome(old)
-  lid = "$(id)l"
-  strip = json.Text([lid, "tablist", n.Label, missing, ex, ey, b.W, c.Tab, f, missing])
-  sent(strip, if had old.Head else missing end)
-  before = if had old.Rows else dict.Dict() end
-  tabs = dict.Dict()
-  ids = []
-  for k in 1..value.Len(c.Titles)
-    tid = "$(lid)$k"
-    te = json.Text([tid, "tab", c.Titles[k], missing, c.Spans[k][1], 0, c.Spans[k][2], c.Tab, false, {Selected: k == c.Chosen}])
-    w = dict.Get(tid, before)
-    sent(te, if value.IsSome(w) w else missing end)
-    tabs[tid] = te
-    ids = list.Append(tid, ids)
-  end
-  lk = json.Text([lid, ids])
-  if not had or lk != old.Rows2
-    fiber.Send(lk, semKids)
-  end
-  title = if value.IsEmpty(c.Titles) "" else c.Titles[c.Chosen] end
-  e = json.Text([id, "tabpanel", title, missing, ex, ey + c.Tab, b.W, b.H - c.Tab, false, missing])
-  sent(e, if had old.Node else missing end)
-  nax = x if b.W > 0 else ax
-  nay = y + c.Tab if b.W > 0 else ay
-  u = ui
-  sids = []
-  loose = b.W <= 0
-  for k in b.Kids
-    u = semWalk(k, nax, nay, x, y, since, u)
-    sids = list.Concat(sids, u.Boxes[k].Sem.Sids)
-    loose = loose or u.Boxes[k].Sem.Loose
-  end
-  ks = json.Text([id, sids])
-  if not had or ks != old.Kids
-    fiber.Send(ks, semKids)
-  end
-  u.Boxes[id].Sem = {Rx: at[1], Ry: at[2], Ax: at[3], Ay: at[4], Loose: loose, Sids: [lid, id], Node: e, Kids: ks, Rows: tabs, Head: strip, Rows2: lk}
-  u
 end
 
 defn tablePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
