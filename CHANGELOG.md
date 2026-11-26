@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### When the connection drops
+
+- A page carries on through a break of its connection, without a reload: it comes back by itself (full jitter from
+  `ReconnectFirst` to `ReconnectMax`, at once on the browser's `online` and a tab shown again, a heartbeat that sees a
+  silent network, `PingEvery` and `DeadAfter`), to the screen its app kept (every change of the break once) or to a
+  new one whose answers replace the rows. std/live's protocol, version 2: `{Hello: 2}`, the token, `Seq`, `Got`,
+  `Heard`, `Bye`; an app of version 1 is still spoken to.
+- `web.Act` keeps an action asked while the page is away, in order, with its key, and sends it once the page is back;
+  bounded (`OutboxCount`, `OutboxBytes`, `OutboxWait`); never sent under another account; `base`, `mine` and `read`.
+  It used to refuse an action asked after a break, and to fail the actions in flight.
+- `web.Connection`, the line that says the state of the connection; `web.Conflicts`, the actions refused because what
+  they change changed meanwhile, with Keep mine and Take theirs (`web.Resolve`); `web.Again`; `screen.Status` and
+  `screen.Conflicts`; `web.Connect`'s `net` and `settings`; `web.Start`'s `net`; `ceres.js`'s `Start(events, form,
+  net)` passes the browser's `online`, `offline` and a tab shown again.
+
 ### Speed
 
 - A frame of a page in a browser costs what changed in it. Measured on a table of 100,000 rows kept in the page

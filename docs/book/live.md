@@ -13,9 +13,20 @@ the browser's ([Ceres in a web page](web.md)).
 
 - `web.Live(name, p)`: the rows of the show `name`, a signal kept up to date as the server pushes its changes, the
   answer of a `cepheus.Watch` for instance. An empty list until the first answer.
-- `web.Act(name, args, p)`: asks the server for the action `name`. It gives a signal of the reply: `missing` until it
-  comes, then the `Ok` of what the action gave, or its `Err`. An action asked before the screen first connected, as a
-  page asks what it shows when it opens, waits for the connection; one asked after a break gets an `Err` at once.
+- `web.Act(name, args, p, base, mine, read)`: asks the server for the action `name`. It gives a signal of the reply:
+  `missing` until it comes, then the `Ok` of what the action gave, or its `Err`. An action asked while the page is away
+  from its app (before the screen first connected, during a break) waits, in order, with the key it got when it was
+  asked, and goes once the page is back: the app runs it once. `base`, the values the page saw of what the action
+  changes, lets the app refuse it when they changed meanwhile: an `Err` of the kind `conflict`, which `web.Conflicts`
+  shows; `mine`, the values it writes when `args` doesn't hold them as fields; `read`, true for an action that only
+  reads, which the line of the connection doesn't count among the changes waiting.
+- `web.Connection(p, say)`: the line that tells the state of the page's connection: *Live*, *Offline — 2 actions
+  waiting · next try in 4 s* with **Try now**, *Live — back after a break, nothing missed* (or *data reloaded*),
+  *Signed out — sign in again, 2 actions kept*. `say` gives each text in the page's language.
+- `web.Conflicts(p, say)`: the actions the app refused because what they change changed meanwhile, each field's value
+  seen, value now and the page's own, with **Keep mine** (sent again over the value now) and **Take theirs**.
+- `web.Again(screen)`: tries at once; after a sign-in that follows the end of the screen (a 401), the page comes back
+  with the actions it kept.
 - `web.Pages(name, p)`: the rows of a big table, which the server gives a window at a time, through the action `name`.
 
 ```cesia norun
@@ -33,8 +44,14 @@ end
 ```
 
 A back-end opens the screen at the app's origin: `sdl.Run(app, origin = "http://127.0.0.1:8090")` in a window,
-`headless.Open(app, origin = ...)` in a test. The screen comes back by itself after a break, from 0.25 to 8 seconds
-later with jitter, as `live.js` does; the shows then get their whole answer again.
+`headless.Open(app, origin = ...)` in a test. The screen comes back by itself after a break, as `live.js` does: after a
+wait drawn at random under a bound that doubles from `ReconnectFirst` (500 ms) to `ReconnectMax` (30 s), *full jitter*;
+at once when the browser says it is online again or the tab is shown again (`Connect`'s `net`, which the browser's
+back-end fills); and a silent network (no frame for `DeadAfter` seconds, a ping every `PingEvery`) is a break too. It
+comes back to the screen the app kept, and gets every change of the break once; else to a new screen, whose answers
+replace the rows. Its state is the signal `screen.Status`, `{State, Waiting, Retry, Last, Offline, Error}`, which
+`web.Connection` shows. The settings come from the app with the screen, and `Connect(url, settings = {...})` sets the
+page's own.
 
 ## The server: live.Route and serve.Pages
 
@@ -64,11 +81,19 @@ the action with its reply.
 
 ## What the protocol carries
 
-The page says `{Hello: 1}` once connected. The server's frames are JSON lists of messages: `{Show, Group, Rows}`, the
-whole answer of a show at a group, a number that grows with each change; `{Show, Group, Added, Removed}`, the rows that
-came and went; `{Ack, Ok}` or `{Ack, Err}`, the reply to the action `{Act, Id, Args}` of the same Id; `{Error}`, which
-ends the screen. Rows are kept as `live.js` keeps them, a count for each distinct row, so a row removed once goes once.
+The page says `{Hello: 2}` once connected, or `{Hello: 2, Token, Got}` to come back to the screen it had after the
+frame `Got`. The server's first frame, `[{Token, Resumed, Heard, Who, Client}]`, says whether the screen is the one
+the page had and the last action it heard; its other frames are JSON lists of messages, numbered by a first `{Seq}`
+and confirmed by the page's `{Got}`: `{Show, Group, Rows}`, the whole answer of a show at a group, a number that grows
+with each change; `{Show, Group, Added, Removed}`, the rows that came and went; `{Ack, Ok}` or `{Ack, Err}`, the reply
+to the action `{Act, Id, Args, Key, Base, Who}` of the same Id; `{Error}`, which ends the screen. The page says
+`{Bye: 1}` as it goes away. Rows are kept as `live.js` keeps them, a count for each distinct row, so a row removed once
+goes once. An app of the version before closes a hello 2 at once, saying nothing: after two such, the page speaks
+version 1 to it. Cesia's book has the whole wire: [When the connection drops](https://github.com/www-celestial/cesia-lang/blob/main/docs/book/http.md#when-the-connection-drops).
 
 What `std/live` doesn't have yet, and Ceres works around until it does: `live.Pages` (a live window of a sorted
-question, design §6), here an action that gives a window when asked, not kept up to date; `Hello: 2` and the resumption
-from a group; the bounds of a screen.
+question, design §6), here an action that gives a window when asked, not kept up to date.
+
+`tests/drop.test.ce` cuts the network between such a page and its app (a proxy of `std/net`): offline, an action kept
+and run once, nothing missed; an app that forgot its screens; a silent network; the outbox bounded; a conflict and its
+choices.
