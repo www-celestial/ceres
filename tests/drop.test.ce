@@ -192,3 +192,40 @@ defn stalled(from, to, stall)
   net.Close(to)
   net.Close(from)
 end
+
+defn asking(p)
+  (** A page that asks the app something as it is made, as the admin's pages ask their lists, and shows the line. *)
+  reply = web.Act("pay", {Id: 9}, p)
+  web.Stack([web.Connection(p), () -> web.Text("asked: $(if value.IsMissing(web.Get(reply)) "…" else "done" end)")])
+end
+
+defn isActionOfAPageBeingMadeAskedOnce()
+  (** An action asked while a page is made doesn't make the page follow the screen's state: the page is made once, the
+      action asked once, whatever the line of the connection says meanwhile. *)
+  changes = fiber.Channel()
+  ran = cellOf(dict.Dict())
+  n = network(app(changes, ran))
+  fiber.Send({Group: 1, Rows: []}, changes)
+  p = headless.Open(web.App([web.Route("/", asking)], live = "/live"), origin = n.Address)
+  p = headless.Settle(p, until = q -> has("asked: done", q))
+  p = headless.Settle(p, timeout = 1)
+  dict.GetOr(9, 0, peek(ran)) == 1 and has("Live", p)
+end
+
+defn isOutboxBounded()
+  (** Past OutboxCount actions waiting, the next is refused at once, never kept: a page can't fill its memory while
+      away, whatever it asks. *)
+  changes = fiber.Channel()
+  ran = cellOf(dict.Dict())
+  n = network(app(changes, ran))
+  fiber.Send({Group: 1, Rows: []}, changes)
+  s = web.Connect(text.Replace("http", "ws", "$(n.Address)/live"), settings = {OutboxCount: 3})
+  p = {Screen: s}
+  n.Cut()
+  replies = [web.Act("pay", {Id: k}, p) for k in 1..5]
+  ui = headless.Open(web.App([web.Route("/", q -> web.Connection(p))]))
+  sys.Sleep(0.3)
+  web.Close(s)
+  last = web.Get(replies[5])
+  value.IsSome(last) and result.IsErr(last) and text.Contains("Too many actions wait", last.Error.Message) and value.IsMissing(web.Get(replies[3]))
+end

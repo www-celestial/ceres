@@ -212,7 +212,7 @@ end
 defn Again(screen)
   (** Tries to connect now: after a sign-in that follows the end of the screen (its session gone), the page comes back
       as a new screen with its actions; while down, the next try is now. *)
-  if value.IsSome(Get(screen.Error))
+  if value.IsSome(untracked(screen.Error))
     Set(screen.Error, missing)
     st = peek(screen.State)
     st.State = "connecting"
@@ -267,8 +267,8 @@ defn actThen(name, args, screen, reply, base = missing)
     reply({Err: {Kind: "live", Message: "This page is not connected to its app."}})
     return missing
   end
-  if st.State == "ended" and value.IsSome(Get(screen.Error)) and dict.Get("Status", Get(screen.Error)) != 401
-    reply({Err: Get(screen.Error)})
+  if st.State == "ended" and value.IsSome(untracked(screen.Error)) and dict.Get("Status", untracked(screen.Error)) != 401
+    reply({Err: untracked(screen.Error)})
     return missing
   end
   box = peek(screen.Outbox)
@@ -321,7 +321,7 @@ defn answered(id, m, screen)
     mine = list.First([x for x in box if x.Id == id])
     put([x for x in box if x.Id != id], screen.Outbox)
     if "Err" in m and value.IsDict(m.Err) and dict.Get("Kind", m.Err) == "conflict" and value.IsSome(mine)
-      Set(screen.Conflicts, list.Append({Id: id, Name: mine.Name, Args: mine.Args, Base: mine.Base, Error: m.Err, Reply: f}, Get(screen.Conflicts)))
+      Set(screen.Conflicts, list.Append({Id: id, Name: mine.Name, Args: mine.Args, Base: mine.Base, Error: m.Err, Reply: f}, untracked(screen.Conflicts)))
     end
     f(m)
     status(screen)
@@ -331,7 +331,7 @@ end
 defn Resolve(c, mine, screen)
   (** A conflict settled: mine true sends the action again over the values now (Keep mine), false drops it (Take
       theirs); its reply then comes to what waited for the first. *)
-  Set(screen.Conflicts, [x for x in Get(screen.Conflicts) if x.Id != c.Id])
+  Set(screen.Conflicts, [x for x in untracked(screen.Conflicts) if x.Id != c.Id])
   if mine
     now = {}
     for f in dict.GetOr("Conflict", [], c.Error)
@@ -379,12 +379,16 @@ defn heard(m, screen)
   end
 end
 
+(* The value of a signal read by the screen's own work, not by a live part: no part follows it for that. An action
+   asked while a page is made must not make that page follow the screen's state, or each action would make it again. *)
+untracked(s) = peek(s.Cell).Value
+
 defn status(screen)
   (** The Status signal set from the state of the connection and the outbox, when it changed. *)
   st = peek(screen.State)
   box = peek(screen.Outbox)
-  v = {State: st.State, Waiting: value.Len(box), Retry: st.Retry, Last: st.Last, At: st.At, Offline: st.Offline, Error: Get(screen.Error)}
-  if not value.Equal(v, Get(screen.Status))
+  v = {State: st.State, Waiting: value.Len(box), Retry: st.Retry, Last: st.Last, At: st.At, Offline: st.Offline, Error: untracked(screen.Error)}
+  if not value.Equal(v, untracked(screen.Status))
     Set(screen.Status, v)
   end
 end
@@ -452,7 +456,7 @@ defn pump(screen)
     else if e.Kind == "wait"
       if st.State != "ended"
         st.State = "down"
-        st.Retry = math.Round(list.Max([0, e.Until - sys.Now()]))
+        st.Retry = math.Div(math.Round(list.Max([0, e.Until - sys.Now()])), 1)
         put(st, screen.State)
       end
     else
