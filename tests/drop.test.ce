@@ -1,0 +1,194 @@
+(* When the connection drops: a page live from an app of std/live, through a network that the test cuts and gives back
+   (a proxy of std/net between them). The page says it is offline, keeps the actions asked meanwhile, comes back by
+   itself to the screen the app kept, with every change made meanwhile once, and each action runs once; an app that
+   restarted gives a new screen, whose answers replace the rows. *)
+use src/web
+use src/headless
+use std/dict
+use std/fiber
+use std/http
+use std/json
+use std/list
+use std/live
+use std/net
+use std/result
+use std/sys
+use std/text
+use std/value
+
+has(words, p) = text.Contains(words, headless.Tree(p))   (* Does the page show these words? *)
+
+defn cellOf(v)
+  (** A cell of the test: a channel that holds one value. *)
+  c = fiber.Channel(size = 1)
+  fiber.Send(v, c)
+  c
+end
+
+defn peek(c)
+  v = fiber.Receive(c).Value
+  fiber.Send(v, c)
+  v
+end
+
+defn put(v, c)
+  _ = fiber.Receive(c)
+  fiber.Send(v, c)
+end
+
+defn network(target)
+  (** A network between the page and its app: {Address, Cut, Back}. Cut() closes every connection and refuses the
+      next ones until Back(). *)
+  l = net.Listen(0).Value
+  state = cellOf({Down: false, Open: []})
+  fiber.Spawn(defn ()
+    while true
+      page = net.Accept(l)
+      if result.IsOk(page)
+        if peek(state).Down
+          net.Close(page.Value)
+        else
+          app = net.Connect("127.0.0.1", target)
+          if result.IsOk(app)
+            s = peek(state)
+            s.Open = list.Append([page.Value, app.Value], s.Open)
+            put(s, state)
+            fiber.Spawn(() -> pipe(page.Value, app.Value))
+            fiber.Spawn(() -> pipe(app.Value, page.Value))
+          end
+        end
+      end
+    end
+  end)
+  cut = defn ()
+    s = peek(state)
+    for pair in s.Open
+      net.Close(pair[1])
+      net.Close(pair[2])
+    end
+    put({Down: true, Open: []}, state)
+  end
+  back = defn ()
+    s = peek(state)
+    s.Down = false
+    put(s, state)
+  end
+  {Address: "http://127.0.0.1:$(net.Port(l))", Cut: cut, Back: back}
+end
+
+defn pipe(from, to)
+  got = net.Read(from)
+  while result.IsOk(got) and got.Value != ""
+    break if result.IsErr(net.Write(to, got.Value))
+    got = net.Read(from)
+  end
+  net.Close(to)
+  net.Close(from)
+end
+
+defn app(changes, ran, resume = 120)
+  (** An app of std/live on a free port: the show unpaid, and the action pay, which counts its runs by invoice. *)
+  l = net.Listen(0).Value
+  pay = defn (s, args)
+    d = fiber.Receive(ran).Value
+    d[args.Id] = dict.GetOr(args.Id, 0, d) + 1
+    fiber.Send(d, ran)
+    {Paid: args.Id, Key: s.Key}
+  end
+  fiber.Spawn(() -> http.Serve(http.App() then live.Route("/live", s -> [live.Show("unpaid", changes)], actions = {pay: pay}, resume = resume,
+    client = {PingEvery: 1, DeadAfter: 3, ReconnectFirst: 100, ReconnectMax: 400}), listener = l))
+  net.Port(l)
+end
+
+defn page(p)
+  unpaid = web.Live("unpaid", p)
+  reply = web.Signal(missing)
+  web.Stack([
+    web.Connection(p),
+    web.Each(unpaid, i -> i.Id, i -> web.Row([web.Text(i.Number)])),
+    web.Button("Pay F-2", () -> web.Set(reply, web.Act("pay", {Id: 2}, p))),
+    () -> web.Text("reply: $(if web.IsSignal(web.Get(reply)) json.Text(web.Get(web.Get(reply))) else "none" end)"),
+  ])
+end
+
+defn isActionKeptWhileOfflineAndRunOnce()
+  (** The network drops: the page says so, a payment asked then waits; changes made meanwhile come once the network is
+      back, on the screen the app kept (nothing missed), and the payment runs once. *)
+  changes = fiber.Channel()
+  ran = cellOf(dict.Dict())
+  n = network(app(changes, ran))
+  fiber.Send({Group: 1, Rows: [{Id: 1, Number: "F-1"}, {Id: 2, Number: "F-2"}]}, changes)
+  p = headless.Open(web.App([web.Route("/", page)], live = "/live"), origin = n.Address)
+  p = headless.Settle(p, until = q -> has("F-2", q) and has("Live", q))
+  n.Cut()
+  p = headless.Settle(p, until = q -> has("Offline", q))
+  offline = has("Offline", p)
+  p = headless.ClickOn("Pay F-2", p)
+  p = headless.Settle(p, until = q -> has("1 action waiting", q))
+  waiting = has("1 action waiting", p)
+  fiber.Send({Group: 2, Added: [{Id: 3, Number: "F-3"}], Removed: []}, changes)
+  n.Back()
+  p = headless.Settle(p, until = q -> has("Paid", q) and has("F-3", q), timeout = 10)
+  d = peek(ran)
+  list.All([offline, waiting, has("F-3", p), has("Paid", p), has("back after a break, nothing missed", p), dict.GetOr(2, 0, d) == 1])
+end
+
+defn isReloadedAfterTheAppForgot()
+  (** An app that keeps no screen through a break (as one that restarted): the page comes back to a new screen, whose
+      answer replaces its rows, and says its data was reloaded; the payment asked offline runs once there. *)
+  changes = fiber.Channel()
+  ran = cellOf(dict.Dict())
+  n = network(app(changes, ran, resume = 0))
+  fiber.Send({Group: 1, Rows: [{Id: 1, Number: "F-1"}, {Id: 2, Number: "F-2"}]}, changes)
+  p = headless.Open(web.App([web.Route("/", page)], live = "/live"), origin = n.Address)
+  p = headless.Settle(p, until = q -> has("F-2", q) and has("Live", q))
+  n.Cut()
+  p = headless.Settle(p, until = q -> has("Offline", q))
+  p = headless.ClickOn("Pay F-2", p)
+  fiber.Send({Group: 2, Rows: [{Id: 2, Number: "F-2"}, {Id: 4, Number: "F-4"}]}, changes)
+  n.Back()
+  p = headless.Settle(p, until = q -> has("Paid", q) and has("F-4", q), timeout = 10)
+  d = peek(ran)
+  list.All([has("F-4", p), not has("F-1", p), has("Paid", p), has("data reloaded", p), dict.GetOr(2, 0, d) == 1])
+end
+
+defn isSilentNetworkSeen()
+  (** A network that stops carrying anything without closing (a router gone): no frame for DeadAfter seconds is a
+      break, the page says it is offline and comes back once the network does. *)
+  changes = fiber.Channel()
+  ran = cellOf(dict.Dict())
+  port = app(changes, ran)
+  l = net.Listen(0).Value
+  stall = cellOf(false)
+  fiber.Spawn(defn ()
+    while true
+      page = net.Accept(l).Value
+      a = net.Connect("127.0.0.1", port).Value
+      fiber.Spawn(() -> stalled(page, a, stall))
+      fiber.Spawn(() -> stalled(a, page, stall))
+    end
+  end)
+  fiber.Send({Group: 1, Rows: [{Id: 1, Number: "F-1"}]}, changes)
+  p = headless.Open(web.App([web.Route("/", page)], live = "/live"), origin = "http://127.0.0.1:$(net.Port(l))")
+  p = headless.Settle(p, until = q -> has("F-1", q) and has("Live", q))
+  put(true, stall)
+  at = sys.Now()
+  p = headless.Settle(p, until = q -> has("Offline", q), timeout = 10)
+  seen = sys.Now() - at
+  put(false, stall)
+  p = headless.Settle(p, until = q -> has("Live", q), timeout = 10)
+  has("Live", p) and seen >= 2 and seen < 6
+end
+
+defn stalled(from, to, stall)
+  (** Forwards bytes, or swallows them while stall holds true, the connections left open. *)
+  got = net.Read(from)
+  while result.IsOk(got) and got.Value != ""
+    if not peek(stall)
+      break if result.IsErr(net.Write(to, got.Value))
+    end
+    got = net.Read(from)
+  end
+  net.Close(to)
+  net.Close(from)
+end

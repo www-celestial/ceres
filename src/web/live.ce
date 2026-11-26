@@ -1,9 +1,13 @@
 (* The page's side of std/live, in Cesia: a screen of the app over a WebSocket, its shows as signals, its actions. The
-   same protocol as live.js: {Hello: 1} first, then the app's frames, each a JSON list of messages {Show, Group, Rows},
-   {Show, Group, Added, Removed}, {Ack, Ok} or {Ack, Err}, and {Error}. A fiber reads the connection and hands each frame
-   to the fiber of the page, which alone sets the signals, at its next update. *)
+   same protocol as live.js: {Hello: 2} first (its token and the last frame it has after a break), then the app's
+   frames, each a JSON list of messages {Show, Group, Rows}, {Show, Group, Added, Removed}, {Ack, Ok} or {Ack, Err}, and
+   {Error}, numbered by a first {Seq} and confirmed by {Got}; the app's first frame, {Token, Resumed, Heard, Who,
+   Client}, says whether the screen is the one the page had. A fiber holds the connection: it says hello, passes each
+   frame on to the fiber of the page, which alone sets the signals at its next update, pings, confirms, and comes back
+   after a break. The fiber of the page keeps the actions in order, each with its key, until their replies. *)
 use std/bug
 use std/dict
+use std/encode
 use std/fiber
 use std/json
 use std/list
@@ -11,18 +15,34 @@ use std/math
 use std/random
 use std/result
 use std/sys
+use std/text
 use std/value
 use std/websocket
 
-defn Connect(url, headers = [], wake = missing)
+(* What a page does about its connection, until the app's own settings come with its screen ({Client}). *)
+defaults = {Outbox: "on", OutboxCount: 100, OutboxBytes: 1048576, OutboxWait: 3600, ReconnectFirst: 500, ReconnectMax: 30000, PingEvery: 15, DeadAfter: 30}
+
+defn Connect(url, headers = [], wake = missing, net = missing, settings = {})
   (** Opens a screen of the app at url, a ws:// URL, as web.Start does with the app's live path: its shows and actions
-      for the page, a screen that comes back by itself, from 0.25 to 8 seconds after a break, with jitter, as live.js
-      does. headers go with each handshake, as the session's token of a native app. wake, a channel, gets "live" each
-      time the screen passes something on, for a back-end that waits on its own channel, as the browser's does. The
-      screen is {Up, Error, ...}: Up a signal, true while connected; Error a signal of the error that ended the screen,
-      or missing. *)
+      for the page, a screen that comes back by itself after a break, to the same screen while the app keeps it
+      (every frame missed, once), else to a new one whose answers replace the rows. The wait before each try is drawn
+      at random up to a bound that doubles at each failure (full jitter), from ReconnectFirst to ReconnectMax
+      milliseconds; no frame for DeadAfter seconds (a ping goes every PingEvery) is a break. headers go with each
+      handshake, as the session's token of a native app. wake, a channel, gets "live" each time the screen passes
+      something on, for a back-end that waits on its own channel, as the browser's does. net, a channel, gets the
+      browser's "online" and "offline", and "now" to try at once. settings are the page's own, over the app's.
+
+      The screen is {Up, Error, Status, Conflicts, ...}: Up a signal, true while connected; Error a signal of the error
+      that ended the screen, or missing; Status a signal of {State, Waiting, Retry, Last, At, Offline, Error}, State
+      "connecting", "up", "down" or "ended", Waiting the actions not answered yet, Retry the seconds before the next try
+      while down, Last "resumed" or "reloaded" after a break, at the time At; Conflicts a signal of the actions the app
+      refused as their thing changed meanwhile (web.Connection shows them). *)
   s = {Url: url, Inbox: fiber.Channel(), Stop: fiber.Channel(), Out: cell(missing), Shows: cell(dict.Dict()),
-    Acts: cell(dict.Dict()), Next: cell(1), Up: Signal(false), Error: Signal(missing), Wake: wake, Early: cell([]), Ever: cell(false)}
+    Acts: cell(dict.Dict()), Next: cell(1), Up: Signal(false), Error: Signal(missing), Wake: wake, Ever: cell(false),
+    Net: if value.IsMissing(net) fiber.Channel() else net end, Given: settings, Settings: cell(dict.Merge(defaults, settings)),
+    Outbox: cell([]), Who: cell(missing), State: cell({State: "connecting", Retry: missing, Last: missing, At: 0, Offline: false}),
+    Status: Signal({State: "connecting", Waiting: 0, Retry: missing, Last: missing, At: 0, Offline: false, Error: missing}),
+    Conflicts: Signal([])}
   fiber.Spawn(() -> dialing(s, headers))
   s
 end
@@ -33,25 +53,127 @@ defn stopped(s)
   result.IsErr(got) and got.Error.Kind == "closed"
 end
 
+defn seqOf(m)
+  (** The number of a frame that starts with {Seq}, or 0, read without parsing the frame. *)
+  if not text.StartsWith("[{\"Seq\":", m)
+    return 0
+  end
+  k = text.ByteFind("}", 1, m)
+  if value.IsMissing(k) 0 else text.Number(text.ByteSlice(9, k - 1, m)) end
+end
+
 defn dialing(s, headers)
-  (** The fiber of a screen: connects, says hello, passes on each frame, and connects again after a break. *)
-  wait = 0.25
+  (** The fiber of a screen: connects, says hello, passes on each frame, pings and confirms, and connects again after a
+      break, after a wait drawn at random (full jitter), or at once when the browser says it is online again. After an
+      {Error} it waits for Again. *)
+  token = missing
+  seq = 0
+  version = 2
+  bare = 0
+  halted = false
+  o = s.Given
+  first = dict.GetOr("ReconnectFirst", 500, o)
+  most = dict.GetOr("ReconnectMax", 30000, o)
+  bound = first
   while not stopped(s)
+    opened = sys.Now()
     got = websocket.Dial(s.Url, headers = headers)
+    framed = false
     if result.IsOk(got)
       conn = got.Value
-      _ = websocket.Send(json.Text({Hello: 1}), conn)
-      tell({Kind: "up", Conn: conn}, s)
-      wait = 0.25
+      hello = if version == 1 {Hello: 1} else if value.IsMissing(token) {Hello: 2} else {Hello: 2, Token: token, Got: seq} end
+      _ = websocket.Send(json.Text(hello), conn)
+      if version == 1
+        tell({Kind: "up", Conn: conn, Resumed: false, Heard: 0}, s)
+      end
+      last = sys.Now()
+      told = seq
+      ping = dict.GetOr("PingEvery", 15, o)
+      dead = dict.GetOr("DeadAfter", 30, o)
+      pinged = sys.Now()
       while true
-        m = fiber.Receive(conn.Messages)
-        break if result.IsErr(m)
-        tell({Kind: "frame", Text: m.Value}, s)
+        owing = seq > told
+        wait = list.Max([0, list.Min([pinged + ping - sys.Now(), if owing 1 else ping end])])
+        m = fiber.Select([conn.Messages, s.Net, s.Stop], timeout = wait)
+        if result.IsErr(m) and m.Error.Kind == "timeout"
+          break if sys.Now() - last > dead
+          if sys.Now() >= pinged + ping or owing
+            msg = if seq > 0 json.Text({Ping: sys.Now() * 1000, Got: seq}) else json.Text({Ping: sys.Now() * 1000}) end
+            break if result.IsErr(websocket.Send(msg, conn))
+            told = seq
+            pinged = sys.Now()
+          end
+        else if result.IsErr(m)
+          break
+        else if m.Value.Channel == s.Net
+          break if m.Value.Value == "offline"
+        else
+          t = m.Value.Value
+          last = sys.Now()
+          framed = true
+          if text.StartsWith("[{\"Token\":", t)
+            h = json.Parse(t)
+            if result.IsOk(h) and value.IsArray(h.Value) and value.IsDict(h.Value[1])
+              x = h.Value[1]
+              if x.Resumed != true
+                seq = 0
+                told = 0
+              end
+              token = x.Token
+              c = dict.GetOr("Client", {}, x)
+              o = dict.Merge(if value.IsDict(c) c else {} end, s.Given)
+              ping = dict.GetOr("PingEvery", 15, o)
+              dead = dict.GetOr("DeadAfter", 30, o)
+              first = dict.GetOr("ReconnectFirst", 500, o)
+              most = dict.GetOr("ReconnectMax", 30000, o)
+              bound = first
+              tell({Kind: "up", Conn: conn, Resumed: x.Resumed == true, Heard: dict.GetOr("Heard", 0, x), Who: dict.Get("Who", x), Client: o}, s)
+            end
+          else
+            if text.StartsWith("[{\"Error\":", t)
+              halted = true
+            end
+            n = seqOf(t)
+            if n == 0 or n > seq
+              if n > 0
+                seq = n
+              end
+              tell({Kind: "frame", Text: t}, s)
+            end
+          end
+        end
+      end
+      fiber.Spawn(() -> websocket.Close(conn))
+      if version == 2 and not framed and value.IsMissing(token) and sys.Now() - opened < 2
+        bare += 1
+        version = if bare >= 2 1 else 2 end   (* an app of the version before closes a hello 2 at once, saying nothing *)
       end
       tell({Kind: "down"}, s)
     end
-    sys.Sleep(wait * (0.5 + random.Float()))
-    wait = list.Min(wait * 2, 8)
+    break if stopped(s)
+    if halted
+      (* an {Error} ended the screen: it comes back only when the page asks (Again), as a new one *)
+      while true
+        n = fiber.Select([s.Net, s.Stop])
+        break if result.IsErr(n) or n.Value.Value == "now"
+      end
+      halted = false
+      token = missing
+      seq = 0
+      bound = first
+    else
+      until = sys.Now() + random.Float() * list.Min([most, bound]) / 1000
+      bound = list.Min([most, bound * 2])
+      while sys.Now() < until
+        tell({Kind: "wait", Until: until}, s)
+        n = fiber.Select([s.Net, s.Stop], timeout = list.Min([1, until - sys.Now()]))
+        if result.IsErr(n)
+          break if n.Error.Kind == "closed"
+        else if n.Value.Value == "online" or n.Value.Value == "now"
+          break
+        end
+      end
+    end
   end
 end
 
@@ -64,12 +186,29 @@ defn tell(e, s)
 end
 
 defn Close(screen)
-  (** Ends a screen: its connection closes and it doesn't come back. *)
+  (** Ends a screen: it says Bye, so that the app ends it at once, its connection closes, and it doesn't come back. *)
   fiber.Close(screen.Stop)
   conn = peek(screen.Out)
   if value.IsSome(conn)
-    fiber.Spawn(() -> websocket.Close(conn))
+    fiber.Spawn(defn ()
+      _ = websocket.Send(json.Text({Bye: 1}), conn)
+      websocket.Close(conn)
+    end)
   end
+  missing
+end
+
+defn Again(screen)
+  (** Tries to connect now: after a sign-in that follows the end of the screen (its session gone), the page comes back
+      as a new screen with its actions; while down, the next try is now. *)
+  if value.IsSome(Get(screen.Error))
+    Set(screen.Error, missing)
+    st = peek(screen.State)
+    st.State = "connecting"
+    put(st, screen.State)
+    status(screen)
+  end
+  fiber.Send("now", screen.Net)
   missing
 end
 
@@ -93,47 +232,103 @@ defn Live(name, p)
   showOf(name, p.Screen).Signal
 end
 
-defn Act(name, args, p)
+defn Act(name, args, p, base = missing)
   (** Asks the app for the action name with args: a signal of the reply, missing until it comes, then the Ok of what
-      the action gave or its Err. The app checks args again: the page is never trusted. *)
+      the action gave or its Err. The app checks args again: the page is never trusted. While the page is away from its
+      app, the action waits, in order, with the key it got now, and goes once the page is back: the app runs it once.
+      base, the values the page saw of what the action changes ({Total: 120}), lets the app refuse it when they changed
+      meanwhile: its Err is then of the kind "conflict", with each field's value now. *)
   out = Signal(missing)
-  actThen(name, args, p.Screen, m -> Set(out, result.Err(m.Err) if "Err" in m else result.Ok(m.Ok)))
+  actThen(name, args, p.Screen, m -> Set(out, result.Err(m.Err) if "Err" in m else result.Ok(m.Ok)), base = base)
   out
 end
 
-defn actThen(name, args, screen, reply)
-  (** Sends an action, and calls reply(m) with its reply, {Ack, Ok} or {Ack, Err}, on the page's fiber. An action asked
-      before the screen first connected, as a page asks what it shows when it opens, waits for the connection; one
-      asked after a break gets an Err at once. *)
-  conn = peek(screen.Out)
-  if value.IsMissing(conn) and not peek(screen.Ever) and value.IsMissing(peek(screen.Error.Cell).Value)
-    put(list.Append({Name: name, Args: args, Reply: reply}, peek(screen.Early)), screen.Early)
+(* The key of an action, made when it is asked: 128 random bits, as hex. *)
+newKey() = encode.Hex(text.FromBytes([random.Int(0, 255) for k in 1..16]))
+
+defn actThen(name, args, screen, reply, base = missing)
+  (** Sends an action, or keeps it until the screen is up, and calls reply(m) with its reply, {Ack, Ok} or {Ack, Err},
+      on the page's fiber. With the outbox off, an action asked while the screen is down gets an Err at once. *)
+  o = peek(screen.Settings)
+  st = peek(screen.State)
+  up = st.State == "up"
+  if o.Outbox == "off" and not up and peek(screen.Ever)
+    reply({Err: {Kind: "live", Message: "This page is not connected to its app."}})
     return missing
   end
-  if value.IsMissing(conn)
-    reply({Err: {Kind: "live", Message: "This page is not connected to its app."}})
+  if st.State == "ended" and value.IsSome(Get(screen.Error)) and dict.Get("Status", Get(screen.Error)) != 401
+    reply({Err: Get(screen.Error)})
+    return missing
+  end
+  box = peek(screen.Outbox)
+  bytes = text.ByteLength(json.Text(args))
+  if value.Len(box) >= o.OutboxCount or list.Sum([0, list.Sum([a.Bytes for a in box])]) + bytes > o.OutboxBytes
+    reply({Err: {Kind: "live", Message: "Too many actions wait to be sent: $(value.Len(box))."}})
     return missing
   end
   id = peek(screen.Next)
   put(id + 1, screen.Next)
+  a = {Id: id, Key: newKey(), Name: name, Args: args, Base: base, Who: peek(screen.Who), At: sys.Now(), Bytes: bytes, Sent: false}
   acts = peek(screen.Acts)
   acts[id] = reply
   put(acts, screen.Acts)
-  sent = websocket.Send(json.Text({Act: name, Id: id, Args: args}), conn)
-  if result.IsErr(sent)
-    answered(id, {Err: {Kind: "live", Message: "The connection to the app broke before it answered."}}, screen)
+  put(list.Append(a, box), screen.Outbox)
+  if up
+    sendAct(a, screen)
   end
+  status(screen)
   missing
 end
 
+defn sendAct(a, screen)
+  (** An action of the outbox sent on the connection, marked sent. *)
+  conn = peek(screen.Out)
+  if value.IsMissing(conn)
+    return missing
+  end
+  m = {Act: a.Name, Id: a.Id, Args: a.Args, Key: a.Key}
+  if value.IsSome(a.Base)
+    m.Base = a.Base
+  end
+  if value.IsSome(a.Who)
+    m.Who = a.Who
+  end
+  if result.IsOk(websocket.Send(json.Text(m), conn))
+    box = peek(screen.Outbox)
+    put([if x.Id == a.Id dict.Put("Sent", true, x) else x end for x in box], screen.Outbox)
+  end
+end
+
 defn answered(id, m, screen)
-  (** Calls the function that waits for the reply id, once. *)
+  (** Calls the function that waits for the reply id, once, and takes its action out of the outbox; a conflict joins
+      the screen's Conflicts. *)
   acts = peek(screen.Acts)
   f = dict.Get(id, acts)
   if value.IsSome(f)
     put(dict.Drop(id, acts), screen.Acts)
+    box = peek(screen.Outbox)
+    mine = list.First([x for x in box if x.Id == id])
+    put([x for x in box if x.Id != id], screen.Outbox)
+    if "Err" in m and value.IsDict(m.Err) and dict.Get("Kind", m.Err) == "conflict" and value.IsSome(mine)
+      Set(screen.Conflicts, list.Append({Id: id, Name: mine.Name, Args: mine.Args, Base: mine.Base, Error: m.Err, Reply: f}, Get(screen.Conflicts)))
+    end
     f(m)
+    status(screen)
   end
+end
+
+defn Resolve(c, mine, screen)
+  (** A conflict settled: mine true sends the action again over the values now (Keep mine), false drops it (Take
+      theirs); its reply then comes to what waited for the first. *)
+  Set(screen.Conflicts, [x for x in Get(screen.Conflicts) if x.Id != c.Id])
+  if mine
+    now = {}
+    for f in dict.GetOr("Conflict", [], c.Error)
+      now[f.Field] = f.Now
+    end
+    actThen(c.Name, c.Args, screen, c.Reply, base = dict.Merge(if value.IsDict(c.Base) c.Base else {} end, now))
+  end
+  missing
 end
 
 defn tallied(tally, rows, sign)
@@ -148,7 +343,8 @@ defn tallied(tally, rows, sign)
 end
 
 defn heard(m, screen)
-  (** One message of the app. *)
+  (** One message of the app. An {Error} ends the screen: the actions waiting stay when it asks to sign in again
+      (Status 401), the others get it. *)
   if "Show" in m
     sh = showOf(m.Show, screen)
     t = if "Rows" in m tallied(dict.Dict(), m.Rows, 1) else tallied(tallied(sh.Tally, m.Added, 1), m.Removed, -1) end
@@ -160,32 +356,90 @@ defn heard(m, screen)
     answered(m.Ack, m, screen)
   else if "Error" in m
     Set(screen.Error, m.Error)
-    early = peek(screen.Early)
-    put([], screen.Early)
-    for a in early
-      a.Reply({Err: m.Error})
+    st = peek(screen.State)
+    st.State = "ended"
+    put(st, screen.State)
+    if not (value.IsDict(m.Error) and dict.Get("Status", m.Error) == 401)
+      for id in dict.Keys(peek(screen.Acts))
+        answered(id, {Err: m.Error}, screen)
+      end
     end
-    Close(screen)
+    status(screen)
+  end
+end
+
+defn status(screen)
+  (** The Status signal set from the state of the connection and the outbox, when it changed. *)
+  st = peek(screen.State)
+  box = peek(screen.Outbox)
+  v = {State: st.State, Waiting: value.Len(box), Retry: st.Retry, Last: st.Last, At: st.At, Offline: st.Offline, Error: Get(screen.Error)}
+  if not value.Equal(v, Get(screen.Status))
+    Set(screen.Status, v)
+  end
+end
+
+defn expire(screen)
+  (** The actions that waited past OutboxWait fail: those never sent are not sent, the others may have run. *)
+  old = sys.Now() - peek(screen.Settings).OutboxWait
+  for a in [x for x in peek(screen.Outbox) if x.At < old]
+    answered(a.Id, {Err: {Kind: "live", Message: if a.Sent "No reply came in time: the action may have run or not." else "This action waited too long to be sent: it was not sent." end}}, screen)
   end
 end
 
 defn pump(screen)
-  (** Takes in what the fiber of a screen passed on since the last update. *)
-  for e in drain(screen.Inbox)
+  (** Takes in what the fiber of a screen passed on since the last update: nothing to do, and nothing done, when
+      nothing came and no action waits. *)
+  events = drain(screen.Inbox)
+  if value.Len(events) == 0 and value.Len(peek(screen.Outbox)) == 0
+    return missing
+  end
+  for e in events
+    st = peek(screen.State)
     if e.Kind == "up"
       put(e.Conn, screen.Out)
+      put(dict.Merge(defaults, dict.GetOr("Client", {}, e)), screen.Settings)
+      ever = peek(screen.Ever)
       put(true, screen.Ever)
+      who = dict.Get("Who", e)
+      was = peek(screen.Who)
+      box = peek(screen.Outbox)
+      for a in box
+        if value.IsSome(a.Who) and value.IsSome(was) and a.Who != who
+          answered(a.Id, {Err: {Kind: "live", Message: "This action was asked by another account: it is not sent."}}, screen)
+        end
+      end
+      put([dict.Put("Who", if value.IsMissing(a.Who) who else a.Who end, a) for a in peek(screen.Outbox)], screen.Outbox)
+      put(who, screen.Who)
+      st.State = "up"
+      st.Retry = missing
+      if ever
+        st.Last = if e.Resumed "resumed" else "reloaded" end
+        st.At = sys.Now()
+      end
+      put(st, screen.State)
       Set(screen.Up, true)
-      early = peek(screen.Early)
-      put([], screen.Early)
-      for a in early
-        actThen(a.Name, a.Args, screen, a.Reply)
+      for a in peek(screen.Outbox)
+        if not e.Resumed or a.Id > e.Heard
+          sendAct(a, screen)
+        end
       end
     else if e.Kind == "down"
       put(missing, screen.Out)
       Set(screen.Up, false)
-      for id in dict.Keys(peek(screen.Acts))
-        answered(id, {Err: {Kind: "live", Message: "The connection to the app broke before it answered: the action may have run or not."}}, screen)
+      if st.State != "ended"
+        st.State = "down"
+        put(st, screen.State)
+      end
+      if peek(screen.Settings).Outbox == "off"
+        for id in dict.Keys(peek(screen.Acts))
+          answered(id, {Err: {Kind: "live", Message: "The connection to the app broke before it answered: the action may have run or not."}}, screen)
+        end
+      end
+    else if e.Kind == "wait"
+      if st.State != "ended"
+        st.State = "down"
+        st.Retry = math.Round(list.Max([0, e.Until - sys.Now()]))
+        put(st, screen.State)
       end
     else
       got = json.Parse(e.Text)
@@ -198,4 +452,88 @@ defn pump(screen)
       end
     end
   end
+  expire(screen)
+  status(screen)
 end
+
+(* ---- What the page shows of its connection. *)
+
+(* The colors of the line, as 0xRRGGBB: what is wrong, what waits, what is fine, what explains. *)
+red = 0xb3261e
+amber = 0x8a5a00
+green = 0x1e6b2e
+gray = 0x5f6670
+
+inWords(say, t) = if value.IsMissing(say) t else say(t) end   (* A text in the page's language. *)
+counted(n, one, many) = if n == 1 "1 $one" else "$n $many" end   (* A count and its noun, as English writes it. *)
+
+defn Connection(p, say = missing)
+  (** The line that tells the state of the page's connection to its app, plain and in sight: Live; Connecting…;
+      Offline — 2 actions waiting · next try in 4 s, with Try now; Live — sending 2 actions…; Live — back after a break,
+      nothing missed (or data reloaded); Signed out — sign in again, 2 actions kept; Screen closed, with Again. say
+      gives each English text filled in in the page's language, as web.App's say; missing shows the English. A page
+      without a screen shows nothing. *)
+  if value.IsMissing(p.Screen)
+    return missing
+  end
+  screen = p.Screen
+  () -> connectionLine(Get(screen.Status), screen, say)
+end
+
+defn connectionLine(st, screen, say)
+  (** The line of a state of the connection. *)
+  w = st.Waiting
+  if st.State == "up"
+    if w > 0
+      return Text(inWords(say, "Live — sending $(counted(w, "action", "actions"))…"), color = amber)
+    end
+    t = if st.Last == "resumed" "Live — back after a break, nothing missed" else if st.Last == "reloaded" "Live — back after a break, data reloaded" else "Live" end
+    return Text(inWords(say, t), color = green)
+  end
+  if st.State == "down"
+    head = if st.Offline "Offline, no network" else "Offline" end
+    waits = if w > 0 " — $(counted(w, "action", "actions")) waiting" else "" end
+    next = if value.IsNumber(st.Retry) " · next try in $(st.Retry) s" else "" end
+    return Row([Text(inWords(say, "$head$waits$next"), color = amber), Button(inWords(say, "Try now"), () -> Again(screen))], gap = 8)
+  end
+  if st.State == "ended"
+    e = st.Error
+    if value.IsDict(e) and dict.Get("Status", e) == 401
+      kept = if w > 0 ", $(counted(w, "action", "actions")) kept" else "" end
+      return Text(inWords(say, "Signed out — sign in again$kept"), color = red)
+    end
+    m = if value.IsDict(e) dict.GetOr("Message", "", e) else value.Text(e) end
+    return Row([Text(inWords(say, "Screen closed: $m"), color = red), Button(inWords(say, "Again"), () -> Again(screen))], gap = 8)
+  end
+  Text(inWords(say, if w > 0 "Connecting… $(counted(w, "action", "actions")) waiting" else "Connecting…" end), color = gray)
+end
+
+defn Conflicts(p, say = missing)
+  (** The actions of the page that the app refused because what they change changed meanwhile, each with its fields:
+      the value the page saw, the value now, the page's own; Keep mine sends it again over the values now, Take theirs
+      drops it. Nothing when there is none. *)
+  if value.IsMissing(p.Screen)
+    return missing
+  end
+  screen = p.Screen
+  () -> conflictsOf(Get(screen.Conflicts), screen, say)
+end
+
+defn conflictsOf(cs, screen, say)
+  (** The panel of the conflicts, one block each. *)
+  if value.Len(cs) == 0
+    return missing
+  end
+  Stack([conflictOf(c, screen, say) for c in cs], gap = 8, pad = 8, fill = 0xfff4e5, border = amber)
+end
+
+defn conflictOf(c, screen, say)
+  (** One conflict: what was refused, a line a field, and the two choices. *)
+  args = if value.IsDict(c.Args) c.Args else {} end
+  fields = [Row([Stack([Text(f.Field, font = "strong")], width = 120), Text(inWords(say, "seen $(valueShown(f.Base))"), color = gray),
+    Text(inWords(say, "now $(valueShown(f.Now))"), color = red), Text(inWords(say, "yours $(valueShown(dict.Get(f.Field, args)))"))], gap = 12) for f in dict.GetOr("Conflict", [], c.Error)]
+  Stack(list.Concat([Text(inWords(say, "$(c.Name) was refused: $(dict.GetOr("Message", "it changed meanwhile", c.Error))"), color = red)], list.Concat(fields,
+    [Row([Button(inWords(say, "Keep mine"), () -> Resolve(c, true, screen)), Button(inWords(say, "Take theirs"), () -> Resolve(c, false, screen))], gap = 8)])), gap = 4)
+end
+
+valueShown(v) = if value.IsMissing(v) "—" else if value.IsText(v) v else json.Text(v) end   (* A value of a field, as the panel shows it. *)
