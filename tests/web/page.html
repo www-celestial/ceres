@@ -10,6 +10,8 @@
 // Due, types "Brun", then Backspace and a space (which types, so the page doesn't get it as a key), and writes in the
 // title what the page shows: its rows, its fields, the text of the field, and whether it painted again.
 import { Tree, Stats, Measure } from '/ceres.js'
+const checked = /[?&]ceres-check\b/.test(location.search) // the hidden DOM checked after every frame (check.js)
+if (checked) await import('/tests/check.js')
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const until = async (f, ms = 20000) => { for (let t = 0; t < ms && !f(); t += 50) await wait(50); return f() }
 const find = (node, f) => f(node) ? node : node.Kids.map(k => find(k, f)).find(Boolean)
@@ -29,5 +31,6 @@ for (const key of ['Backspace', ' ']) input.dispatchEvent(new KeyboardEvent('key
 await until(() => field('Due').Value === 'Bru', 5000)
 await wait(100)
 document.title = 'done ' + rows + ' rows, ' + inputs + ' inputs, field ' + field('Due').Value + ', input left ' + JSON.stringify(input.value) +
-  ', painted again ' + (Stats().frames.length > before) + ', measure ' + Math.round(Measure('Invoices', 14, 'body'))
+  ', painted again ' + (Stats().frames.length > before) + ', measure ' + Math.round(Measure('Invoices', 14, 'body')) +
+  (checked ? ', checks ' + JSON.stringify(globalThis.ceresChecks) : '')
 </script>

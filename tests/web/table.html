@@ -11,6 +11,7 @@
 // largest, in ms; the title gives them as JSON. Marks of the page's timeline (ceres-scroll, ceres-sort, ceres-typing,
 // ceres-end) tell the steps apart in a trace.
 import { Stats, Tree } from '/ceres.js'
+if (/[?&]ceres-check\b/.test(location.search)) await import('/tests/check.js') // the hidden DOM checked after every frame
 const wait = ms => new Promise(r => setTimeout(r, ms))
 const frame = () => new Promise(r => requestAnimationFrame(() => r()))
 const until = async (f, ms = 60000) => { for (let t = 0; t < ms && !f(); t += 20) await wait(20); return f() }
@@ -59,5 +60,5 @@ await wait(300)
 const typing = work(f0), typingPhases = phases(m0)
 performance.mark('ceres-end')
 const typed = find(JSON.parse(Tree()), n => n.Role === 'textbox' && n.Name === 'Filter').Value
-document.title = 'done ' + JSON.stringify({ firstPaint: +first.toFixed(1), typed: typed.length, scrollWork: sum(scroll), sortWork: sum(sort), typingWork: sum(typing), scrollPhases, sortPhases, typingPhases })
+document.title = 'done ' + JSON.stringify({ firstPaint: +first.toFixed(1), typed: typed.length, scrollWork: sum(scroll), sortWork: sum(sort), typingWork: sum(typing), scrollPhases, sortPhases, typingPhases, checks: globalThis.ceresChecks })
 </script>

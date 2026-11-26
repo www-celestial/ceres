@@ -14,7 +14,7 @@
 //   Paint(bytes)             paints the bytes of a draw list, web.Encode's or web.Encoded's
 //   Mirror(json)             the hidden DOM of the semantics tree, as JSON text (web.Semantics)
 //   Patch(json)              the hidden DOM changed as a patch of the tree says, the JSON text of web.Patch
-//   Check(json)              in a page whose address holds ceres-check: the hidden DOM checked against the whole tree
+//   Check(json)              in a page whose address holds ceres-check: the whole tree, for a test (tests/web/check.js)
 //   Wake()                   sends "frame" on events at the browser's next frame: the page paints then
 // Nothing is drawn while nothing changes: a frame is asked only by Wake.
 
@@ -398,48 +398,9 @@ export function mirror(layer, host) {
     n.Kids = k.kids.map(id => tree(kept.get(id), w ? x : ax, w ? y : ay))
     return n
   }
-  // The mistakes of the hidden DOM against the kept tree: each element in its place, with the attributes of its node.
-  function check() {
-    const bad = []
-    const walk = (k, ax, ay) => {
-      const e = k.e, w = e[6] > 0, x = w ? e[4] + ax : e[4], y = w ? e[5] + ay : e[5], el = k.el, say = m => bad.push(e[0] + ' ' + e[1] + ': ' + m)
-      if (k !== root) {
-        const role = e[1], tag = TAGS[role] || 'div'
-        if (el.tagName.toLowerCase() !== tag) say('tag ' + el.tagName)
-        const r = el.getAttribute('role')
-        if ((!TAGS[role] && role !== 'text') ? r !== role : r !== null) say('role ' + r)
-        if ((el.getAttribute('aria-label') || '') !== (e[2] || '')) say('label ' + el.getAttribute('aria-label'))
-        if (NAMED[role] && el.textContent !== e[2]) say('text ' + el.textContent)
-        if (role === 'link' && el.getAttribute('href') !== field(e, 'Href')) say('href ' + el.getAttribute('href'))
-        const ex = field(e, 'Expanded')
-        if ((ex === undefined ? null : String(ex)) !== el.getAttribute('aria-expanded')) say('expanded ' + el.getAttribute('aria-expanded'))
-        if ((field(e, 'Invalid') ? 'true' : null) !== el.getAttribute('aria-invalid')) say('invalid ' + el.getAttribute('aria-invalid'))
-        if (tag === 'input' && el.type !== (field(e, 'Secret') ? 'password' : 'text')) say('type ' + el.type)
-        const ix = field(e, 'Index'), ct = field(e, 'Count')
-        if ((ix ? String(ix) : null) !== el.getAttribute('aria-rowindex')) say('rowindex ' + el.getAttribute('aria-rowindex'))
-        if ((ct === undefined ? null : String(ct)) !== el.getAttribute('aria-rowcount')) say('rowcount ' + el.getAttribute('aria-rowcount'))
-        if (w) {
-          const b = el.getBoundingClientRect(), l = layer.getBoundingClientRect()
-          if (Math.abs(b.left - l.left - x) > 0.5 || Math.abs(b.top - l.top - y) > 0.5 || Math.abs(b.width - e[6]) > 0.5 || Math.abs(b.height - e[7]) > 0.5)
-            say('box ' + [b.left - l.left, b.top - l.top, b.width, b.height].join(',') + ' for ' + [x, y, e[6], e[7]].join(','))
-        }
-      }
-      const els = Array.from(el.children)
-      if (!NAMED[e[1]] || k.kids.length) {
-        if (els.length !== k.kids.length) say(els.length + ' elements for ' + k.kids.length + ' kids')
-        k.kids.forEach((id, i) => { if (els[i] !== kept.get(id).el) say('kid ' + i + ' out of place') })
-      }
-      for (const id of k.kids) walk(kept.get(id), w ? x : ax, w ? y : ay)
-    }
-    walk(root, 0, 0)
-    // An element that the browser can't focus (a table's) keeps the focus where it was, as it always did.
-    if (focus && document.activeElement !== focus.el && focus.el.matches('input, button, a[href]')) bad.push('focus not on ' + focus.e[0])
-    return bad
-  }
   const update = json => whole(JSON.parse(json))
   update.patch = json => patch(JSON.parse(json))
   update.tree = () => tree()
-  update.check = check
   return update
 }
 
@@ -518,15 +479,9 @@ export const Patch = json => {
   shown = true
   if (glue.painted === glue.asked) stats.frames[stats.frames.length - 1] = performance.now() - glue.asked // the frame's work ends here
 }
-// The kept tree against the whole one, and the hidden DOM against the kept tree: the first mistakes in checks.first.
-export function Check(json) {
-  const c = stats.checks, want = JSON.parse(text(json)), got = glue.mirrored.tree(), bad = glue.mirrored.check()
-  const same = (a, b) => a === b || (a && b && typeof a === 'object' && typeof b === 'object' &&
-    Object.keys(a).length === Object.keys(b).length && Object.keys(a).every(k => same(a[k], b[k])))
-  if (!same(want, got)) bad.unshift('the kept tree differs from the tree')
-  c.frames++
-  if (bad.length) { c.bad++; if (!c.first.length) c.first = bad.slice(0, 5) }
-}
+// In a page whose address holds ceres-check: the whole tree after every frame, as the event 'ceres-check' of the window,
+// for a test that checks the hidden DOM against it (tests/web/check.js).
+export const Check = json => dispatchEvent(new CustomEvent('ceres-check', { detail: text(json) }))
 export const Wake = () => glue.wake()
 export function Paint(bytes) {
   const start = performance.now()
@@ -544,8 +499,7 @@ export function Paint(bytes) {
 // firstPaint, the time from the page's start, frames, for each, the time from the browser's frame to the page painted
 // and its hidden DOM changed, waits, the part of it before the browser called the page (the time of
 // requestAnimationFrame's callback is the frame's start, which Chrome takes before it runs the frame), and paints, the
-// part that WebGL took, in ms; checks, in a page whose address holds ceres-check, the frames checked, those that had a
-// mistake and the first mistakes.
-const stats = { firstPaint: null, frames: [], waits: [], paints: [], checks: { frames: 0, bad: 0, first: [] } }
+// part that WebGL took, in ms.
+const stats = { firstPaint: null, frames: [], waits: [], paints: [] }
 export const Tree = () => shown ? JSON.stringify(glue.mirrored.tree()) : null
 export const Stats = () => stats
