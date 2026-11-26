@@ -15,7 +15,11 @@ A back-end keeps the page's state and calls four functions of `web`:
   signals changed;
 - `web.Frame(page)`, the draw list, only when `web.Changed(page)`; then `web.Painted(page)`.
 
-`web.Semantics(page)` gives the tree, `web.Keys(page)` the keys of the band.
+`web.Semantics(page)` gives the tree, `web.Keys(page)` the keys of the band. A back-end that keeps what it painted
+and what it mirrored takes only what changed, as the browser's does: `web.Encoded(page)` gives the bytes of the frame,
+which paint what `web.Encode(web.Frame(page))` paints, made again only for the boxes laid out since the last frame, and
+`web.Patch(page)` the nodes of the tree that came, moved or changed since the last patch; each gives the page back, as
+`{Ui, Bytes}` and `{Ui, Text}`, to give to the next one.
 
 ## Headless, for tests
 
@@ -70,27 +74,49 @@ its window the page's first `<canvas>`: it waits for the page's events on a chan
 browser's next frame when the page changed. Its live screen opens at the page's own origin unless `origin` names
 another, and its first route is the canvas's `data-path`, or `/`.
 
-What WebAssembly can't reach, the canvas, WebGL2, the events and the DOM, goes through `web/ceres.js`: 330 lines written
-by hand, no dependency, 6.1 KB in brotli, which `cesia build` copies beside the page's module. It never decides anything
-about the page. The page calls it by `js.Call("../../web/ceres.js", name, args)` of `std/js`, five functions:
+What WebAssembly can't reach, the canvas, WebGL2, the events and the DOM, goes through `web/ceres.js`: 500 lines
+written by hand, no dependency, 9.3 KB in brotli, which `cesia build` copies beside the page's module. It never decides
+anything about the page. The page calls it by `js.Call("../../web/ceres.js", name, args)` of `std/js`:
 
-- `Start(events)` sets the canvas up and sends each event on `events`, a channel of `std/fiber`, as the JSON of what
-  `web.Handle` takes, `{Kind: "mouse", Action, X, Y, Button, Amount}`, `{Kind: "key", Key, Ctrl, Alt, Shift}`,
-  `{Kind: "text", Text}` or `{Kind: "resize", Width, Height}`; it gives `[width, height, origin, path]`;
+- `Start(events, form)` sets the canvas up and sends each event on `events`, a channel of `std/fiber`, as the JSON of
+  what `web.Handle` takes, `{Kind: "mouse", Action, X, Y, Button, Amount}`, `{Kind: "key", Key, Ctrl, Alt, Shift}`,
+  `{Kind: "text", Text}` or `{Kind: "resize", Width, Height}`, or, with `form` `"lists"`, as the list of its fields,
+  `["mouse", Action, X, Y, Button, Amount]`, `["key", Key, Ctrl, Alt, Shift]`, `["text", Text]`, `["resize", Width,
+  Height]`, which the page reads without JSON (`src/browser` does); it gives `[width, height, origin, path, check]`;
 - `Measure(text, size, font)` and `Line(size)`, the width of a text in whole pixels and the height of a line, by the
-  browser's own fonts;
-- `Paint(bytes)` paints the bytes of `web.Encode(web.Frame(page))` with WebGL2, in one buffer of vertices and one draw
-  call for each clip: one shader, whose rounded corners are a distance function; texts are drawn once by the browser's
-  own text engine into an atlas, a texture that the GPU copies, so no font is downloaded;
-- `Mirror(json)` keeps the hidden DOM of `web.Semantics(page)`, an element for each node, kept by its `Id`, transparent,
+  browser's own fonts, each text measured once for each font and size;
+- `Paint(bytes)` paints the bytes of `web.Encoded(page)`, or of `web.Encode(web.Frame(page))`, with WebGL2, in one
+  buffer of vertices and one draw call for the whole frame: one shader, whose rounded corners are a distance function
+  and whose clips are a box in each vertex, which the shader cuts as a scissor would; texts are drawn once by the
+  browser's own text engine into an atlas, a texture that the GPU copies, so no font is downloaded: the texts that a
+  frame shows for the first time go into one strip, side by side, which goes up to the atlas once. It reads the numbers
+  where they are and writes the vertices into a buffer it keeps: nothing is made for an item;
+- `Patch(json)` keeps the hidden DOM of the semantics tree, an element for each node, kept by its `Id`, transparent,
   over the canvas: screen readers read it, Cmd-F finds its texts, and each field is a real `<input>`, where typing, IME,
-  paste and autofill happen, the text going to the page as it comes;
-- `Wake()` sends `"frame"` on the channel at the browser's next frame, the time to paint.
+  paste and autofill happen, the text going to the page as it comes. It takes what `web.Patch(page)` gives, the nodes
+  that came, moved or changed and the lists of kids that changed, and writes only those elements, attributes and
+  places: a notch of the wheel over a table moves the rows that stay, adds those that come and drops those that go.
+  An element is placed in the element of its node above (a node of a width), as the tree places it. `Mirror(json)`
+  takes the whole tree, `web.Semantics(page)` as JSON, the same way;
+- `Wake()` sends `"frame"` on the channel at the browser's next frame, the time to paint;
+- `Check(json)`, in a page whose address holds `ceres-check`, where `Start` gives `check` true: `src/browser` sends the
+  whole tree after each frame, and `tests/web/check.js` checks the hidden DOM against it (below).
 
 The bytes of the draw list: two u32, the count of f32 numbers and of bytes of text, the numbers, then the texts in
 UTF-8. Each item is a code and its numbers: 1 rect and 2 frame (X Y W H Color Alpha Radius), 3 text (X Y Size Color
 Alpha Font Start Length Angle), 4 line (n Width Color Alpha, then n points), 5 tris (n Color Alpha, then n points), 6 a
-group (X Y W H Clip) whose items follow up to 7, its end.
+group (X Y W H Clip) whose items follow up to 7, its end, and 9 a text whose bytes follow those of the 9 before it, the
+first at 0 (X Y Size Color Alpha Font Length Angle). `web.Encoded` writes its texts as 9s: the bytes of a box hold no
+place of their texts, so it copies those of a box that didn't change whole into those of its parent, and the rows of a
+table keep the bytes of their items while they stay in sight.
+
+A patch of the semantics tree is the JSON of `[nodes, kids]`. A node is `[Id, Role, Name, Value, X, Y, W, H, Focused,
+Extra]`, Extra its other fields, `{Href}` for a link, `{Invalid, Secret}` for a textbox, `{Expanded}` for a combobox,
+`{Count}` for a table, `{Index}` for a row, or `null`; X and Y are those of the tree less those of the nearest node
+above that has a width, or as they are when W is 0. A list of kids is `[Id, [Ids]]`, in order: a kid that leaves it
+leaves the tree, with its own. Each box keeps what was sent of it and when it was laid out: a box not laid out since the
+last patch and at the same place from its node above gives the same nodes, and the walk doesn't go into it. A table
+sends the rows that came, with their cells, and the places of those that moved; a key typed in a field sends that field.
 
 The live screen is a WebSocket of the page: `std/websocket`, in a program compiled to WebAssembly, is the browser's. It
 wakes the loop when it brings something (`web.Start(..., wake = events)`), so a still page runs nothing.
@@ -101,5 +127,13 @@ in `tests/web/page.html`, and prints what the page showed:
 ```text
 done 17 rows, 2 inputs, field Bru, input left "", painted again true, measure 54
 ```
+
+With `?ceres-check` in its address, `page.html?ceres-check` or `table.html?ceres-check`, a test page checks the hidden
+DOM after every frame (`tests/web/check.js`): the tree that the hidden DOM keeps must be `web.Semantics(page)`, and each
+element must say what its node says, its tag, role, name, text, attributes, place, size, kids in their order and the
+focus; the title then ends with the frames checked and those with a mistake, `checks {"frames":93,"bad":0,"first":[]}`.
+`tests/patch.test.ce` does the same without a browser: a mirror written in Cesia applies each patch and must hold the
+tree after each of 25 steps, and `tests/encode.test.ce` reads the bytes of `web.Encoded` as a painter does and finds
+those of `web.Encode(web.Frame(page))`.
 
 ![The invoices page compiled from Cesia to WebAssembly, painted by web/ceres.js with WebGL2 in Chrome.](images/invoices-webgl.png)

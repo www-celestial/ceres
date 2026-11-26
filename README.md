@@ -63,7 +63,7 @@ mirrors one **semantics tree** (roles, names, values, places, focus), which Cere
   would (`headless.ClickOn("Name", page)`, `headless.Type("Ana", page)`), the live screen against a real server;
 - **SDL3**, a window on Linux, Windows and macOS, as Cemacs draws: `sdl.Run(App, origin = "http://127.0.0.1:8090")`;
 - **the browser**: the page's code compiled from Cesia to WebAssembly (`cesia build --target wasm`), in Chrome 137,
-  Firefox 153 and Safari 27 or later; `web/ceres.js`, 6.1 KB in brotli, paints the draw list with WebGL2 and keeps the
+  Firefox 153 and Safari 27 or later; `web/ceres.js`, 9.3 KB in brotli, paints the draw list with WebGL2 and keeps the
   tree as a hidden DOM for screen readers, typing and find. See [Ceres in a web page](docs/book/web.md).
 
 ## Install
@@ -82,11 +82,13 @@ A window needs SDL3 and SDL3_ttf on the machine, and `--allow ffi=SDL3,ffi=SDL3_
 
 ## Speed
 
-On a laptop of 2015, in a window of SDL3: a frame of the invoices page takes **1.2 to 1.9 ms** (p50), of which Ceres
-0.2 to 1.1 ms and the rest SDL's painting; a notch of the wheel in a table of 100,000 rows **1.2 ms**; a key typed in a
-field **1.5 ms**. At rest the page draws nothing and takes **0.2 %** of a core, the wait for what the app pushes; the
-page itself takes 9 MB. [Speed](docs/book/speed.md) has every measure, how it was taken, and where Flutter and SolidJS
-still do better.
+On a laptop of 2015, in a window of SDL3: a frame of the invoices page takes **0.8 to 1.9 ms** (p50), of which Ceres 0.2
+to 1.1 ms and the rest SDL's painting; a notch of the wheel in a table of 100,000 rows **0.9 to 1.2 ms**; a key typed in
+a field **1.0 ms**. In a browser, compiled to WebAssembly, a frame pays for what changed in it: a notch over a table of
+100,000 rows takes **2.6 to 3.3 ms** of the page's work in Chrome without a GPU and in Firefox, a key typed **0.7 to 0.8
+ms**, a click that sorts the 100,000 rows **30 to 49 ms**. At rest the page draws nothing and takes **0.2 %** of a core
+in a window, the wait for what the app pushes, and nothing in a browser; the page itself takes 9 MB.
+[Speed](docs/book/speed.md) has every measure, how it was taken, and where Flutter and SolidJS still do better.
 
 ## More
 

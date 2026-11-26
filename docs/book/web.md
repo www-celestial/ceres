@@ -68,14 +68,15 @@ at the bottom shows the keys, as in a window.
 `browser.Run(app)` is the loop of `src/sdl`, its window the canvas:
 
 1. It asks `ceres.js` to set the canvas up and to send each event of the page, a click, a key, a text typed, a new size,
-   as JSON on a channel of `std/fiber`; `ceres.js` gives back the canvas's size and the page's origin.
+   as the list of its fields on a channel of `std/fiber`; `ceres.js` gives back the canvas's size and the page's origin.
 2. It mounts the app with `web.Start`, its texts measured by the browser's own fonts.
 3. It waits on the channel. While it waits, nothing of the page's code runs: the browser is free, and a still page costs
    nothing. A fiber that waits sets its stack aside by JavaScript Promise Integration, which Chrome runs since 137,
    Firefox since 153 and Safari since 27.
 4. An event comes: `web.Handle`, then `web.Update`. When the page changed, it asks the browser for its next frame, and
-   paints it then: the draw list, `web.Encode`'s bytes, by WebGL2, and the semantics tree as a hidden DOM, where a screen
-   reader reads and where a field is a real `<input>`.
+   paints it then: the draw list, `web.Encoded`'s bytes, made again only for the boxes laid out since, by WebGL2 in one
+   draw call, and what changed in the semantics tree, `web.Patch`, in a hidden DOM, where a screen reader reads and
+   where a field is a real `<input>`: a frame costs what changed in it.
 
 The two sides speak by `js.Call` of `std/js`, the page's code calling `ceres.js`, and by that one channel, `ceres.js`
 sending the events: the whole of what crosses is in the header of `web/ceres.js`.
@@ -125,6 +126,7 @@ done 17 rows, 2 inputs, field Bru, input left "", painted again true, measure 54
 17 rows in the hidden DOM, the header and the rows in sight; the field holds "Bru", the page having taken the text and
 then the key; the hidden input is empty again, its text gone to the page; a frame was painted after; "Invoices" is 54
 pixels wide in the browser's font. The picture goes in `shots/invoices-webgl.png`. The same page gives the same line in
-Firefox 160.
+Firefox 160. With `?ceres-check` in its address, it also checks the hidden DOM against the semantics tree after every
+frame, and its line ends with what it found: [Back-ends](backends.md).
 
 [Speed](speed.md#in-the-browser) gives what a frame costs in the page.
