@@ -104,6 +104,10 @@ defn focus(id, ui, ring = false)
     end
     u = touch(id, u)
   end
+  if ring and id != 0
+    (* the keyboard moved it: the panels it is in scroll to show it *)
+    u = reveal(id, u)
+  end
   u
 end
 
@@ -338,6 +342,8 @@ defn key(e, ui)
   k = n.Kind
   if k == "input"
     edited(e, u)
+  else if (k == "button" or k == "section") and (e.Key == "pagedown" or e.Key == "pageup")
+    paneKey(e, u)
   else if k == "button"
     if e.Key == "enter" or e.Key == "space" clicked(u.Focus, u) else u end
   else if k == "select"

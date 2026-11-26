@@ -12,15 +12,15 @@ use std/value
 
 (* ---- Constructors *)
 
-defn Panel(title, body, icon = missing, name = missing)
+defn Panel(title, body, icon = missing, key = missing)
   (** A panel of a web.Dock or a web.Tabs: its title on its tab, beside an icon of web.Icons (each a value or a
       function that gives it, read again as the panel changes), and its body, a widget,
       4 pixels in, scrolled when it is taller than the panel; a body that fills the panel, as a table alone or a part
-      that web.Grow marks in a stack, takes its height and doesn't scroll. name tells it apart in the layout that a
-      dock keeps, its title by default.
+      that web.Grow marks in a stack, takes its height and doesn't scroll. key tells it apart in the layout that a
+      dock keeps, its title by default (a title made by a function needs one).
 
         Panel("Log", Text("…"), icon = "output").Title --> "Log" *)
-  {Kind: "panel", Title: title, Body: body, Icon: icon, Name: if value.IsMissing(name) title else name end,
+  {Kind: "panel", Title: title, Body: body, Icon: icon, Key: if value.IsMissing(key) title else key end,
     View: Scroll(Stack([Grow(body)], pad = 4, gap = 0))}
 end
 
@@ -66,22 +66,22 @@ end
 
 splitOf(first, second, along, size, min, last, dock) = {Kind: "split", Kids: [kid(first), kid(second)], Along: along, Size: size, Min: min, Last: last, Dock: dock}
 
-defn Dock(center, left = [], right = [], bottom = [], toolbar = missing, status = missing, name = missing, sizes = {})
+defn Dock(center, left = [], right = [], bottom = [], toolbar = missing, status = missing, key = missing, sizes = {})
   (** The layout of a desktop tool, which fills the window: a toolbar on top, a status bar at the bottom, and between
       them areas of panels (web.Panel), each a group of tabs, with splitters between them: left, the center, right,
       and bottom under the center. A tab dragged onto another area moves its panel there, or onto the edge of an area
-      that is empty, which opens it. With name, the layout is kept on the machine, as the browser keeps a page's data
+      that is empty, which opens it. With key, the layout is kept on the machine, as the browser keeps a page's data
       (and in a window, in the folder of the app's data): the size of each area, the panels of each and the one shown,
       found again the next time. sizes gives the sizes at first, {Left: 240, Right: 320, Bottom: 200} by default.
 
-        Dock([Panel("Main", "…")], name = "admin").Kind --> "dock" *)
+        Dock([Panel("Main", "…")], key = "admin").Kind --> "dock" *)
   all = list.Concat(list.Concat(center, left), list.Concat(right, bottom))
   panels = dict.Dict()
   for p in all
-    panels[p.Name] = p
+    panels[p.Key] = p
   end
-  areas = {Left: [p.Name for p in left], Center: [p.Name for p in center], Right: [p.Name for p in right], Bottom: [p.Name for p in bottom]}
-  state = {Id: fresh(), Name: name, Panels: panels, Areas: Signal(areas), First: areas,
+  areas = {Left: [p.Key for p in left], Center: [p.Key for p in center], Right: [p.Key for p in right], Bottom: [p.Key for p in bottom]}
+  state = {Id: fresh(), Key: key, Panels: panels, Areas: Signal(areas), First: areas,
     Sizes: {Left: Signal(dict.GetOr("Left", 240, sizes)), Right: Signal(dict.GetOr("Right", 320, sizes)), Bottom: Signal(dict.GetOr("Bottom", 200, sizes))},
     Chosen: {Left: Signal(1), Center: Signal(1), Right: Signal(1), Bottom: Signal(1)}}
   top = if value.IsMissing(toolbar) missing else kid(toolbar) end
@@ -611,15 +611,15 @@ defn dockUp(d, e, ui)
   if not d.Moved or value.IsMissing(drop)
     return u
   end
-  movePanel(n.Dock, n.Panels[d.Index].Name, n.Area, drop.Area)
+  movePanel(n.Dock, n.Panels[d.Index].Key, n.Area, drop.Area)
   keepDock(n.Dock, u)
 end
 
-defn movePanel(st, name, from, to)
-  (** Moves the panel name of a dock from an area to another, where it is then shown. *)
+defn movePanel(st, key, from, to)
+  (** Moves the panel key of a dock from an area to another, where it is then shown. *)
   areas = Get(st.Areas)
-  areas[from] = [x for x in areas[from] if x != name]
-  areas[to] = list.Append(name, areas[to])
+  areas[from] = [x for x in areas[from] if x != key]
+  areas[to] = list.Append(key, areas[to])
   Set(st.Areas, areas)
   Set(st.Chosen[to], value.Len(areas[to]))
   Set(st.Chosen[from], list.Max(1, list.Min(Get(st.Chosen[from]), value.Len(areas[from]))))
@@ -644,6 +644,40 @@ defn scrollAbove(id, u)
     k = above(u.Boxes[k].Parent, "scroll", u)
   end
   0
+end
+
+defn reveal(id, u)
+  (** Scrolls each panel that holds the box id, from the nearest out, so that it shows the box, as the focus moves
+      there by the keyboard: the least that brings it in sight. *)
+  s = above(u.Boxes[id].Parent, "scroll", u)
+  while s != 0
+    c = u.Boxes[s].Cache
+    if value.IsDict(c) and c.Most > 0
+      top = at(s, u).Y
+      y = at(id, u).Y
+      h = list.Min(u.Boxes[id].H, c.Seen)
+      want = if y < top c.Offset - (top - y) else if y + h > top + c.Seen c.Offset + (y + h - top - c.Seen) else c.Offset end
+      want = list.Max(0, list.Min(c.Most, want))
+      if want != c.Offset
+        Set(u.Boxes[s].Node.Offset, want)
+      end
+    end
+    s = above(u.Boxes[s].Parent, "scroll", u)
+  end
+  u
+end
+
+defn paneKey(e, u)
+  (** PgUp and PgDn while a button or a section of a panel has the focus: the panel scrolls by what it shows, less a
+      line; the page does when no panel holds it. *)
+  s = scrollAbove(u.Focus, u)
+  if s == 0
+    return pageKey(e, u)
+  end
+  c = u.Boxes[s].Cache
+  by = (c.Seen - 48) * (1 if e.Key == "pagedown" else -1)
+  Set(u.Boxes[s].Node.Offset, list.Max(0, list.Min(c.Most, c.Offset + by)))
+  u
 end
 
 defn dropAt(x, y, src, u)
@@ -787,13 +821,13 @@ end
 (* ---- The layout that a dock keeps *)
 
 defn keepDock(st, ui)
-  (** Writes the layout of a dock where the back-end keeps it, when the dock has a name: its areas, sizes and chosen
+  (** Writes the layout of a dock where the back-end keeps it, when the dock has a key: its areas, sizes and chosen
       panels, as JSON. *)
-  if value.IsMissing(st) or value.IsMissing(st.Name) or value.IsMissing(ui.Store)
+  if value.IsMissing(st) or value.IsMissing(st.Key) or value.IsMissing(ui.Store)
     return ui
   end
   areas = ["Left", "Center", "Right", "Bottom"]
-  ui.Store.Put("dock $(st.Name)", json.Text({Areas: Get(st.Areas), Sizes: {Left: Get(st.Sizes.Left), Right: Get(st.Sizes.Right), Bottom: Get(st.Sizes.Bottom)},
+  ui.Store.Put("dock $(st.Key)", json.Text({Areas: Get(st.Areas), Sizes: {Left: Get(st.Sizes.Left), Right: Get(st.Sizes.Right), Bottom: Get(st.Sizes.Bottom)},
     Chosen: dict.Dict([{Key: a, Value: Get(st.Chosen[a])} for a in areas])}))
   ui
 end
@@ -804,10 +838,10 @@ defn restored(st, ui)
   (** The layout of a dock that the back-end kept, set in its signals as the dock is mounted: only the panels the dock
       has, each once; a panel that the layout kept doesn't know stays where the app put it; a size out of reason or
       a text that isn't the layout's JSON is left out. *)
-  if value.IsMissing(st.Name) or value.IsMissing(ui.Store)
+  if value.IsMissing(st.Key) or value.IsMissing(ui.Store)
     return ui
   end
-  raw = ui.Store.Get("dock $(st.Name)")
+  raw = ui.Store.Get("dock $(st.Key)")
   got = if value.IsText(raw) and raw != "" json.Parse(raw) else result.Err({Message: "none"}) end
   if result.IsErr(got) or not value.IsDict(got.Value)
     return ui

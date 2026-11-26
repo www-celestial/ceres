@@ -27,7 +27,7 @@ defn page(p)
     toolbar = web.Toolbar([web.Button("Save", () -> missing, icon = "save", key = "C-s"), web.Divider(), web.Button("Refresh", () -> missing, icon = "refresh", key = "f5"),
       web.Spacer(), web.Text(() -> web.Get(chosen), color = "Muted")]),
     status = web.StatusBar([web.Text("Live", color = "Ok"), web.Divider(), web.Text("super@app.test"), web.Spacer(), web.Text("200 invoices", color = "Muted")]),
-    name = "test", sizes = {Left: 200, Right: 260, Bottom: 120})
+    key = "test", sizes = {Left: 200, Right: 260, Bottom: 120})
 end
 
 app = web.App([web.Route("/", page)], theme = web.Dark)
@@ -95,4 +95,22 @@ defn isContrastAA()
     end
   end
   ok and web.Contrast(0x000000, 0xffffff) == 21
+end
+
+(* A panel taller than its place: a button at its end, under 40 lines. *)
+tall = web.App([web.Route("/", _ -> web.Dock([web.Panel("Main", web.Stack(list.Concat([web.Text("line $k") for k in 1..40], [web.Button("Far", () -> missing)])))]))],
+  theme = web.Dark)
+
+defn isFocusShownInItsPanel()
+  (** Tab to a button under the end of its panel: the panel scrolls to show it, and PgUp brings its top back. *)
+  p = headless.Open(tall, width = 600, height = 400)
+  line = (name, q) -> list.FindFirst(l -> text.Contains(name, l), text.Lines(headless.Tree(q)))
+  y = l -> text.Number(text.Split(",", text.Split(" ", text.Split(" at ", l)[2])[1])[2])
+  hidden = y(line("button \"Far\"", p)) > 400
+  p = headless.Press("tab", headless.Press("tab", p))
+  focused = text.Contains("focused", line("button \"Far\"", p))
+  shown = y(line("button \"Far\"", p)) < 373
+  p = headless.Press("pageup", p)
+  top = y(line("text \"line 1\"", p)) < 80
+  list.All([hidden, focused, shown, top])
 end

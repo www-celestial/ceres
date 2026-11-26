@@ -50,7 +50,7 @@ defn Page(p)
       web.Button("Export", () -> say("exported"), icon = "export", key = "C-e"), web.Spacer(), web.Icon("search", color = "Muted"), () -> web.Text(web.Get(section), color = "Muted")]),
     status = web.StatusBar([web.Icon("pass-filled", color = "Ok"), web.Text("Ready", color = "Ok"), web.Divider(), web.Icon("account", color = "Muted"), web.Text("ana@office.test"),
       web.Divider(), web.Text("Office of Lyon", color = "Muted"), web.Spacer(), () -> web.Text("$(value.Len(web.Get(invoices))) invoices · 12 clients", color = "Muted", font = "code")]),
-    name = "desk", sizes = {Left: 220, Right: 330, Bottom: 150})
+    key = "desk", sizes = {Left: 220, Right: 330, Bottom: 150})
 end
 
 defn details(i, invoices, say)

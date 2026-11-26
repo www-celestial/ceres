@@ -84,6 +84,8 @@ defn sceneItem(sh, t, u)
     anchor = dict.GetOr("Anchor", "start", sh)
     angle = dict.GetOr("Angle", 0, sh)
     x = sh.X - (0 if anchor == "start" else w / 2 if anchor == "middle" else w)
+    (* a title wider than the plot it is centered over starts at the graph's left edge, not out of it *)
+    x = list.Max(4, x) if dict.Get("Role", sh) == "title" else x
     top = sh.Y - math.Round(size * 0.8)
     one = words(x, top, sh.Text, size, colorOf(sh.Color, t))
     if angle != 0
