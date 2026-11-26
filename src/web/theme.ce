@@ -10,7 +10,7 @@ use std/value
 (** The dark theme of a desktop tool, as an editor of games or of code draws one: grey panels on a darker window,
     fields and tables a step darker still, one blue for the choice and the focus, the text light grey; sizes on a grid
     of 4 pixels, dense rows. Each pair of a text and its background reaches the contrast of WCAG 2.2 AA (4.5:1), and
-    the edge of a field and the ring of the focus 3:1 (web.Contrast measures them; tests/theme.test.ce checks it).
+    the edge of a field and the ring of the focus 3:1 (web.Contrast measures them; tests/dock.test.ce checks it).
     Its fields are those of web.Theme and these: Panel, the body of a panel; Header, the strip of its tabs, a toolbar
     and the status bar; Raised, a button; Hover and Pressed, a widget under the mouse and held down; Disabled; Edge,
     the edge of a table or a panel; Link; Warn and Ok, the colors of a warning and of a success; Rule, the grid of a
