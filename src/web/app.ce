@@ -53,14 +53,14 @@ end
 (** Goes to another route of the app, as a link does. *)
 Go(path, p) = Set(p.Nav, path)
 
-defn Start(app, width, height, measure, origin = missing, path = "/", theme = Theme, headers = [], wake = missing)
+defn Start(app, width, height, measure, origin = missing, path = "/", theme = Theme, headers = [], wake = missing, net = missing)
   (** Mounts an app in a window of width by height pixels, at a path: the state that a back-end keeps and gives to
       Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels}, font "body", "strong" or
       "code". With
       origin, as "http://127.0.0.1:8080", an app with live opens its screen there, sending headers with it; wake is as
-      for the live screen (web.Connect). *)
+      for the live screen (web.Connect), and net, the channel of the browser's online, offline and now. *)
   ui = newUi(width, height, measure, theme)
-  screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake) else missing end
+  screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net) else missing end
   nav = Signal(path)
   ui.Nav = nav
   ui.Screens = if value.IsSome(screen) [screen] else [] end

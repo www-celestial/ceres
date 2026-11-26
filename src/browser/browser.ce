@@ -1,7 +1,8 @@
 (** The browser: a page of Ceres compiled to WebAssembly by cesia build --target wasm, painted by web/ceres.js, which
     the build puts beside the page. Run takes the events of the page, runs the app and paints a frame when the page changed,
     at the browser's next frame: the loop of src/sdl, its window the page's canvas. Between events it waits, and
-    nothing runs: the live screen wakes it when the app pushed something. The hidden DOM gets what changed in the
+    nothing runs: the live screen wakes it when the app pushed something. The browser's online and offline, and the
+    tab shown again, reach the live screen, which then tries at once or knows it is cut. The hidden DOM gets what changed in the
     semantics tree at each frame, web.Patch; a page whose address holds ceres-check, as page.html?ceres-check, also
     sends the whole tree, which ceres.js checks the hidden DOM against (Stats().checks). *)
 use src/web
@@ -21,9 +22,10 @@ defn Run(app, origin = missing, path = missing)
   (** Runs the app in the page's canvas, until the page closes. Its live screen, if it has one, opens at origin, the
       page's own by default; path is the route shown first, the canvas's data-path or "/". *)
   events = fiber.Channel()
-  page = js.Call("../../web/ceres.js", "Start", [events, "lists"])
+  net = fiber.Channel()
+  page = js.Call("../../web/ceres.js", "Start", [events, "lists", net])
   ui = web.Start(app, page[1], page[2], Measure(), origin = if value.IsMissing(origin) page[3] else origin end,
-    path = if value.IsMissing(path) page[4] else path end, wake = events)
+    path = if value.IsMissing(path) page[4] else path end, wake = events, net = net)
   check = value.Len(page) >= 5 and page[5] == true
   asked = false
   while true

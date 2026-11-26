@@ -77,7 +77,7 @@ defn dialing(s, headers)
   bound = first
   while not stopped(s)
     opened = sys.Now()
-    got = websocket.Dial(s.Url, headers = headers)
+    got = websocket.Dial(s.Url, headers = headers, last = json.Text({Bye: 1}))
     framed = false
     if result.IsOk(got)
       conn = got.Value
@@ -106,6 +106,7 @@ defn dialing(s, headers)
         else if result.IsErr(m)
           break
         else if m.Value.Channel == s.Net
+          heardNet(m.Value.Value, s)
           break if m.Value.Value == "offline"
         else
           t = m.Value.Value
@@ -155,7 +156,9 @@ defn dialing(s, headers)
       (* an {Error} ended the screen: it comes back only when the page asks (Again), as a new one *)
       while true
         n = fiber.Select([s.Net, s.Stop])
-        break if result.IsErr(n) or n.Value.Value == "now"
+        break if result.IsErr(n)
+        heardNet(n.Value.Value, s)
+        break if n.Value.Value == "now"
       end
       halted = false
       token = missing
@@ -169,11 +172,19 @@ defn dialing(s, headers)
         n = fiber.Select([s.Net, s.Stop], timeout = list.Min([1, until - sys.Now()]))
         if result.IsErr(n)
           break if n.Error.Kind == "closed"
-        else if n.Value.Value == "online" or n.Value.Value == "now"
-          break
+        else
+          heardNet(n.Value.Value, s)
+          break if n.Value.Value == "online" or n.Value.Value == "now"
         end
       end
     end
+  end
+end
+
+defn heardNet(word, s)
+  (** The browser's word on its network, passed on to the page: offline, or online again. *)
+  if word == "offline" or word == "online"
+    tell({Kind: "net", Offline: word == "offline"}, s)
   end
 end
 
@@ -244,7 +255,7 @@ defn Act(name, args, p, base = missing)
 end
 
 (* The key of an action, made when it is asked: 128 random bits, as hex. *)
-newKey() = encode.Hex(text.FromBytes([random.Int(0, 255) for k in 1..16]))
+newKey() = encode.Hex(text.FromBytes([math.Floor(random.Float() * 256) for k in 1..16]))
 
 defn actThen(name, args, screen, reply, base = missing)
   (** Sends an action, or keeps it until the screen is up, and calls reply(m) with its reply, {Ack, Ok} or {Ack, Err},
@@ -435,6 +446,9 @@ defn pump(screen)
           answered(id, {Err: {Kind: "live", Message: "The connection to the app broke before it answered: the action may have run or not."}}, screen)
         end
       end
+    else if e.Kind == "net"
+      st.Offline = e.Offline
+      put(st, screen.State)
     else if e.Kind == "wait"
       if st.State != "ended"
         st.State = "down"

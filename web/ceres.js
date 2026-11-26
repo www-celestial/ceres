@@ -5,11 +5,12 @@
 //
 // The page calls it by js.Call("./ceres.js", name, args), from src/browser (docs/book/backends.md); a text comes as the
 // Uint8Array of its bytes, a channel as a handle whose send(value) gives the page a value:
-//   Start(events, form)      the canvas of the page set up, each event sent on events as JSON text, {Kind: 'mouse'|
+//   Start(events, form, net) the canvas of the page set up, each event sent on events as JSON text, {Kind: 'mouse'|
 //                            'key'|'text'|'resize', ...} as web.Handle takes it, or with form "lists" as a list of its
 //                            fields: ['mouse', Action, X, Y, Button, Amount], ['key', Key, Ctrl, Alt, Shift], ['text',
 //                            Text], ['resize', Width, Height], which the page reads with no JSON; gives [width, height,
-//                            origin, path, check], check true when the page's address holds ceres-check
+//                            origin, path, check], check true when the page's address holds ceres-check; net, a
+//                            channel, gets the browser's 'online' and 'offline', and 'now' when the tab is shown
 //   Measure(text, size, font)  the width of a text in pixels, font 'body', 'strong' or 'code'; Line(size) a line's height
 //   Paint(bytes)             paints the bytes of a draw list, web.Encode's or web.Encoded's
 //   Mirror(json)             the hidden DOM of the semantics tree, as JSON text (web.Semantics)
@@ -431,7 +432,7 @@ const text = b => typeof b === 'string' ? b : dec.decode(b)
 // on events, as JSON text or, with form "lists", as lists. Gives the page its width, height, origin and first path.
 const listed = e => e.Kind === 'mouse' ? ['mouse', e.Action, e.X, e.Y, e.Button, e.Amount] : e.Kind === 'key' ? ['key', e.Key, e.Ctrl, e.Alt, e.Shift]
   : e.Kind === 'text' ? ['text', e.Text] : ['resize', e.Width, e.Height]
-export function Start(events, form) {
+export function Start(events, form, net) {
   const canvas = document.querySelector('canvas')
   canvas.style.display = 'block'
   const p = early && early.canvas === canvas ? early.p : painter(canvas)
@@ -459,6 +460,12 @@ export function Start(events, form) {
   for (const [name, action] of [['pointerdown', 'down'], ['pointerup', 'up'], ['pointermove', 'move']])
     canvas.addEventListener(name, ev => { const [x, y] = at(ev); send({ Kind: 'mouse', Action: action, X: x, Y: y, Button: ev.button + 1, Amount: 0 }) })
   canvas.addEventListener('wheel', ev => { ev.preventDefault(); const [x, y] = at(ev); send({ Kind: 'mouse', Action: 'wheel', X: x, Y: y, Button: 0, Amount: -Math.sign(ev.deltaY) }) }, { passive: false })
+  if (net) {
+    // The network as the browser sees it, for the live screen: offline at once, online and a tab shown again try now.
+    addEventListener('online', () => net.send('online'))
+    addEventListener('offline', () => net.send('offline'))
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') net.send('now') })
+  }
   window.addEventListener('keydown', ev => {
     if (ev.target.tagName === 'INPUT') return
     const k = keyName(ev, false)
