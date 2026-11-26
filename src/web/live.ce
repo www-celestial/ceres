@@ -485,7 +485,6 @@ green = 0x1e6b2e
 gray = 0x5f6670
 
 inWords(say, t) = if value.IsMissing(say) t else say(t) end   (* A text in the page's language. *)
-counted(n, one, many) = if n == 1 "1 $one" else "$n $many" end   (* A count and its noun, as English writes it. *)
 
 defn Connection(p, say = missing)
   (** The line that tells the state of the page's connection to its app, plain and in sight: Live; Connecting…;
@@ -501,31 +500,34 @@ defn Connection(p, say = missing)
 end
 
 defn connectionLine(st, screen, say)
-  (** The line of a state of the connection. *)
+  (** The line of a state of the connection, each of its parts said in the page's language apart, so that a catalogue
+      holds a few short texts rather than each of their joins. *)
   w = st.Waiting
+  sending = if w == 1 "sending 1 action…" else "sending $w actions…" end
+  waits = if w == 1 "1 action waiting" else "$w actions waiting" end
   if st.State == "up"
     if w > 0
-      return Text(inWords(say, "Live — sending $(counted(w, "action", "actions"))…"), color = amber)
+      return Text("$(inWords(say, "Live")) — $(inWords(say, sending))", color = amber)
     end
-    t = if st.Last == "resumed" "Live — back after a break, nothing missed" else if st.Last == "reloaded" "Live — back after a break, data reloaded" else "Live" end
-    return Text(inWords(say, t), color = green)
+    after = if st.Last == "resumed" " — $(inWords(say, "back after a break, nothing missed"))" else if st.Last == "reloaded" " — $(inWords(say, "back after a break, data reloaded"))" else "" end
+    return Text("$(inWords(say, "Live"))$after", color = green)
   end
   if st.State == "down"
-    head = if st.Offline "Offline, no network" else "Offline" end
-    waits = if w > 0 " — $(counted(w, "action", "actions")) waiting" else "" end
-    next = if value.IsNumber(st.Retry) " · next try in $(st.Retry) s" else "" end
-    return Row([Text(inWords(say, "$head$waits$next"), color = amber), Button(inWords(say, "Try now"), () -> Again(screen))], gap = 8)
+    head = inWords(say, if st.Offline "Offline, no network" else "Offline" end)
+    count = if w > 0 " — $(inWords(say, waits))" else "" end
+    next = if value.IsNumber(st.Retry) " · $(inWords(say, "next try in $(st.Retry) s"))" else "" end
+    return Row([Text("$head$count$next", color = amber), Button(inWords(say, "Try now"), () -> Again(screen))], gap = 8)
   end
   if st.State == "ended"
     e = st.Error
     if value.IsDict(e) and dict.Get("Status", e) == 401
-      kept = if w > 0 ", $(counted(w, "action", "actions")) kept" else "" end
-      return Text(inWords(say, "Signed out — sign in again$kept"), color = red)
+      kept = if w > 0 ", $(inWords(say, if w == 1 "1 action kept" else "$w actions kept" end))" else "" end
+      return Text("$(inWords(say, "Signed out — sign in again"))$kept", color = red)
     end
     m = if value.IsDict(e) dict.GetOr("Message", "", e) else value.Text(e) end
     return Row([Text(inWords(say, "Screen closed: $m"), color = red), Button(inWords(say, "Again"), () -> Again(screen))], gap = 8)
   end
-  Text(inWords(say, if w > 0 "Connecting… $(counted(w, "action", "actions")) waiting" else "Connecting…" end), color = gray)
+  Text(if w > 0 "$(inWords(say, "Connecting…")) — $(inWords(say, waits))" else inWords(say, "Connecting…") end, color = gray)
 end
 
 defn Conflicts(p, say = missing)
