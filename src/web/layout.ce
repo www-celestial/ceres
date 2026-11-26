@@ -25,6 +25,10 @@ sizeOf(n, t) = t.Size if value.IsMissing(n.Size) else t.Title if n.Size == "titl
 widthOf(s, size, font, u) = u.Measure.Width(s, size, font)   (* The width of a text in pixels, in a font: "body", "strong" or "code". *)
 lineOf(size, u) = u.Measure.Line(size)   (* The height of a line of text. *)
 
+(* Where the baseline of a line of text is, under its top: the back-end's, which centers the letters of each font in
+   their line, or four fifths of the size from a back-end that doesn't say. *)
+baseOf(size, font, u) = if value.IsSome(dict.Get("Base", u.Measure)) u.Measure.Base(size, font) else math.Round(size * 0.8) end
+
 defn valueOf(x)
   (** The value that a widget shows: a signal's or a function's read here, a text widget's own. *)
   v = if value.IsFunction(x) x() else if isSignal(x) Get(x) else x end
@@ -252,28 +256,14 @@ defn layRow(id, maxW, fit, ui)
   h = if value.IsSome(n.Height) n.Height else tall + 2 * n.Pad end
   room = h - 2 * n.Pad
   x = n.Pad
-  bar = n.Kind == "toolbar" or n.Kind == "statusbar"
   for c in b.Kids
     ch = u.Boxes[c].H
-    (* in a toolbar or a status bar, a text is centered by its letters, which sit high in its line, as an icon is *)
-    ch = if bar letters(c, u) else ch end
     y = n.Pad + (0 if n.Align == "start" else math.Div(room - ch, 2) if n.Align == "center" else room - ch)
     u = place(c, x, y, u)
     x += u.Boxes[c].W + gap
   end
   w = if value.IsSome(n.Width) n.Width else if fit and shares == 0 used + gaps + 2 * n.Pad else maxW end
   sized(id, w, h, list.Concat(decor(n, w, h, u.Theme), kidGroups(u.Boxes[id], u)), u)
-end
-
-defn letters(id, u)
-  (** The height of the box id as a bar centers it: a text of one line, or a live part that gives one, by the size of
-      its letters, which sit high in their line; any other box by its own. *)
-  b = u.Boxes[id]
-  k = b.Node.Kind
-  if k == "live" and value.Len(b.Kids) == 1
-    return letters(b.Kids[1], u)
-  end
-  if k == "text" and b.H == lineOf(sizeOf(b.Node, u.Theme), u) sizeOf(b.Node, u.Theme) else b.H end
 end
 
 defn layLive(id, maxW, fit, ui)
@@ -346,7 +336,7 @@ defn layTool(id, ui)
   kw = if value.IsMissing(n.Key) 0 else widthOf(n.Key, t.Size, "code", u) + 8 end
   w = iw + lw + kw + 16
   h = t.Field
-  ty = math.Div(h - t.Size, 2)
+  ty = math.Div(h - lineOf(t.Size, u), 2)
   r = dict.GetOr("Radius", 0, t)
   back = if u.Pressed == id role("Pressed", t) else if u.Hover == id role("Hover", t) else if flat missing else role("Raised", t) end
   out = if value.IsMissing(back) [] else [rect(0, 0, w, h, back, r)] end

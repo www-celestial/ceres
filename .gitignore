@@ -28,3 +28,8 @@ examples/invoices/icons.js
 examples/hello/icons.js
 bench/web/icons.js
 tools/docshots/icons.js
+tests/web/align.js
+tests/web/align.wasm
+tests/web/align.sites
+tests/web/ceres.js
+tests/web/icons.js

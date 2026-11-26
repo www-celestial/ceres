@@ -1,0 +1,31 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Ceres align test</title>
+<style>html, body { margin: 0; } #page { width: 640px; height: 520px; }</style>
+<div id="page"><canvas></canvas></div>
+<script type="module" src="/tests/align.js"></script>
+<script type="module">
+// The test that every text is in the middle of its box, in the browser (tests/web/inkcheck.js), on the page of
+// tests/web/align.ce, opened with ceres-check in its address so that the canvas keeps what it drew; dark or light as
+// the browser's prefers-color-scheme says. It writes in the title "done dark aligned" (or light), or "done dark off: " and what is off.
+import { Tree } from '/tests/ceres.js'
+import { offs, inks, pixels, boxOf } from '/tests/inkcheck.js'
+const wait = ms => new Promise(r => setTimeout(r, ms))
+const until = async (f, ms = 20000) => { for (let t = 0; t < ms && !f(); t += 50) await wait(50); return f() }
+await until(() => Tree() && Tree().includes('treeitem') && globalThis.ceresIcons === 'ready')
+await wait(300)
+const tree = JSON.parse(Tree())
+const dark = matchMedia('(prefers-color-scheme: dark)').matches
+const find = (n, f) => f(n) ? n : (n.Kids || []).map(k => find(k, f)).find(Boolean)
+const bad = offs(tree, [
+  { name: 'header', role: 'row', index: 0 }, { name: 'row 1', role: 'row', index: 1 }, { name: 'row 2', role: 'row', index: 2 },
+  { name: 'field', role: 'textbox', label: 'Tenant' }, { name: 'button', role: 'button', label: 'Save' },
+  { name: 'tool', role: 'button', label: 'Users' }, { name: 'tree row', role: 'treeitem', label: 'Users' },
+  { name: 'tile', ...boxOf(0x7a5c9e) }])
+const px = pixels(), field = find(tree, n => n.Role === 'textbox'), label = find(tree, n => n.Role === 'text' && n.Name === 'Tenant')
+const inField = inks(px, field.X, field.Y, field.W, field.H), inLabel = inks(px, label.X, label.Y - 4, label.W, label.H + 8)
+if (!inField.length || !inLabel.length || Math.abs(inField[0].middle - inLabel[0].middle) > 1) bad.push('the label beside the field off its line')
+const tool = find(tree, n => n.Role === 'button' && n.Name === 'Users'), parts = inks(px, tool.X, tool.Y, tool.W, tool.H)
+if (parts.length < 2 || Math.abs(parts[0].middle - parts[1].middle) > 1) bad.push("the icon of the tool off its text's line")
+document.title = 'done ' + (dark ? 'dark ' : 'light ') + (bad.length ? 'off: ' + bad.join('; ') : 'aligned')
+</script>

@@ -17,7 +17,8 @@ use std/value
 
 defn Measure()
   (** The texts measured by the browser's own fonts, as web.Start takes them. *)
-  {Width: (t, size, font) -> js.Call("../../web/ceres.js", "Measure", [t, size, font]), Line: size -> js.Call("../../web/ceres.js", "Line", [size])}
+  {Width: (t, size, font) -> js.Call("../../web/ceres.js", "Measure", [t, size, font]), Line: size -> js.Call("../../web/ceres.js", "Line", [size]),
+    Base: (size, font) -> js.Call("../../web/ceres.js", "Base", [size, font])}
 end
 
 defn Store()

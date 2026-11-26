@@ -64,8 +64,9 @@ Go(path, p) = Set(p.Nav, path)
 
 defn Start(app, width, height, measure, origin = missing, path = "/", theme = missing, headers = [], wake = missing, net = missing, dark = missing, store = missing)
   (** Mounts an app in a window of width by height pixels, at a path: the state that a back-end keeps and gives to
-      Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels}, font "body", "strong",
-      "code" or "icon". With
+      Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels, Base:
+      (size, font) -> pixels}: the width of a text, the height of a line, which holds the letters of every font in its
+      middle, and where its baseline is under its top; font "body", "strong", "code" or "icon". With
       origin, as "http://127.0.0.1:8080", an app with live opens its screen there, sending headers with it; wake is as
       for the live screen (web.Connect), and net, the channel of the browser's online, offline and now. theme is the
       app's (App's theme) unless given here; dark tells whether the system is dark, for web.System, missing when the

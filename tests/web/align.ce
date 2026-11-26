@@ -1,0 +1,20 @@
+(* The page whose pixels tests/web/align.html reads: the widgets whose texts must be in the middle of their boxes, as
+   src/sdl/align.test.ce draws them in SDL (a table, a field and its label, a button, a toolbar, a tile, an outliner), in
+   the theme of the system, web.System, which the test turns dark then light. The tile has a color of its own,
+   which the test finds it by, between the inks of both themes. tools/webshot.sh builds it (cesia build --target wasm tests/web/align.ce). *)
+use src/browser
+use src/web
+
+defn widgets(p)
+  rows = [{N: "65616", C: "Client"}, {N: "65619", C: "Users"}]
+  web.Stack([
+    web.Table(rows, [web.Column("Number", r -> r.N), web.Column("Client", r -> r.C)], height = 80, label = "Invoices"),
+    web.Row([web.Text("Tenant"), web.Input(web.Signal("65541"), label = "Tenant", width = 160), web.Text("link", color = "Muted")], gap = 8),
+    web.Row([web.Button("Save", () -> missing, key = "C-s")]),
+    web.Toolbar([web.Button("Users", () -> missing, icon = "person")]),
+    web.Row([web.Icon("person"), web.Text("Users"), web.Spacer(), web.Text("73", size = 20, font = "code")], pad = 8, height = 56, fill = 0x7a5c9e),
+    web.Tree([web.Item("Users", icon = "person", count = 7), web.Item("Tenants", count = 5)], label = "Pages"),
+  ], gap = 8, pad = 8)
+end
+
+browser.Run(web.App([web.Route("/", widgets)], title = "Align — Ceres", theme = web.System()))

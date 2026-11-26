@@ -69,7 +69,7 @@ sdlSpecs = {Version: ["SDL_GetVersion", [], "i32"], Init: ["SDL_Init", ["u32"], 
 ttfSpecs = {Init: ["TTF_Init", [], "bool"], Engine: ["TTF_CreateRendererTextEngine", ["ptr"], "ptr"], Open: ["TTF_OpenFont", ["text", "f32"], "ptr"],
   Make: ["TTF_CreateText", ["ptr", "ptr", "text", "u64"], "ptr"], Color: ["TTF_SetTextColor", ["ptr", "u8", "u8", "u8", "u8"], "bool"],
   Draw: ["TTF_DrawRendererText", ["ptr", "f32", "f32"], "bool"], Size: ["TTF_GetStringSize", ["ptr", "text", "u64", "ptr", "ptr"], "bool"],
-  Height: ["TTF_GetFontHeight", ["ptr"], "i32"], Hinting: ["TTF_SetFontHinting", ["ptr", "i32"], "void"], DestroyText: ["TTF_DestroyText", ["ptr"], "void"],
+  Height: ["TTF_GetFontHeight", ["ptr"], "i32"], Ascent: ["TTF_GetFontAscent", ["ptr"], "i32"], Hinting: ["TTF_SetFontHinting", ["ptr", "i32"], "void"], DestroyText: ["TTF_DestroyText", ["ptr"], "void"],
   CloseFont: ["TTF_CloseFont", ["ptr"], "void"], DestroyEngine: ["TTF_DestroyRendererTextEngine", ["ptr"], "void"], Quit: ["TTF_Quit", [], "void"]}
 
 (* The fonts that come with Ceres, from the root of a project that is Ceres or that takes it. *)
@@ -128,7 +128,7 @@ defn opened(title, width, height, fonts, vsync, driver, hidden)
   engine = ttf.Engine(ren)
   w = {Sdl: api, Ttf: ttf, Win: win, Ren: ren, Engine: engine, Paths: paths, Fonts: cell(dict.Dict()), Texts: cell(dict.Dict()),
     Masks: cell(dict.Dict()), Sizes: cell(dict.Dict()), Rect: c.Alloc(16), IRect: c.Alloc(16), Out: c.Alloc(8), Event: c.Alloc(128),
-    Buffer: cell({Block: c.Alloc(65536), Size: 65536}), Width: width, Height: height}
+    Buffer: cell({Block: c.Alloc(65536), Size: 65536}), Drops: cell(dict.Dict()), Width: width, Height: height}
   for face in ["body", "strong", "code"]
     _ = fontOf(14, face, w)?
   end
@@ -166,7 +166,8 @@ end
 
 defn Measure(w)
   (** The measures of a window's texts, for web.Start: widths kept once measured. *)
-  {Width: (s, size, face) -> widthOf(s, size, face, w), Line: size -> lineOf(size, w)}
+  {Width: (s, size, face) -> widthOf(s, size, face, w), Line: size -> lineOf(size, w),
+    Base: (size, face) -> dropOf(size, face, w) + w.Ttf.Ascent(font(size, face, w))}
 end
 
 defn widthOf(s, size, face, w)
@@ -187,6 +188,21 @@ defn widthOf(s, size, face, w)
 end
 
 lineOf(size, w) = w.Ttf.Height(font(size, "body", w))   (* The height of a line of text of a size. *)
+
+defn dropOf(size, face, w)
+  (** How far under the top of its line a text is drawn: the box of its font (its ascent and its descent, its height)
+      in the middle of the line, a line of the body's font, or the square of an icon, as the browser centers it. *)
+  key = "$face$(math.Round(size))"
+  drops = peek(w.Drops)
+  got = dict.Get(key, drops)
+  if value.IsSome(got)
+    return got
+  end
+  room = if face == "icon" math.Div(math.Round(size), 1) else lineOf(size, w) end
+  d = math.Div(room - w.Ttf.Height(font(size, face, w)) + 1, 2)
+  put(dict.Put(key, d, drops), w.Drops)
+  d
+end
 
 (* ---- Painting the draw list *)
 
@@ -377,9 +393,10 @@ defn paint(items, dx, dy, cl, w)
           _ = w.Sdl.Edge(w.Ren, area(one.X + dx, one.Y + dy, one.W, one.H, w))
         end
       else if k == "text"
-        t = textObject(one.Text, one.Size, dict.GetOr("Font", "body", one), w)
+        face = dict.GetOr("Font", "body", one)
+        t = textObject(one.Text, one.Size, face, w)
         _ = w.Ttf.Color(t, red(one.Color), green(one.Color), blue(one.Color), alphaOf(one))
-        _ = w.Ttf.Draw(t, one.X + dx, one.Y + dy)
+        _ = w.Ttf.Draw(t, one.X + dx, one.Y + dy + dropOf(one.Size, face, w))
       else if k == "line"
         pts = shifted(one.Points, dx, dy)
         if dict.GetOr("Width", 1, one) < 2

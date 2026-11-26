@@ -86,10 +86,11 @@ defn sceneItem(sh, t, u)
     x = sh.X - (0 if anchor == "start" else w / 2 if anchor == "middle" else w)
     (* a title wider than the plot it is centered over starts at the graph's left edge, not out of it *)
     x = list.Max(4, x) if dict.Get("Role", sh) == "title" else x
-    top = sh.Y - math.Round(size * 0.8)
-    one = words(x, top, sh.Text, size, colorOf(sh.Color, t))
+    (* the scene gives the baseline of a text: its line starts where the back-end puts the baseline under its top *)
+    base = baseOf(size, "body", u)
+    one = words(x, sh.Y - base, sh.Text, size, colorOf(sh.Color, t))
     if angle != 0
-      one = words(sh.X - math.Round(size * 0.8), sh.Y + (0 if anchor == "start" else w / 2 if anchor == "middle" else w), sh.Text, size, colorOf(sh.Color, t))
+      one = words(sh.X - base, sh.Y + (0 if anchor == "start" else w / 2 if anchor == "middle" else w), sh.Text, size, colorOf(sh.Color, t))
       one.Angle = angle
     end
     [one]

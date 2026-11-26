@@ -19,6 +19,11 @@ const field = name => { const t = Tree(); return t && find(JSON.parse(t), n => n
 const layer = () => document.querySelector('#page > div')
 await until(() => layer() && layer().querySelectorAll('[role=row]').length >= 15)
 const rows = layer().querySelectorAll('[role=row]').length, inputs = layer().querySelectorAll('input').length
+// with ceres-check, the canvas keeps what it drew: the texts of the rows and of the field Due (before it has the focus,
+// and its caret) in the middle of their boxes
+await wait(300)
+const off = checked ? (await import('/tests/inkcheck.js')).offs(JSON.parse(Tree()), [{ name: 'header', role: 'row', index: 0 },
+  { name: 'row 1', role: 'row', index: 1 }, { name: 'row 2', role: 'row', index: 2 }, { name: 'Due', role: 'textbox', label: 'Due' }]) : []
 const due = field('Due'), canvas = document.querySelector('canvas'), r = canvas.getBoundingClientRect()
 for (const type of ['pointerdown', 'pointerup'])
   canvas.dispatchEvent(new PointerEvent(type, { clientX: r.left + due.X + 10, clientY: r.top + due.Y + 5, button: 0, bubbles: true }))
@@ -32,5 +37,5 @@ await until(() => field('Due').Value === 'Bru', 5000)
 await wait(100)
 document.title = 'done ' + rows + ' rows, ' + inputs + ' inputs, field ' + field('Due').Value + ', input left ' + JSON.stringify(input.value) +
   ', painted again ' + (Stats().frames.length > before) + ', measure ' + Math.round(Measure('Invoices', 14, 'body')) +
-  (checked ? ', checks ' + JSON.stringify(globalThis.ceresChecks) : '')
+  (checked ? ', checks ' + JSON.stringify(globalThis.ceresChecks) + (off.length ? ', off: ' + off.join('; ') : ', aligned') : '')
 </script>

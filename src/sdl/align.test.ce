@@ -1,0 +1,218 @@
+(* The text of every widget in the middle of its box, read from the pixels that SDL draws under its dummy driver: a row
+   of a table and its header, a field and the label beside it, a button, a button of a toolbar and its icon, a tile of
+   counts, a tab, a row of an outliner. Each run of ink (a text, an icon) is found between the columns that hold none,
+   the lines of the box left aside (a column inked from top to bottom is an edge or a grid line), and its middle must be
+   that of the box, within a pixel; an icon's middle that of the text beside it. In the plain theme of web.Theme and in
+   web.Dark. Without SDL3 and SDL3_ttf on the machine, it passes without a word. *)
+use src/web
+use std/c
+use std/dict
+use std/io
+use std/list
+use std/math
+use std/result
+use std/value
+
+hasSdl() = result.IsOk(c.Open("SDL3", version = 0)) and result.IsOk(c.Open("SDL3_ttf", version = 0))
+
+Xrgb = 0x16161804   (* SDL's format of 4 bytes a pixel, blue, green, red and one unused, read as one u32. *)
+Tile = 0x7a5c9e   (* The color of the tile, which the test finds it by, between the inks of both themes. *)
+
+defn widgets(tile)
+  rows = [{N: "65616", C: "Client"}, {N: "65619", C: "Users"}]
+  web.Stack([
+    web.Table(rows, [web.Column("Number", r -> r.N), web.Column("Client", r -> r.C)], height = 80, label = "Invoices"),
+    web.Row([web.Text("Tenant"), web.Input(web.Signal("65541"), label = "Tenant", width = 160), web.Text("link", color = "Muted")], gap = 8),
+    web.Row([web.Button("Save", () -> missing, key = "C-s")]),
+    web.Toolbar([web.Button("Users", () -> missing, icon = "person")]),
+    web.Row([web.Icon("person"), web.Text("Users"), web.Spacer(), web.Text("73", size = 20, font = "code")], pad = 8, height = 56, fill = tile),
+    web.Tree([web.Item("Users", icon = "person", count = 7), web.Item("Tenants", count = 5)], label = "Pages"),
+  ], gap = 8, pad = 8)
+end
+
+defn shot(theme)
+  (** The page of the widgets drawn in a window of SDL's dummy driver: {Ui, Px, Pitch}, the pixels as Xrgb. *)
+  w = Open("align", 640, 520, vsync = false, driver = "dummy").Value
+  ui = web.Start(web.App([web.Route("/", p -> widgets(Tile))], theme = theme), 640, 520, Measure(w))
+  clipTo(missing, w)
+  _ = paint(web.Frame(ui), 0, 0, missing, w)
+  s = w.Sdl.Read(w.Ren, missing)
+  x = w.Sdl.Convert(s, Xrgb)
+  w.Sdl.DestroySurface(s)
+  {Ui: ui, Surface: x, Px: c.Get("ptr", 24, x), Pitch: c.Get("i32", 16, x), W: w}
+end
+
+defn done(s)
+  s.W.Sdl.DestroySurface(s.Surface)
+  Close(s.W)
+end
+
+pixel(s, x, y) = math.Mod(c.Get("u32", y * s.Pitch + x * 4, s.Px), 16777216)
+luma(p) = math.Div(299 * math.Div(p, 65536) + 587 * math.Mod(math.Div(p, 256), 256) + 114 * math.Mod(p, 256), 1000)
+
+defn background(s, x0, y0, w, h)
+  (** The color most of the box shows. *)
+  seen = dict.Dict()
+  for y in y0..(y0 + h - 1)
+    for x in x0..(x0 + w - 1)
+      p = pixel(s, x, y)
+      seen[p] = dict.GetOr(p, 0, seen) + 1
+    end
+  end
+  best = 0
+  most = -1
+  for p in dict.Keys(seen)
+    if seen[p] > most
+      best = p
+      most = seen[p]
+    end
+  end
+  best
+end
+
+defn inks(s, bx, by, bw, bh)
+  (** The runs of ink of a box, {X0, X1, Top, Bottom}, left to right: the columns of ink, two pixels in from its edges,
+      grouped across gaps under 4 pixels, a column inked from top to bottom left aside (an edge, a grid line); the top
+      of a run, its first row of ink, and its bottom, the last row that holds a quarter of the ink of its fullest one:
+      the baseline, so that the tail of a comma or of a g, under it, doesn't move it. *)
+  x0 = bx + 2
+  y0 = by + 2
+  w = bw - 4
+  h = bh - 4
+  bg = luma(background(s, x0, y0, w, h))
+  ink = dict.Dict()
+  for x in x0..(x0 + w - 1)
+    for y in y0..(y0 + h - 1)
+      if math.Abs(luma(pixel(s, x, y)) - bg) > 56
+        ink["$x $y"] = true
+      end
+    end
+  end
+  inked = (x, y) -> "$x $y" in ink
+  runs = []
+  run = missing
+  gap = 0
+  for x in x0..(x0 + w - 1)
+    count = value.Len([y for y in y0..(y0 + h - 1) if inked(x, y)])
+    if count > 0 and count < h - 1
+      if value.IsSome(run) and gap < 4
+        run = {X0: run.X0, X1: x}
+      else
+        if value.IsSome(run)
+          runs = list.Append(run, runs)
+        end
+        run = {X0: x, X1: x}
+      end
+      gap = 0
+    else
+      gap += 1
+    end
+  end
+  runs = if value.IsSome(run) list.Append(run, runs) else runs end
+  out = []
+  for r in runs
+    rows = [value.Len([x for x in r.X0..r.X1 if inked(x, y)]) for y in y0..(y0 + h - 1)]
+    most = 0
+    for n in rows
+      most = list.Max(most, n)
+    end
+    any = [k for k in 1..value.Len(rows) if rows[k] > 0]
+    full = [k for k in 1..value.Len(rows) if rows[k] * 4 >= most]
+    out = list.Append({X0: r.X0, X1: r.X1, Top: y0 + any[1] - 1, Bottom: y0 + full[value.Len(full)] - 1}, out)
+  end
+  out
+end
+
+middle(r) = (r.Top + r.Bottom + 1) / 2.0   (* The middle of a run of ink, in pixels from the top of the window. *)
+
+defn find(tree, f)
+  (** The first node of the semantics tree that f takes. *)
+  if f(tree)
+    return tree
+  end
+  for k in tree.Kids
+    got = find(k, f)
+    if value.IsSome(got)
+      return got
+    end
+  end
+  missing
+end
+
+defn tileBox(s)
+  (** The box of the tile, found by its color: {X, Y, W, H}. *)
+  x0 = 100000
+  y0 = 100000
+  x1 = -1
+  y1 = -1
+  for y in 0..519
+    for x in 0..639
+      if pixel(s, x, y) == Tile
+        x0 = list.Min(x0, x)
+        y0 = list.Min(y0, y)
+        x1 = list.Max(x1, x)
+        y1 = list.Max(y1, y)
+      end
+    end
+  end
+  {X: x0, Y: y0, W: x1 - x0 + 1, H: y1 - y0 + 1}
+end
+
+defn offs(s, name, b)
+  (** Each run of ink of the box b that isn't in its middle, as "name: run at middle M, box at middle B". *)
+  rs = inks(s, b.X, b.Y, b.W, b.H)
+  if value.IsEmpty(rs)
+    return ["$name: no ink"]
+  end
+  want = b.Y + b.H / 2.0
+  ["$name: ink $(r.X0)-$(r.X1) at $(middle(r)), box at $want" for r in rs if math.Abs(middle(r) - want) > 1]
+end
+
+defn misaligned(theme)
+  (** What isn't in the middle of its box, for a theme: [] when all is. *)
+  s = shot(theme)
+  tree = web.Semantics(s.Ui)
+  rows = [n for n in [find(tree, n -> n.Role == "row" and dict.Get("Index", n) == k) for k in [0, 1, 2]] if value.IsSome(n)]
+  out = list.FlatMap(r -> offs(s, "row $(r.Index)", r), rows)
+  field = find(tree, n -> n.Role == "textbox")
+  out = list.Concat(out, offs(s, "field", field))
+  label = find(tree, n -> n.Role == "text" and n.Name == "Tenant")
+  inField = inks(s, field.X, field.Y, field.W, field.H)
+  inLabel = inks(s, label.X, label.Y - 4, label.W, label.H + 8)
+  if value.IsEmpty(inField) or value.IsEmpty(inLabel) or math.Abs(middle(inField[1]) - middle(inLabel[1])) > 1
+    out = list.Append("the label beside the field off its line", out)
+  end
+  out = list.Concat(out, offs(s, "button", find(tree, n -> n.Role == "button" and n.Name == "Save")))
+  tool = find(tree, n -> n.Role == "button" and n.Name == "Users")
+  out = list.Concat(out, offs(s, "tool", tool))
+  parts = inks(s, tool.X, tool.Y, tool.W, tool.H)
+  if value.Len(parts) < 2 or math.Abs(middle(parts[1]) - middle(parts[2])) > 1
+    out = list.Append("the icon of the tool off its text's line", out)
+  end
+  out = list.Concat(out, offs(s, "tile", tileBox(s)))
+  out = list.Concat(out, offs(s, "tree row", find(tree, n -> n.Role == "treeitem" and n.Name == "Users")))
+  done(s)
+  out
+end
+
+defn aligned(offs)
+  (** True when nothing is off, else false with what is, said on the error output. *)
+  for one in offs
+    io.PrintError(one)
+  end
+  value.IsEmpty(offs)
+end
+
+defn isTextInTheMiddleOfItsBox()
+  if not hasSdl()
+    return true
+  end
+  aligned(misaligned(web.Theme))
+end
+
+defn isTextInTheMiddleOfItsBoxInTheDark()
+  if not hasSdl()
+    return true
+  end
+  aligned(misaligned(web.Dark))
+end

@@ -13,8 +13,9 @@ use std/text
 use std/value
 
 (** The measures of the headless text: a character is half the size wide, an icon a square, a line one size and a
-    half high. *)
-Measure = {Width: (s, size, font) -> size if font == "icon" else value.Len(s) * math.Div(size, 2), Line: size -> size + math.Div(size, 2)}
+    half high, its baseline one size under its top. *)
+Measure = {Width: (s, size, font) -> size if font == "icon" else value.Len(s) * math.Div(size, 2), Line: size -> size + math.Div(size, 2),
+  Base: (size, font) -> size}
 
 (** An app mounted in a page of width by height pixels at path, its live screen at origin if it has one; dark says
     whether the system is dark, for a theme that follows it, and store is where a web.Dock keeps its layout

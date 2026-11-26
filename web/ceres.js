@@ -14,7 +14,8 @@
 //                            changes come as 'scheme'; net, a channel, gets the browser's 'online' and 'offline', and
 //                            'now' when the tab is shown
 //   Measure(text, size, font)  the width of a text in pixels, font 'body', 'strong', 'code' or 'icon'; Line(size) a
-//                            line's height
+//                            line's height, the letters of every font in its middle; Base(size, font) where the
+//                            baseline of a line is, from its top
 //   Cursor(name)             the mouse's cursor over the canvas, as CSS names it: 'default', 'text', 'col-resize'...
 //   Keep(name, text), Kept(name)  a text kept in the browser's local storage for the page, as a web.Dock keeps its
 //                            layout, and read again ('' for none)
@@ -59,7 +60,8 @@ const STRIDE = 18 // floats a vertex: p 2, c 4, t 2, b 4, r 2, k 4
 const ATLAS = 2048
 
 export function painter(canvas) {
-  const gl = canvas.getContext('webgl2', { antialias: false, alpha: false })
+  // a test page (ceres-check in its address) keeps what the canvas drew, so that it can read its pixels
+  const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: /[?&]ceres-check\b/.test(location.search) })
   if (!gl) throw new Error('Ceres needs WebGL2.')
   const prog = gl.createProgram()
   for (const [kind, src] of [[gl.VERTEX_SHADER, VS], [gl.FRAGMENT_SHADER, FS]]) {
@@ -117,7 +119,33 @@ export function painter(canvas) {
     due0 = ATLAS; due1 = dueH = 0
   }
 
-  // A text run in the atlas, drawn once by the browser's own text engine: {u0, v0, u1, v1, w, h} in css pixels.
+  // Where the letters of a font sit in their line: the font's own box, its ascent above the baseline and its descent
+  // under it as the font declares them (fontBoundingBox), centered in the line, as CSS centers it with its half-leading;
+  // so a text is in the middle of its line whatever the font, and a widget that centers the line centers its text. A
+  // line is line(size) high, an icon's the square of its size, which the box of the icons' font fills. For each font
+  // and size in device pixels: [ascent, descent].
+  const boxes = [new Map(), new Map(), new Map(), new Map()]
+  function boxOf(f, px) {
+    let b = boxes[f].get(px)
+    if (b === undefined) {
+      const m = strip.measureText('Hg')
+      b = [m.fontBoundingBoxAscent, m.fontBoundingBoxDescent]
+      if (!(b[0] > 0)) b = [px * 0.8, px * 0.2] // a browser without the font's box: the em's usual parts
+      boxes[f].set(px, b)
+    }
+    return b
+  }
+  const lineOf = size => Math.ceil(size * 1.4)
+  // The baseline of a line of text, from the top of its line, in css pixels: web.Measure's Base.
+  function base(size, name) {
+    const f = name === 'strong' ? 1 : name === 'code' ? 2 : 0, c = font(f, size)
+    if (meterFont !== c) { meter.font = c; meterFont = c }
+    const m = meter.measureText('Hg'), a = m.fontBoundingBoxAscent > 0 ? m.fontBoundingBoxAscent : size * 0.8, d = m.fontBoundingBoxAscent > 0 ? m.fontBoundingBoxDescent : size * 0.2
+    return Math.round((lineOf(size) - a - d) / 2 + a)
+  }
+
+  // A text run in the atlas, drawn once by the browser's own text engine: {u0, v0, u1, v1, w, h, y} in css pixels, y
+  // where the top of its line is in it.
   function run(text, size, f) {
     let bySize = runs[f].get(size)
     if (bySize === undefined) { bySize = new Map(); runs[f].set(size, bySize) }
@@ -125,17 +153,19 @@ export function painter(canvas) {
     if (e !== undefined) return e
     const c = font(f, size * dpr)
     if (stripFont !== c) { strip.font = c; stripFont = c }
-    const w = Math.min(ATLAS, Math.ceil(strip.measureText(text).width) + 2), h = Math.ceil(size * dpr * 1.4) + 2
+    const [asc, desc] = boxOf(f, size * dpr)
+    const line = (f === 3 ? size : lineOf(size)) * dpr, lead = (line - asc - desc) / 2, above = Math.max(0, Math.ceil(-lead))
+    const w = Math.min(ATLAS, Math.ceil(strip.measureText(text).width) + 2), h = line + 2 * above + 2
     if (shelfX + w > ATLAS) { upload(); strip.clearRect(0, 0, ATLAS, strip.canvas.height); shelfX = 0; shelfY += shelfH; shelfH = 0 }
     if (shelfY + h > ATLAS) { flush(); restart(); return run(text, size, f) } // full: what is drawn so far is painted, then it starts again, as Cemacs does
     if (h > strip.canvas.height) { upload(); strip.canvas.height = h; stripFont = ''; return run(text, size, f) }
-    strip.textBaseline = 'top'
+    strip.textBaseline = 'alphabetic'
     strip.fillStyle = '#fff'
-    strip.fillText(text, shelfX + 1, 1)
+    strip.fillText(text, shelfX + 1, 1 + above + Math.round(lead + asc))
     if (shelfX < due0) due0 = shelfX
     if (shelfX + w > due1) due1 = shelfX + w
     if (h > dueH) dueH = h
-    e = { u0: shelfX / ATLAS, v0: shelfY / ATLAS, u1: (shelfX + w) / ATLAS, v1: (shelfY + h) / ATLAS, w: w / dpr, h: h / dpr }
+    e = { u0: shelfX / ATLAS, v0: shelfY / ATLAS, u1: (shelfX + w) / ATLAS, v1: (shelfY + h) / ATLAS, w: w / dpr, h: h / dpr, y: (1 + above) / dpr }
     bySize.set(text, e)
     shelfX += w; shelfH = Math.max(shelfH, h)
     return e
@@ -214,7 +244,7 @@ export function painter(canvas) {
         if (f[k + 6] !== 3 || iconsReady()) {
           const e = run(text, f[k + 3], f[k + 6])
           color(f[k + 4], f[k + 5])
-          quad(f[k + 1] + dx - 1 / dpr, f[k + 2] + dy - 1 / dpr, e.w, e.h, -1, 0, e.u0, e.v0, e.u1, e.v1)
+          quad(f[k + 1] + dx - 1 / dpr, f[k + 2] + dy - e.y, e.w, e.h, -1, 0, e.u0, e.v0, e.u1, e.v1)
         } else iconsMissed = true
         if (op === 9) next += len
         k += op === 3 ? 10 : 9
@@ -285,7 +315,7 @@ export function painter(canvas) {
     bySize.set(text, w)
     return w
   }
-  return { paint, resize, measure, line: size => Math.ceil(size * 1.4) }
+  return { paint, resize, measure, line: lineOf, base }
 }
 
 // The hidden DOM: one element for each node of the semantics tree, kept by its Id, at its place over the canvas,
@@ -504,6 +534,7 @@ export function Start(events, form, net) {
 
 export const Measure = (t, size, font) => glue.p.measure(text(t), size, text(font))
 export const Line = size => glue.p.line(size)
+export const Base = (size, font) => glue.p.base(size, text(font))
 let shown = false
 export const Mirror = json => { glue.mirrored(text(json)); shown = true }
 export const Patch = json => {

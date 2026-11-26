@@ -3,7 +3,7 @@ page at 0,0 1000x640
   toolbar at 0,0 1000x32
     button "Save" at 4,4 88x24
     button "Refresh" at 101,4 100x24
-    text "Invoices" at 948,9 48x19
+    text "Invoices" at 948,6 48x19
   tablist "Left" at 0,36 200x28
     tab "Outliner" selected at 0,36 94x28
   tabpanel "Outliner" at 0,64 200x518
@@ -105,21 +105,21 @@ page at 0,0 1000x640
     text "Total" at 748,124 30x19
     textbox "Total" = "10.5" at 868,122 60x24
     text "money" at 936,124 30x19
-  text "Live" at 4,593 24x19
-  text "super@app.test" at 53,593 84x19
-  text "200 invoices" at 924,593 72x19
+  text "Live" at 4,590 24x19
+  text "super@app.test" at 53,590 84x19
+  text "200 invoices" at 924,590 72x19
 == isDockFillsTheWindow 2 (184 lines, no line end)
 rect 0,0 1000x640 #151515
 rect 0,0 1000x613 #151515
 rect 0,0 1000x32 #1c1c1c
 icon 12,8 "save" 16 #dcdcdc
-text 34,9 "Save" 13 #dcdcdc
-text 66,9 "C-s" 13 code #a8a8a8
+text 34,6 "Save" 13 #dcdcdc
+text 66,6 "C-s" 13 code #a8a8a8
 rect 96,8 1x16 #383838
 icon 109,8 "refresh" 16 #dcdcdc
-text 131,9 "Refresh" 13 #dcdcdc
-text 181,9 "f5" 13 code #a8a8a8
-text 948,9 "Invoices" 13 #a8a8a8
+text 131,6 "Refresh" 13 #dcdcdc
+text 181,6 "f5" 13 code #a8a8a8
+text 948,6 "Invoices" 13 #a8a8a8
 clip 0,36 1000x546
   clip 0,36 200x546
     rect 0,36 200x28 #1c1c1c
@@ -127,21 +127,21 @@ clip 0,36 1000x546
     rect 0,36 94x28 #242424
     rect 0,36 94x2 #383838
     icon 12,42 "list-tree" 16 #dcdcdc
-    text 34,43 "Outliner" 13 #dcdcdc
+    text 34,40 "Outliner" 13 #dcdcdc
     clip 0,64 200x518
       clip 0,64 200x518
         icon 26,71 "dashboard" 16 #a8a8a8
-        text 48,72 "Dashboard" 13 #dcdcdc
+        text 48,69 "Dashboard" 13 #dcdcdc
         icon 8,93 "chevron-down" 16 #a8a8a8
         icon 26,93 "database" 16 #a8a8a8
-        text 48,94 "Data" 13 #dcdcdc
+        text 48,91 "Data" 13 #dcdcdc
         rect 4,112 192x22 #1f5fb0
         icon 40,115 "table" 16 #ffffff
-        text 62,116 "Invoices" 13 #ffffff
-        text 170,116 "200" 13 code #ffffff
+        text 62,113 "Invoices" 13 #ffffff
+        text 170,113 "200" 13 code #ffffff
         icon 40,137 "person" 16 #a8a8a8
-        text 62,138 "Clients" 13 #dcdcdc
-        text 176,138 "12" 13 code #a8a8a8
+        text 62,135 "Clients" 13 #dcdcdc
+        text 176,135 "12" 13 code #a8a8a8
   clip 204,36 796x546
     clip 204,36 532x546
       clip 204,36 532x422
@@ -150,9 +150,9 @@ clip 0,36 1000x546
         rect 204,36 94x28 #242424
         rect 204,36 94x2 #383838
         icon 216,42 "table" 16 #dcdcdc
-        text 238,43 "Invoices" 13 #dcdcdc
+        text 238,40 "Invoices" 13 #dcdcdc
         icon 311,42 "note" 16 #a8a8a8
-        text 333,43 "Notes" 13 #a8a8a8
+        text 333,40 "Notes" 13 #a8a8a8
         clip 204,64 532x394
           clip 204,64 532x394
             rect 208,68 524x359 #161616
@@ -248,9 +248,9 @@ clip 0,36 1000x546
         rect 204,462 64x28 #242424
         rect 204,462 64x2 #383838
         icon 216,468 "output" 16 #dcdcdc
-        text 238,469 "Log" 13 #dcdcdc
+        text 238,466 "Log" 13 #dcdcdc
         icon 281,468 "tools" 16 #a8a8a8
-        text 303,469 "Jobs" 13 #a8a8a8
+        text 303,466 "Jobs" 13 #a8a8a8
         clip 204,490 532x92
           clip 204,490 532x92
             text 208,494 "ready" 13 #dcdcdc
@@ -260,12 +260,12 @@ clip 0,36 1000x546
       rect 740,36 88x28 #242424
       rect 740,36 88x2 #383838
       icon 752,42 "settings-gear" 16 #dcdcdc
-      text 774,43 "Details" 13 #dcdcdc
+      text 774,40 "Details" 13 #dcdcdc
       clip 740,64 260x518
         clip 740,64 260x518
           rect 744,68 252x24 #1c1c1c
           icon 748,72 "chevron-down" 16 #a8a8a8
-          text 768,73 "Invoice" 13 strong #dcdcdc
+          text 768,70 "Invoice" 13 strong #dcdcdc
           text 748,98 "Client" 13 #a8a8a8
           rect 868,96 60x24 #161616 r2
           frame 868,96 60x24 #737373 r2
@@ -279,10 +279,10 @@ clip 0,36 1000x546
             text 874,124 "10.5" 13 code #dcdcdc
           text 936,124 "money" 13 #a8a8a8
 rect 0,586 1000x27 #1c1c1c
-text 4,593 "Live" 13 #5fcf75
+text 4,590 "Live" 13 #5fcf75
 rect 40,591 1x16 #383838
-text 53,593 "super@app.test" 13 #dcdcdc
-text 924,593 "200 invoices" 13 #a8a8a8
+text 53,590 "super@app.test" 13 #dcdcdc
+text 924,590 "200 invoices" 13 #a8a8a8
 rect 0,613 1000x27 #1c1c1c
 rect 0,613 1000x1 #2e2e2e
 text 12,617 "Tab" 13 code #6cb4ff
@@ -298,7 +298,7 @@ page at 0,0 1000x640
   toolbar at 0,0 1000x32
     button "Save" at 4,4 88x24
     button "Refresh" at 101,4 100x24
-    text "Invoices" at 948,9 48x19
+    text "Invoices" at 948,6 48x19
   tablist "Left" at 0,36 260x28
     tab "Outliner" selected at 0,36 94x28
   tabpanel "Outliner" at 0,64 260x518
@@ -394,6 +394,6 @@ page at 0,0 1000x640
     tab "Log" selected at 829,36 64x28
   tabpanel "Log" at 740,64 260x518
     text "ready" at 744,68 30x19
-  text "Live" at 4,593 24x19
-  text "super@app.test" at 53,593 84x19
-  text "200 invoices" at 924,593 72x19
+  text "Live" at 4,590 24x19
+  text "super@app.test" at 53,590 84x19
+  text "200 invoices" at 924,590 72x19

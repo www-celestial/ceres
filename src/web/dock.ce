@@ -355,7 +355,7 @@ defn layTabs(id, maxW, ui)
     if value.IsSome(icon)
       items = list.Append(iconItem(x + 12, math.Div(th - ic, 2), icon, ic, t.Link if on and inside else ink), items)
     end
-    items = list.Append(words(x + 12 + iw, math.Div(th - t.Size, 2), title, t.Size, ink), items)
+    items = list.Append(words(x + 12 + iw, math.Div(th - lh, 2), title, t.Size, ink), items)
     if on and u.Focus == id and u.Ring
       items = list.Append(frame(x + 1, 1, tw - 2, th - 2, t.Accent), items)
     end
@@ -441,7 +441,7 @@ defn layTree(id, maxW, ui)
   rh = t.Row
   lh = lineOf(t.Size, u)
   ic = role("Icon", t)
-  ty = math.Div(rh - t.Size, 2)
+  ty = math.Div(rh - lh, 2)
   iy = math.Div(rh - ic, 2)
   items = []
   for k in 1..value.Len(rows)
@@ -488,7 +488,7 @@ defn laySection(id, maxW, ui)
   title = shown(n.Title)
   items = [rect(0, 0, maxW, h, role("Hover", t) if u.Hover == id else role("Header", t)),
     iconItem(4, math.Div(h - ic, 2), "chevron-down" if got.Value else "chevron-right", ic, t.Muted),
-    words(8 + ic, math.Div(h - t.Size, 2), title, t.Size, t.Ink, "strong")]
+    words(8 + ic, math.Div(h - lineOf(t.Size, u), 2), title, t.Size, t.Ink, "strong")]
   if u.Focus == id and u.Ring
     items = list.Append(frame(0, 0, maxW, h, t.Accent), items)
   end
