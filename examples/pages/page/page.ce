@@ -25,37 +25,34 @@ defn amountWrong(s)
   if not value.IsNumber(n) "An amount is a number, as 1280.50." else if n < 0 "An amount is 0 or more." else "" end
 end
 
-(* The state of the app, kept across its pages. *)
-invoices = web.Signal(seed)
-status = web.Signal("all")
-search = web.Signal("")
-checks = web.Signal(dict.Dict())
-cross = web.Signal(missing)
+(* The state of an app, kept across its pages: the invoices, the state and the search of the list, the rows checked,
+   the crosshair of the board. *)
+newState() = {Invoices: web.Signal(seed), Status: web.Signal("all"), Search: web.Signal(""), Checks: web.Signal(dict.Dict()), Cross: web.Signal(missing)}
 
-defn shown()
+defn shown(s)
   (** The invoices of the state chosen whose number or client holds the search. *)
-  q = text.Lower(text.Trim(web.Get(search)))
-  [i for i in web.Get(invoices) if (web.Get(status) == "all" or i.Status == web.Get(status)) and (q == "" or text.Contains(q, text.Lower(i.Client)) or text.Contains(q, value.Text(i.Number)))]
+  q = text.Lower(text.Trim(web.Get(s.Search)))
+  [i for i in web.Get(s.Invoices) if (web.Get(s.Status) == "all" or i.Status == web.Get(s.Status)) and (q == "" or text.Contains(q, text.Lower(i.Client)) or text.Contains(q, value.Text(i.Number)))]
 end
 
-defn frame(p, page)
+defn frame(p, page, s)
   (** Every page in the shell: the side bar of the pages, where one is at the top, the invoice opened at the right. *)
   web.Shell(p, page,
     side = [web.Row([web.Stack([web.Text("IA", font = "strong", color = 0xffffff)], width = 26, height = 26, fill = "Accent", radius = 6, align = "center"),
         web.Stack([web.Text("Invoices", font = "strong"), web.Text("Office of Lyon", size = "small", color = "Muted")], gap = 0)], gap = 8),
       web.Nav(() -> [web.Group("", [web.Item("Dashboard", icon = "layout-dashboard", to = "/")]),
-        web.Group("Data", [web.Item("Invoices", icon = "file-text", to = "/invoices", count = value.Len(web.Get(invoices))),
+        web.Group("Data", [web.Item("Invoices", icon = "file-text", to = "/invoices", count = value.Len(web.Get(s.Invoices))),
           web.Item("Clients", icon = "building", to = "/clients", count = value.Len(clients))]),
         web.Group("Setup", [web.Item("Settings", icon = "settings", to = "/settings")])], label = "Pages"),
       web.Spacer(),
       web.Row([web.Icon("circle-check", color = "Ok"), web.Text("Live", size = "small", color = "Muted")], gap = 6),
       web.Row([web.Icon("circle-user", color = "Muted"), web.Stack([web.Text("ana@office.test", size = "small", font = "strong"), web.Text("Owner", size = "small", color = "Muted")], gap = 0)], gap = 8)],
     top = [() -> crumbs(web.Get(p.Nav))],
-    sheet = () -> opened(web.Get(p.Nav), p),
+    sheet = () -> opened(web.Get(p.Nav), p, s),
     find = () -> list.Concat([web.Command("Dashboard", to = "/", group = "Pages", icon = "layout-dashboard"), web.Command("Invoices", to = "/invoices", group = "Pages", icon = "file-text"),
       web.Command("Clients", to = "/clients", group = "Pages", icon = "building"), web.Command("Settings", to = "/settings", group = "Pages", icon = "settings"),
       web.Command("New invoice", on = () -> web.Toast(p, "A new invoice"), group = "Actions", icon = "plus", key = "M-n")],
-      [web.Command("Invoice $(i.Number) · $(i.Client)", to = "/invoices/$(i.Number)", group = "Invoices", icon = "file-text") for i in web.Get(invoices)]),
+      [web.Command("Invoice $(i.Number) · $(i.Client)", to = "/invoices/$(i.Number)", group = "Invoices", icon = "file-text") for i in web.Get(s.Invoices)]),
     view = () -> viewOf(web.Get(p.Nav)), label = "Invoices")
 end
 
@@ -67,14 +64,14 @@ defn crumbs(path)
   web.Row([web.Text("Invoices", color = "Muted"), web.Icon("chevron-right", size = 12, color = "Muted"), web.Text(page, font = "strong")], gap = 6)
 end
 
-defn opened(path, p)
+defn opened(path, p, s)
   (** The invoice of the address, in the sheet: its fields, checked as one types, saved together. *)
   parts = text.Split("/", path)
   if value.Len(parts) != 3 or parts[2] != "invoices"
     return missing
   end
   n = text.Number(parts[3])
-  i = list.FindFirst(x -> x.Number == n, web.Get(invoices))
+  i = list.FindFirst(x -> x.Number == n, web.Get(s.Invoices))
   if value.IsMissing(i)
     return missing
   end
@@ -85,7 +82,7 @@ defn opened(path, p)
     if amountWrong(web.Get(total)) != ""
       return missing
     end
-    web.Set(invoices, [if x.Number == n dict.Put("Total", text.Number(web.Get(total)), dict.Put("Client", web.Get(client), x)) else x end for x in web.Get(invoices)])
+    web.Set(s.Invoices, [if x.Number == n dict.Put("Total", text.Number(web.Get(total)), dict.Put("Client", web.Get(client), x)) else x end for x in web.Get(s.Invoices)])
     web.Toast(p, "Invoice $n saved")
   end
   web.Unsaved(p, changed, save = save)
@@ -100,26 +97,26 @@ defn opened(path, p)
       web.Button("Save", save, key = "C-s", style = "primary")])
 end
 
-defn Invoices(p)
+defn Invoices(p, s)
   (** The invoices: the chips of their states, the search, the table, what to do with the rows checked. *)
-  all = web.Get(invoices)
+  all = web.Get(s.Invoices)
   owed = list.Sum([i.Total for i in all if i.Status == "unpaid" or i.Status == "overdue"])
   count = s -> value.Len([i for i in all if s == "all" or i.Status == s])
-  table = web.Table(web.Memo(shown), [web.Column("Id", i -> web.Text(i.Id, size = "small", color = "Muted"), sort = "Id", width = 70),
+  table = web.Table(web.Memo(() -> shown(s)), [web.Column("Id", i -> web.Text(i.Id, size = "small", color = "Muted"), sort = "Id", width = 70),
       web.Column("Number", i -> web.Text(value.Text(i.Number), font = "strong"), sort = "Number", width = 80), web.Column("Client", i -> i.Client, sort = "Client"),
       web.Column("Status", i -> web.Pill(stateWord[i.Status], tone = stateTone[i.Status]), sort = "Status", width = 110),
       web.Column("Total", i -> web.Money(i.Total), sort = "Total", width = 120)],
-    height = missing, label = "Invoices", checks = checks, key = i -> i.Number, open = i -> web.Go("/invoices/$(i.Number)", p),
+    height = missing, label = "Invoices", checks = s.Checks, key = i -> i.Number, open = i -> web.Go("/invoices/$(i.Number)", p),
     picked = web.Memo(() -> pickedOf(web.Get(p.Nav))))
   web.Stack([
     web.Header("Invoices", summary = "$(value.Len(all)) invoices · $(web.Money(owed).Text) to collect",
-      actions = [web.Button("Export", () -> web.Toast(p, "Exported $(value.Len(shown())) invoices"), icon = "download"),
+      actions = [web.Button("Export", () -> web.Toast(p, "Exported $(value.Len(shown(s))) invoices"), icon = "download"),
         web.Button("New invoice", () -> web.Toast(p, "A new invoice"), icon = "plus", style = "primary", key = "M-n")]),
-    web.Spread(web.Chips(status, [web.Chip(s, if s == "all" "All" else stateWord[s] end, count = count(s)) for s in list.Prepend("all", states)], label = "State"),
-      web.Input(search, label = "Search", placeholder = "Number or client", icon = "search", hint = "/", width = 240)),
-    web.Bulk(checks, [web.Button("Mark paid", () -> markPaid(p), icon = "check")]),
+    web.Spread(web.Chips(s.Status, [web.Chip(s, if s == "all" "All" else stateWord[s] end, count = count(s)) for s in list.Prepend("all", states)], label = "State"),
+      web.Input(s.Search, label = "Search", placeholder = "Number or client", icon = "search", hint = "/", width = 240)),
+    web.Bulk(s.Checks, [web.Button("Mark paid", () -> markPaid(p, s), icon = "check")]),
     table,
-    () -> web.Text("$(value.Len(shown())) of $(value.Len(all)) shown", size = "small", color = "Muted"),
+    () -> web.Text("$(value.Len(shown(s))) of $(value.Len(all)) shown", size = "small", color = "Muted"),
   ], gap = 10)
 end
 
@@ -129,15 +126,15 @@ defn pickedOf(path)
   if value.Len(parts) == 3 and parts[2] == "invoices" text.Number(parts[3]) else missing end
 end
 
-defn markPaid(p)
+defn markPaid(p, s)
   (** The invoices checked, paid; none checked after. *)
-  marked = web.Get(checks)
-  web.Set(invoices, [if x.Number in marked dict.Put("Status", "paid", x) else x end for x in web.Get(invoices)])
+  marked = web.Get(s.Checks)
+  web.Set(s.Invoices, [if x.Number in marked dict.Put("Status", "paid", x) else x end for x in web.Get(s.Invoices)])
   web.Toast(p, "$(value.Len(marked)) invoices marked paid")
-  web.Set(checks, dict.Dict())
+  web.Set(s.Checks, dict.Dict())
 end
 
-defn Dashboard(p)
+defn Dashboard(p, s)
   (** A board of graphs that share a crosshair: the mouse over one shows the same minute in all of them. *)
   ns = [40 + math.Mod(k * 37, 23) + math.Mod(k * k, 9) for k in 1..60]
   ms = [4 + math.Mod(k * 13, 5) for k in 1..60]
@@ -149,16 +146,16 @@ defn Dashboard(p)
     web.Header("Dashboard", summary = "The office, the last hour"),
     web.Strip([web.Row([web.Icon("circle-check", color = "Ok"), web.Text("Live", font = "strong")], gap = 6), web.Text("312 requests/min"), web.Text("p50 4 ms · p99 31 ms"),
       web.Text("0 errors", color = "Ok"), web.Text("1 job failed", color = "Danger")]),
-    web.Row([web.Grow(web.Metric("Requests", i -> value.Text(pick(ns, i)), () -> [{Values: ns, Tone: "S1"}], unit = "/min", note = "peak 70", at = at, cross = cross)),
-      web.Grow(web.Metric("Response time", i -> "$(pick(ms, i)) / $(pick(ps, i))", () -> [{Values: ms, Tone: "S1"}, {Values: ps, Tone: "S4"}], unit = "ms", note = "p50 / p99", at = at, cross = cross, style = "line")),
-      web.Grow(web.Metric("Errors", i -> value.Text(pick(es, i)), () -> [{Values: es, Tone: "Danger"}], unit = "/min", at = at, cross = cross, style = "bars"))], gap = 8, align = "start"),
+    web.Row([web.Grow(web.Metric("Requests", i -> value.Text(pick(ns, i)), () -> [{Values: ns, Tone: "S1"}], unit = "/min", note = "peak 70", at = at, cross = s.Cross)),
+      web.Grow(web.Metric("Response time", i -> "$(pick(ms, i)) / $(pick(ps, i))", () -> [{Values: ms, Tone: "S1"}, {Values: ps, Tone: "S4"}], unit = "ms", note = "p50 / p99", at = at, cross = s.Cross, style = "line")),
+      web.Grow(web.Metric("Errors", i -> value.Text(pick(es, i)), () -> [{Values: es, Tone: "Danger"}], unit = "/min", at = at, cross = s.Cross, style = "bars"))], gap = 8, align = "start"),
   ], gap = 10)
 end
 
-defn Clients(p)
+defn Clients(p, s)
   (** The clients and what each owes. *)
   web.Stack([web.Header("Clients", summary = "$(value.Len(clients)) clients"),
-    web.Table([{Name: c, Owed: list.Sum([i.Total for i in web.Get(invoices) if i.Client == c and i.Status != "paid"])} for c in clients],
+    web.Table([{Name: c, Owed: list.Sum([i.Total for i in web.Get(s.Invoices) if i.Client == c and i.Status != "paid"])} for c in clients],
       [web.Column("Name", c -> c.Name, sort = "Name"), web.Column("Owed", c -> web.Money(c.Owed), sort = "Owed", width = 140)], height = missing, label = "Clients")], gap = 10)
 end
 
@@ -182,6 +179,9 @@ defn applied(theme, density, p)
   missing
 end
 
-(** The app: the system's theme by default. *)
-App(theme = web.System()) = web.App([web.Route("/", Dashboard), web.Route("/invoices", Invoices), web.Route("/invoices/:n", Invoices), web.Route("/clients", Clients),
-  web.Route("/settings", Settings)], title = "Invoices — pages", theme = theme, frame = frame)
+defn App(theme = web.System())
+  (** The app, its own state made new: the system's theme by default. *)
+  s = newState()
+  web.App([web.Route("/", p -> Dashboard(p, s)), web.Route("/invoices", p -> Invoices(p, s)), web.Route("/invoices/:n", p -> Invoices(p, s)), web.Route("/clients", p -> Clients(p, s)),
+    web.Route("/settings", Settings)], title = "Invoices — pages", theme = theme, frame = (p, pg) -> frame(p, pg, s))
+end

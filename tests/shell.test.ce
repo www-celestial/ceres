@@ -1,0 +1,148 @@
+(* The layout of a web app (web.Shell), on the headless back-end, with the page of examples/pages: the row of the side
+   bar of the route shown, the sheet beside the page on a wide window, over it on a narrower one, the whole window of a
+   phone, where the side bar is a drawer and rows are cards; the palette of Ctrl+K that finds a page and goes there; a
+   change not saved asked in the sheet; the density that the top bar's button goes round; the rows checked and the band
+   of web.Bulk; the tabs of the views opened; every text readable in both themes. *)
+use examples/pages/page
+use src/web
+use src/headless
+use std/dict
+use std/list
+use std/text
+use std/value
+
+ctrl(k, p) = web.Handle({Kind: "key", Key: k, Ctrl: true, Shift: false, Alt: false}, p)
+key(k, p) = web.Handle({Kind: "key", Key: k, Ctrl: false, Shift: false, Alt: false}, p)
+
+defn found(n, f)
+  (** The first node at n or under it that f takes, or missing. *)
+  if f(n)
+    return n
+  end
+  for k in n.Kids
+    got = found(k, f)
+    if value.IsSome(got)
+      return got
+    end
+  end
+  missing
+end
+
+node(p, f) = found(web.Semantics(p), f)   (* The first node of the page's semantics tree that f takes, or missing. *)
+
+has(p, role, name) = value.IsSome(node(p, n -> n.Role == role and n.Name == name))
+
+defn opened(width, path = "/invoices/1017", store = missing)
+  (** The example at path in a window width pixels wide, in the dark theme. *)
+  headless.Open(page.App(theme = web.Dark), width = width, height = 800, path = path, store = store)
+end
+
+defn isNavChosenByThePath()
+  p = opened(1440)
+  inv = node(p, n -> n.Role == "link" and n.Name == "Invoices" and dict.Get("Href", n) == "/invoices")
+  dash = node(p, n -> n.Role == "link" and n.Name == "Dashboard")
+  list.All([value.IsSome(inv) and inv.Selected == true, value.IsSome(dash) and dash.Selected != true, has(p, "navigation", "Pages")])
+end
+
+defn isSheetBesideOverOrWhole()
+  (* the sheet's title "1017" stands at the right edge less the sheet's width; the table is narrower beside it *)
+  wide = opened(1440)
+  mid = opened(1000)
+  phone = opened(390)
+  t1 = node(wide, n -> n.Role == "table")
+  t2 = node(mid, n -> n.Role == "table")
+  s1 = node(wide, n -> n.Role == "text" and n.Name == "1017")
+  s2 = node(mid, n -> n.Role == "text" and n.Name == "1017")
+  s3 = node(phone, n -> n.Role == "text" and n.Name == "1017")
+  list.All([s1.X >= 1440 - 400, t1.X + t1.W <= 1440 - 400, s2.X >= 1000 - 400, t2.X + t2.W > 1000 - 400, s3.X < 40])
+end
+
+defn isDrawerOnAPhone()
+  p = opened(390, path = "/invoices")
+  hidden = node(p, n -> n.Role == "link" and n.Name == "Clients")
+  p = headless.ClickOn("Menu", p)
+  shown = node(p, n -> n.Role == "link" and n.Name == "Clients")
+  p = headless.ClickOn("Clients", p)
+  list.All([value.IsMissing(hidden) or hidden.X < 0, value.IsSome(shown) and shown.X >= 0, web.Path(p) == "/clients",
+    value.IsMissing(node(p, n -> n.Role == "link" and n.Name == "Clients" and n.X >= 0))])
+end
+
+defn isRowsCardsOnAPhone()
+  p = opened(390, path = "/invoices")
+  row = node(p, n -> n.Role == "row" and dict.Get("Index", n) == 1)
+  value.IsSome(row) and row.H > 40
+end
+
+defn isPaletteFindingAPage()
+  p = opened(1440, path = "/")
+  p = ctrl("k", p)
+  asked = value.IsSome(node(p, n -> n.Role == "dialog"))
+  p = headless.Type("clie", p)
+  found = has(p, "option", "Clients")
+  p = key("enter", p)
+  list.All([asked, found, web.Path(p) == "/clients", value.IsMissing(node(p, n -> n.Role == "dialog"))])
+end
+
+defn isChangeNotSavedAskedInTheSheet()
+  p = opened(1440)
+  p = headless.ClickOn("Total", p)
+  p = headless.Type("9", p)
+  p = headless.ClickOn("Dashboard", p)
+  asked = node(p, n -> n.Role == "alert")
+  stay = web.Path(p) == "/invoices/1017"
+  p = headless.ClickOn("Discard changes", p)
+  list.All([value.IsSome(asked) and asked.Name == "Changes not saved. Leave without saving?", stay, web.Path(p) == "/"])
+end
+
+defn isDensityGoingRound()
+  s = headless.Store()
+  p = opened(1440, path = "/invoices", store = s)
+  r1 = node(p, n -> n.Role == "row" and dict.Get("Index", n) == 1)
+  p = headless.ClickOn("Density: compact", p)
+  r2 = node(p, n -> n.Role == "row" and dict.Get("Index", n) == 1)
+  p = headless.ClickOn("Density: comfortable", p)
+  r3 = node(p, n -> n.Role == "row" and dict.Get("Index", n) == 1)
+  again = opened(1440, path = "/invoices", store = s)
+  list.All([r1.H == 30, r2.H == 44, r3.H == 24, web.LookOf({Router: again.Router}).Density == "dense", s.Get("look density") == "dense"])
+end
+
+defn isRowsCheckedForTheBulk()
+  p = opened(1440, path = "/invoices")
+  t = node(p, n -> n.Role == "table")
+  p = headless.Click(t.X + 14, t.Y + 15, p)
+  all = has(p, "text", "30 selected")
+  p = headless.ClickOn("Mark paid", p)
+  paid = has(p, "radio", "Paid") and value.IsSome(node(p, n -> n.Role == "text" and text.StartsWith("30 of 30", n.Name)))
+  cells = list.Flatten([[c.Name for c in r.Kids] for r in [node(p, n -> n.Role == "row" and dict.Get("Index", n) == k) for k in 1..30] if value.IsSome(r)])
+  list.All([all, paid, not has(p, "text", "30 selected"), not ("Unpaid" in cells), "Paid" in cells])
+end
+
+defn isTheSearchKeyTheField()
+  p = opened(1440, path = "/invoices")
+  p = key("/", p)
+  f = node(p, n -> n.Role == "textbox" and n.Name == "Search")
+  p = headless.Type("Lumen", p)
+  rows = [n for n in [node(p, n -> n.Role == "row" and dict.Get("Index", n) == k) for k in 1..10] if value.IsSome(n)]
+  value.IsSome(f) and f.Focused and value.Len(rows) == 5
+end
+
+defn isEachViewATab()
+  app = web.App([web.Route("/", p -> web.Text("Home")), web.Route("/b", p -> web.Text("B"))], theme = web.Dark,
+    frame = (p, pg) -> web.Shell(p, pg, side = [web.Nav([web.Group("", [web.Item("Home", to = "/"), web.Item("B", to = "/b")])])], tabs = true))
+  p = headless.Open(app, width = 1200, height = 700)
+  p = headless.ClickOn("B", p)
+  two = node(p, n -> n.Role == "tablist")
+  tabs = if value.IsSome(two) [k.Name for k in two.Kids] else [] end
+  list.All([value.Equal(tabs, ["/", "/b"]), web.Path(p) == "/b"])
+end
+
+defn unreadable(theme, path)
+  (** The texts of the example under 4.5:1 in a theme. *)
+  p = headless.Open(page.App(theme = theme), width = 1440, height = 800, path = path)
+  ["$(c.Text) $(c.Ratio)" for c in headless.Contrasts(p) if c.Ratio < 4.5 and c.Ink != theme.Disabled]
+end
+
+defn isEveryTextReadable()
+  list.All([value.IsEmpty(unreadable(web.Dark, "/invoices/1017")), value.IsEmpty(unreadable(web.Light, "/invoices/1017")),
+    value.IsEmpty(unreadable(web.Dark, "/")), value.IsEmpty(unreadable(web.Light, "/"))])
+end

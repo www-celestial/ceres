@@ -722,7 +722,7 @@ defn layChips(id, maxW, ui)
     ink = if on role("Strong", t) if value.IsDict(k) else t.ChosenInk else if hot role("Strong", t) if value.IsDict(k) else t.Ink else if value.IsDict(k) k.Icon else t.Ink end
     items = list.Append(words(x + 9, math.Div(h - lh, 2), label, t.Size, ink), items)
     if cs != ""
-      items = list.Append(words(x + 9 + lw + 6, math.Div(h - lineOf(small, u), 2), cs, small, t.Muted), items)
+      items = list.Append(words(x + 9 + lw + 6, math.Div(h - lineOf(small, u), 2), cs, small, if on and value.IsDict(k) k.Icon else t.Muted end), items)
     end
     if on and u.Focus == id and u.Ring
       items = list.Concat(items, [moved1(r, x, 2) for r in ringItems(w, ch, t, r = 3)])

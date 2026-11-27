@@ -57,9 +57,11 @@ defn pillItems(x, y, words, tn, dot, t, u, on = false)
   tw = widthOf(words, size, "body", u)
   w = tw + (26 if dot else 14)
   muted = tn == "Muted" and not on
-  fill = if on {Kind: "rect", X: x, Y: y, W: w, H: h, Color: 0xffffff, Radius: math.Div(h, 2), Alpha: 46}
+  (* the tint of its color at 14 % over the wells' grey, solid, whatever is under it: its text keeps the contrast the
+     look measures (tokens.md); in the row chosen, white on a darker blue *)
+  fill = if on {Kind: "rect", X: x, Y: y, W: w, H: h, Color: 0x000000, Radius: math.Div(h, 2), Alpha: 64}
     else if muted rect(x, y, w, h, tok("Dropdown", t, "Header"), math.Div(h, 2))
-    else {Kind: "rect", X: x, Y: y, W: w, H: h, Color: c, Radius: math.Div(h, 2), Alpha: 36} end
+    else rect(x, y, w, h, tinted(c, tok("Recessed", t, "Paper"), 14), math.Div(h, 2)) end
   out = [fill]
   tx = x + 7
   if dot
@@ -67,6 +69,17 @@ defn pillItems(x, y, words, tn, dot, t, u, on = false)
     tx = x + 19
   end
   {Items: list.Append(words1(tx, y + math.Div(h - lineOf(size, u), 2), words, size, c), out), W: w, H: h}
+end
+
+defn tinted(c, under, percent)
+  (** A color c at percent % over the color under, as one color. *)
+  out = 0
+  for shift in [65536, 256, 1]
+    a = math.Mod(math.Div(c, shift), 256)
+    b = math.Mod(math.Div(under, shift), 256)
+    out += math.Div(math.Round(a * percent + b * (100 - percent)), 100) * shift
+  end
+  out
 end
 
 words1(x, y, s, size, color) = {Kind: "text", X: x, Y: y, Text: s, Size: size, Color: color, Font: "body"}   (* A text item. *)
