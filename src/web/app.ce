@@ -117,9 +117,8 @@ end
 
 defn routeMoved(ui)
   (** The page after its route changed since the last update: the route left goes into the history (unless the move
-      came from it), and each route keeps where its page was scrolled to, found again when it comes back, and so does
-      the center of a dock that stays from route to route. The history and the memory of the views live in cells of
-      the router, so that the page keeps its shape. *)
+      came from it), and each route keeps where its page was scrolled to, found again when it comes back. The history
+      and the memory of the views live in cells of the router, so that the page keeps its shape. *)
   r = ui.Router
   h = peek(r.Hist)
   path = nowOf(r.Nav)
@@ -129,7 +128,7 @@ defn routeMoved(ui)
   scrolls = dict.Put(h.Shown, ui.ScrollY, peek(r.Scrolls))
   put(scrolls, r.Scrolls)
   put({Shown: path, Back: if h.Going h.Back else list.Append(h.Shown, h.Back) end, Forward: if h.Going h.Forward else [] end, Going: false}, r.Hist)
-  u = if value.IsSome(ui.Kit) ui.Kit.Moved(h.Shown, path, ui) else ui end
+  u = ui
   u.ScrollY = math.Div(dict.GetOr(path, 0, scrolls), 1)
   u.Changed = true
   u

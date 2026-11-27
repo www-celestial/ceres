@@ -88,7 +88,7 @@ defn Dock(center, left = [], right = [], bottom = [], toolbar = missing, status 
   areas = {Left: [p.Key for p in left], Center: [p.Key for p in center], Right: [p.Key for p in right], Bottom: [p.Key for p in bottom]}
   state = {Id: fresh(), Key: key, Panels: panels, Areas: Signal(areas), First: areas,
     Sizes: {Left: Signal(dict.GetOr("Left", 240, sizes)), Right: Signal(dict.GetOr("Right", 320, sizes)), Bottom: Signal(dict.GetOr("Bottom", 200, sizes))},
-    Chosen: {Left: Signal(1), Center: Signal(1), Right: Signal(1), Bottom: Signal(1)}, Fold: Signal(missing), Seen: cell(dict.Dict())}
+    Chosen: {Left: Signal(1), Center: Signal(1), Right: Signal(1), Bottom: Signal(1)}, Fold: Signal(missing)}
   top = if value.IsMissing(toolbar) missing else kid(toolbar) end
   foot = if value.IsMissing(status) missing else kid(status) end
   {Kind: "dock", State: state, Top: value.IsSome(top), Foot: value.IsSome(foot),
@@ -216,7 +216,7 @@ end
 defn kit()
   (** The functions of the widgets of a desktop tool, as a page calls them. *)
   {Lay: layDesk, Mounted: restored, Sem: semDesk, Patch: patchDesk, Drop: dropItems, Hover: hoverDesk, Down: dockDown,
-    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk, Fold: foldKey, Pane: paneTo, Moved: centerMoved}
+    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk, Fold: foldKey, Pane: paneTo}
 end
 
 defn layDesk(id, maxW, ui)
@@ -371,22 +371,6 @@ defn paneTo(back, ui)
   tabs = areaTabs(st, areas[j], ui)
   inside = [k for k in focusables(tabs, ui) if k != tabs]
   focus(if value.IsEmpty(inside) tabs else inside[1] end, ui, ring = true)
-end
-
-defn centerMoved(from, to, ui)
-  (** The route went from one path to another while a dock stays: the panel shown at its center keeps where each route
-      had it scrolled, and starts at its top in a route it hasn't shown; the other areas stay as they are. *)
-  for id in dict.Keys(ui.Boxes)
-    n = ui.Boxes[id].Node
-    if n.Kind == "tabs" and value.IsSome(n.Dock) and n.Area == "Center" and not value.IsEmpty(n.Panels)
-      p = n.Panels[list.Max(1, list.Min(value.Len(n.Panels), nowOf(n.Chosen)))]
-      seen = peek(n.Dock.Seen)
-      seen = dict.Put("$from $(p.Key)", nowOf(p.View.Offset), seen)
-      put(seen, n.Dock.Seen)
-      Set(p.View.Offset, dict.GetOr("$to $(p.Key)", 0, seen))
-    end
-  end
-  ui
 end
 
 defn foldKey(ui)
