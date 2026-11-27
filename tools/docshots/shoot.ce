@@ -57,7 +57,7 @@ scenes = [
     ["shot", "pages-palette", "window"]]},
   {Page: "/pages/index.html", Route: "/invoices/1017", W: 1280, H: 560, Scheme: "dark", Clear: true, Steps: [["click", "textbox", "Total"], ["type", "9"], ["click", "link", "Dashboard"],
     ["until", "Changes not saved. Leave without saving?"], ["shot", "pages-unsaved", "window"]]},
-  {Page: "/pages/index.html", Route: "/", W: 1280, H: 380, Scheme: "dark", Clear: true, Steps: [["until", "Requests"], ["move", 560, 260], ["sleep", 0.3], ["shot", "pages-board", "window"]]},
+  {Page: "/pages/index.html", Route: "/", W: 1280, H: 380, Scheme: "dark", Clear: true, Steps: [["until", "Dashboard"], ["sleep", 0.5], ["move", 420, 220], ["sleep", 0.3], ["shot", "pages-board", "window"]]},
   {Page: "/pages/index.html", Route: "/invoices", W: 1280, H: 520, Scheme: "dark", Clear: true, Steps: [["click", "button", "Density: compact"], ["sleep", 0.3],
     ["shot", "pages-comfortable", "window"], ["click", "button", "Density: comfortable"], ["sleep", 0.3], ["shot", "pages-dense", "window"]]},
   {Page: "/pages/index.html", Route: "/invoices", W: 390, H: 760, Scheme: "light", Clear: true, Steps: [["until", "Invoices"], ["shot", "pages-phone-list", "window"],
