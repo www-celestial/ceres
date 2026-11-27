@@ -24,6 +24,8 @@
 //   Patch(json)              the hidden DOM changed as a patch of the tree says, the JSON text of web.Patch
 //   Check(json)              in a page whose address holds ceres-check: the whole tree, for a test (tests/web/check.js)
 //   Wake()                   sends "frame" on events at the browser's next frame: the page paints then
+//   Begin()                  a frame that the page paints at once, not at the browser's next frame (its first): its
+//                            time in Stats counts from here
 // Nothing is drawn while nothing changes: a frame is asked only by Wake.
 
 const FONTS = ['system-ui, sans-serif', '600 system-ui, sans-serif', 'ui-monospace, Menlo, Consolas, monospace', 'ceres-icons']
@@ -551,6 +553,7 @@ export const Patch = json => {
 // for a test that checks the hidden DOM against it (tests/web/check.js).
 export const Check = json => dispatchEvent(new CustomEvent('ceres-check', { detail: text(json) }))
 export const Wake = () => glue.wake()
+export const Begin = () => { glue.asked = glue.called = performance.now() }
 let cursor = 'default'
 export const Cursor = name => { const c = text(name); if (c !== cursor) { cursor = c; document.querySelector('canvas').style.cursor = c } }
 export const Keep = (name, value) => { try { localStorage.setItem('ceres ' + text(name), text(value)) } catch (e) { } }

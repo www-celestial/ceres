@@ -1,6 +1,7 @@
 (** The browser: a page of Ceres compiled to WebAssembly by cesia build --target wasm, painted by web/ceres.js, which
-    the build puts beside the page. Run takes the events of the page, runs the app and paints a frame when the page changed,
-    at the browser's next frame: the loop of src/sdl, its window the page's canvas. Between events it waits, and
+    the build puts beside the page. Run paints the page's first frame as soon as it is laid out, then takes the events of
+    the page, runs the app and paints a frame when the page changed, at the browser's next frame: the loop of src/sdl,
+    its window the page's canvas. Between events it waits, and
     nothing runs: the live screen wakes it when the app pushed something. The browser's online and offline, and the
     tab shown again, reach the live screen, which then tries at once or knows it is cut. The hidden DOM gets what changed in the
     semantics tree at each frame, web.Patch; a page whose address holds ceres-check, as page.html?ceres-check, also
@@ -37,6 +38,10 @@ defn Run(app, origin = missing, path = missing)
   ui = web.Start(app, page[1], page[2], Measure(), origin = if value.IsMissing(origin) page[3] else origin end,
     path = if value.IsMissing(path) page[4] else path end, wake = events, net = net, dark = dark, store = Store())
   check = value.Len(page) >= 5 and page[5] == true
+  (* the first frame at once, as the page was laid out, without waiting for the browser's next frame: before what the
+     live screen brings meanwhile, which the next frame shows *)
+  js.Call("../../web/ceres.js", "Begin", [])
+  ui = painted(ui, check)
   asked = false
   cursor = "default"
   while true
@@ -64,21 +69,26 @@ defn Run(app, origin = missing, path = missing)
     if frame
       asked = false
       if web.Changed(ui)
-        drawn = web.Encoded(ui)
-        ui = drawn.Ui
-        js.Call("../../web/ceres.js", "Paint", [drawn.Bytes])
-        sem = web.Patch(ui)
-        ui = sem.Ui
-        if sem.Text != ""
-          js.Call("../../web/ceres.js", "Patch", [sem.Text])
-        end
-        if check
-          js.Call("../../web/ceres.js", "Check", [json.Text(web.Semantics(ui))])
-        end
-        ui = web.Painted(ui)
+        ui = painted(ui, check)
       end
     end
   end
+end
+
+defn painted(ui, check)
+  (** The page painted: its draw list, what changed in its hidden DOM, and with check the whole tree. *)
+  drawn = web.Encoded(ui)
+  u = drawn.Ui
+  js.Call("../../web/ceres.js", "Paint", [drawn.Bytes])
+  sem = web.Patch(u)
+  u = sem.Ui
+  if sem.Text != ""
+    js.Call("../../web/ceres.js", "Patch", [sem.Text])
+  end
+  if check
+    js.Call("../../web/ceres.js", "Check", [json.Text(web.Semantics(u))])
+  end
+  web.Painted(u)
 end
 
 defn event(x)
