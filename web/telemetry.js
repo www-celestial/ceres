@@ -12,7 +12,9 @@
 //   Ready(json)  the head of the batches, which the last one, sent here, takes
 // When the tab is hidden or closes, what is left goes at once with the last values of the Web Vitals. The app's banner
 // of consent, if it has one, says yes or no by the event ceres-consent of the window, its detail true or false: each
-// batch then says Consent, and the app adds what its settings keep for that case (APP_TELEMETRY_CONSENT).
+// batch then says Consent, and the app adds what its settings keep for that case (APP_TELEMETRY_CONSENT). A visitor
+// who objects, by the detail "off" (kept in this site's localStorage, a choice the law lets a site keep) or by his
+// browser's Global Privacy Control, sends nothing at all: Start says Off.
 import { Stats } from './ceres.js'
 
 let on = null, consent = false, pending = [], vitals = {}, inp = 0, cls = 0, win = 0, winStart = 0, winLast = 0, longs = { N: 0, Ms: 0, Max: 0 }
@@ -62,8 +64,16 @@ const browserOf = s => /Firefox\//.test(s) ? 'Firefox' : /Edg\//.test(s) ? 'Edge
 const versionOf = s => ((s.match(/(?:Firefox|Edg|Chrome|Version)\/(\d+)/) || [])[1]) || ''
 const osOf = s => /Android/.test(s) ? 'Android' : /iPhone|iPad/.test(s) ? 'iOS' : /Windows/.test(s) ? 'Windows' : /Mac OS/.test(s) ? 'macOS' : /Linux/.test(s) ? 'Linux' : 'other'
 
+const objected = () => { try { if (localStorage.getItem('ceres-telemetry') === 'off') return true } catch (e) {} return navigator.globalPrivacyControl === true }
+
 export function Start (json) {
   on = JSON.parse(typeof json === 'string' ? json : new TextDecoder().decode(json))
+  addEventListener('ceres-consent', e => {
+    consent = e.detail === true
+    if (e.detail === 'off' || e.detail === 'on') try { if (e.detail === 'off') localStorage.setItem('ceres-telemetry', 'off'); else localStorage.removeItem('ceres-telemetry') } catch (x) {}
+    if (e.detail === 'off') { on.Off = true; pending = [] }
+  })
+  if (objected()) { on.Off = true; return JSON.stringify({ Off: true }) }
   observe('paint', e => { if (e.name === 'first-contentful-paint') vitals.Fcp = round(e.startTime) })
   observe('largest-contentful-paint', e => { vitals.Lcp = round(e.startTime) })
   // CLS as web-vitals counts it: the largest sum of shifts not caused by an input, in windows of 5 s with gaps under 1 s
@@ -85,7 +95,6 @@ export function Start (json) {
   addEventListener('unhandledrejection', e => push({ K: 'error', Type: 'rejection', Message: scrub(e.reason && e.reason.message || e.reason), Stack: scrub(e.reason && e.reason.stack || '') }))
   addEventListener('securitypolicyviolation', e => push({ K: 'error', Type: 'csp', Message: scrub(e.violatedDirective + ' ' + (e.blockedURI || '')), Source: scrub(String(e.sourceFile).replace(location.origin, '') + ':' + e.lineNumber) }))
   addEventListener('cesia-error', e => push({ K: 'error', Type: 'cesia', Message: scrub(String(e.detail).split('\n')[0]), Stack: scrub(e.detail) }))
-  addEventListener('ceres-consent', e => { consent = e.detail === true })
   addEventListener('online', () => push({ K: 'net', Online: true, At: round(performance.now()) }))
   addEventListener('offline', () => push({ K: 'net', Online: false, At: round(performance.now()) }))
   const last = () => { if (document.visibilityState === 'hidden') flush() }
@@ -108,6 +117,7 @@ function summary () {
 export function Take () { const out = pending.concat(summary()); pending = []; return JSON.stringify(out) }
 
 export function Send (json) {
+  if (on.Off) return false
   const b = JSON.parse(typeof json === 'string' ? json : new TextDecoder().decode(json))
   b.Consent = consent
   const body = JSON.stringify(b)
@@ -118,7 +128,7 @@ export function Send (json) {
 
 // The tab hidden or closed: the last values go now, by the browser's beacon, with the batch the page last made.
 function flush () {
-  if (!on || !on.Batch) return
+  if (!on || !on.Batch || on.Off) return
   const b = Object.assign({}, on.Batch, { Items: pending.concat(summary()), End: true })
   pending = []
   Send(JSON.stringify(b))

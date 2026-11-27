@@ -44,6 +44,9 @@ defn Telemetry(events, app, path)
   end
   every = list.Max([1, dict.GetOr("Every", 30, o)])
   ctx = json.Parse(js.Call("../../web/telemetry.js", "Start", [json.Text({Path: dict.GetOr("Path", "/telemetry", o)})]))!
+  if dict.Get("Off", ctx) == true
+    return missing   (* the visitor objects: nothing is measured nor sent *)
+  end
   head = {V: 1, Session: dict.GetOr("Session", hex(16), ctx), View: hex(16)}
   route = web.RouteOf(app, path)
   items = [{K: "view", Route: route, Ref: ctx.Ref, Utm: ctx.Utm}, dict.Merge({K: "device"}, dict.Drop("Nav", dict.Drop("Wasm", dict.Drop("Ref", dict.Drop("Utm", dict.Drop("Path", dict.Drop("Session", ctx))))))),
