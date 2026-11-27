@@ -10,7 +10,8 @@
   over it under, the whole window on a phone, where the side bar is a drawer and the rows of a table cards; `tabs` keeps
   the views opened as tabs. `web.App(frame = ...)` makes what stands around every page once. The chapter Pages of a web
   app and `examples/pages`.
-- The palette of Ctrl+K (`web.Command`), `web.Toast`, `web.Asked` (a change not saved asked in the sheet, inline),
+- The palette of Ctrl+K (`web.Command`), `web.Toast`, `web.CopyLink` (the address of the view in the clipboard, on a
+  back-end that has one: `web.Start`'s `clip`), `web.Asked` (a change not saved asked in the sheet, inline),
   `web.Header`, `web.Spread`, `web.Wide`, `web.Chips` and `web.Chip`, `web.Bulk`, `web.Strip`, `web.Metric` (graphs that
   share a crosshair) and `web.Steps`.
 - `web.Table` takes `checks` and `key` (a box to check each row), `open` and `picked` (a row opened at its address), and

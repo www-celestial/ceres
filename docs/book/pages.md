@@ -94,6 +94,9 @@ at the bottom of the window then asks nothing: `web.Asked()` is where the questi
 
 ![A change of the total not saved, and a click on Dashboard: the sheet asks in a band the color of warnings, Changes not saved. Leave without saving?, with Keep editing, Discard changes and Save and leave.](images/pages-unsaved.png)
 
+A tool of the sheet, `web.IconButton("link", "Copy the link", () -> web.CopyLink(p))`, puts the address of the thing
+opened in the clipboard (the page's own address with its route after the `#`), and a toast says so.
+
 ## The palette, the toasts
 
 Ctrl+K, or the field of search, opens the palette: the commands of `find()`, each a `web.Command(label, to, on,
