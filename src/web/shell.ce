@@ -20,6 +20,23 @@ wideWidth = 1280   (* From this width a sheet stands beside the page rather than
 sizesOf(t) = if value.IsDict(dict.Get("Sizes", t)) t.Sizes else Densities.compact end   (* The sizes of a theme's density. *)
 said1(say, t) = if value.IsMissing(say) t else say(t) end   (* One of the shell's own texts in the app's language. *)
 
+(* The small capitals of a title: a to z, and the accented letters of the languages of Europe, in capitals. *)
+accents = [["é", "É"], ["è", "È"], ["ê", "Ê"], ["ë", "Ë"], ["à", "À"], ["â", "Â"], ["ä", "Ä"], ["ç", "Ç"], ["î", "Î"], ["ï", "Ï"], ["ô", "Ô"], ["ö", "Ö"],
+  ["ù", "Ù"], ["û", "Û"], ["ü", "Ü"], ["ñ", "Ñ"], ["á", "Á"], ["í", "Í"], ["ó", "Ó"], ["ú", "Ú"], ["ÿ", "Ÿ"], ["æ", "Æ"], ["œ", "Œ"], ["ø", "Ø"], ["å", "Å"], ["ß", "SS"]]
+
+defn capitals(s)
+  (** A text in capitals, its accented letters too (text.Upper changes a to z only).
+
+        capitals("Données") --> "DONNÉES" *)
+  out = text.Upper(s)
+  for a in accents
+    if text.Contains(a[1], out)
+      out = text.Replace(a[1], a[2], out)
+    end
+  end
+  out
+end
+
 (* ---- Constructors *)
 
 defn Shell(p, page, side = [], top = [], sheet = missing, find = missing, view = missing, label = "", say = missing, tabs = false, title = missing)
@@ -196,17 +213,19 @@ defn Strip(items)
   {Kind: "strip", Kids: kids(items), Kit: kit}
 end
 
-defn Metric(title, figure, series, unit = "", note = "", at = missing, cross = missing, style = "area", most = missing, label = "")
+defn Metric(title, figure, series, unit = "", note = "", at = missing, cross = missing, style = "area", most = missing, label = "", say = missing)
   (** A graph of a dashboard, small, on its card: its title; figure(i), its number, at the point i under the
       crosshair, or the last for missing; unit beside it and note at the right, muted; series, a function that gives
       the lines: [{Values, Tone}], the values one a point, Tone a slot of the charts ("S1" to "S5") or a role ("Warn",
       "Danger", "Ok"); style "area" (the first line filled under), "line", or "bars", stacked; most, the top of its
       scale (the largest value made round by default); at(i), the time of the point i, for the readout and the axis.
       cross, a signal shared by the graphs of a board: the mouse over one draws the crosshair at that point in all of
-      them, each with its value there. label names it for a screen reader.
+      them, each with its value there. label names it for a screen reader; say gives its word "now" in the app's
+      language.
 
         Metric("Requests", i -> "312", () -> []).Kind --> "metric" *)
-  {Kind: "metric", Title: title, Figure: figure, Series: series, Unit: unit, Note: note, At: at, Cross: cross, Style: style, Most: most, Label: if label == "" title else label end, Kit: kit}
+  {Kind: "metric", Title: title, Figure: figure, Series: series, Unit: unit, Note: note, At: at, Cross: cross, Style: style, Most: most, Label: if label == "" title else label end,
+    Now: said1(say, "now"), Kit: kit}
 end
 
 defn Steps(steps, say = missing)
@@ -491,7 +510,7 @@ defn layPicks(id, maxW, ui)
     e = found[i]
     g = dict.GetOr("Group", "", e)
     if g != "" and g != group0
-      items = list.Append(words(14, y + 4, text.Upper(g), small - 0.5, t.Muted, "strong"), items)
+      items = list.Append(words(14, y + 4, capitals(g), small - 0.5, t.Muted, "strong"), items)
       y += lineOf(small, u) + 8
     end
     group0 = g
@@ -582,7 +601,7 @@ defn layNav(id, maxW, ui)
       if y > 0
         y += 8
       end
-      items = list.Append(words(6, y, text.Upper(r.Head), small - 0.5, t.Muted, "strong"), items)
+      items = list.Append(words(6, y, capitals(r.Head), small - 0.5, t.Muted, "strong"), items)
       y += sl + 2
     else
       j += 1
@@ -870,7 +889,7 @@ defn layMetric(id, maxW, ui)
   items = [rect(0, 0, maxW, 10, card, 4), frame(0, 0, maxW, 10, if value.IsDict(k) k.Divider else t.Grid end, 4)]
   y = 9
   title = shown(n.Title)
-  pt = if value.IsSome(cross) and value.IsFunction(n.At) shown(n.At(cross)) else "now" end
+  pt = if value.IsSome(cross) and value.IsFunction(n.At) shown(n.At(cross)) else dict.GetOr("Now", "now", n) end
   items = list.Append(words(px, y, title, small + 0.5, if value.IsDict(k) k.Icon else t.Ink end, "strong"), items)
   items = list.Append(words(maxW - px - widthOf(pt, small, "body", u), y, pt, small, t.Muted), items)
   y += sl + 2
@@ -954,7 +973,7 @@ defn layMetric(id, maxW, ui)
     end
   end
   y += gh + 3
-  ticks = if value.IsFunction(n.At) and count > 1 [shown(n.At(1)), shown(n.At(math.Div(count + 1, 2))), "now"] else ["", "", ""] end
+  ticks = if value.IsFunction(n.At) and count > 1 [shown(n.At(1)), shown(n.At(math.Div(count + 1, 2))), dict.GetOr("Now", "now", n)] else ["", "", ""] end
   items = list.Append(words(gx, y, ticks[1], small - 1, t.Muted), items)
   items = list.Append(words(gx + math.Div(gw - widthOf(ticks[2], small - 1, "body", u), 2), y, ticks[2], small - 1, t.Muted), items)
   items = list.Append(words(gx + gw - widthOf(ticks[3], small - 1, "body", u), y, ticks[3], small - 1, t.Muted), items)
