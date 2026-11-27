@@ -908,18 +908,7 @@ defn layMetric(id, maxW, ui)
   gh = if z.Row <= 24 52 else if z.Row <= 30 64 else 84 end
   gx = px
   gw = maxW - 2 * px
-  highest = 0
-  if n.Style == "bars"
-    for i in 1..count
-      highest = list.Max(highest, list.Sum([s.Values[i] for s in series]))
-    end
-  else
-    for s in series
-      for v in s.Values
-        highest = list.Max(highest, v)
-      end
-    end
-  end
+  highest = if count == 0 0 else if n.Style == "bars" list.Max(list.Append(0, [list.Sum([s.Values[i] for s in series]) for i in 1..count])) else list.Max(list.Append(0, [list.Max(list.Append(0, s.Values)) for s in series])) end
   top = if value.IsSome(n.Most) n.Most else niceTop(highest) end
   grid = if value.IsDict(k) k.Grid else t.Grid end
   items = list.Append(rect(gx, y, gw, 1, grid), items)
@@ -929,31 +918,31 @@ defn layMetric(id, maxW, ui)
   yOf = v -> y + gh - gh * list.Min(1, v / top)
   if n.Style == "bars" and count > 0
     bw = list.Max(1, gw / count - 1)
-    for i in 1..count
+    colors = [seriesColor(s.Tone, t) for s in series]
+    stacked = defn (i)
+      (* the bars of the point i, one on the other *)
+      out = []
       base = 0
-      for s in series
-        v = s.Values[i]
+      for j in 1..value.Len(series)
+        v = series[j].Values[i]
         if v > 0
-          c = seriesColor(s.Tone, t)
           y1 = yOf(base + v)
-          y2 = yOf(base)
-          items = list.Append(rect(gx + (i - 1) * gw / count, y1, bw, list.Max(1, y2 - y1), c), items)
+          out = list.Append(rect(gx + (i - 1) * gw / count, y1, bw, list.Max(1, yOf(base) - y1), colors[j]), out)
         end
         base += v
       end
+      out
     end
+    items = list.Concat(items, list.FlatMap(stacked, 1..count))
   else if count > 1
     for j in 1..value.Len(series)
       s = series[j]
       c = seriesColor(s.Tone, t)
-      pts = list.FlatMap(i -> [xs[i], yOf(s.Values[i])], 1..count)
+      ys = [yOf(v) for v in s.Values]
+      pts = list.FlatMap(i -> [xs[i], ys[i]], 1..count)
       if j == 1 and n.Style == "area"
-        tris = []
-        for i in 1..(count - 1)
-          a = [xs[i], yOf(s.Values[i])]
-          b2 = [xs[i + 1], yOf(s.Values[i + 1])]
-          tris = list.Concat(tris, [a[1], a[2], b2[1], b2[2], b2[1], y + gh, a[1], a[2], b2[1], y + gh, a[1], y + gh])
-        end
+        floor = y + gh
+        tris = list.FlatMap(i -> [xs[i], ys[i], xs[i + 1], ys[i + 1], xs[i + 1], floor, xs[i], ys[i], xs[i + 1], floor, xs[i], floor], 1..(count - 1))
         items = list.Append({Kind: "tris", Points: tris, Color: c, Alpha: 36}, items)
       end
       items = list.Append({Kind: "line", Points: pts, Color: c, Width: 1.5}, items)
