@@ -78,10 +78,10 @@ fontFolders = ["src/sdl/fonts", "deps/www-celestial/ceres/src/sdl/fonts"]
 defn defaultFonts()
   (** The fonts of Ceres, as Cemacs has them: Adwaita Sans for the body, Noto Sans Medium for the strong face and
       JetBrains Mono for code and numbers, all under the SIL Open Font License; and the icons of web.Icons, cut from
-      Codicons (CC BY 4.0, Codicons-CC-BY-4.0.txt). *)
+      Lucide (ISC, Lucide-ISC.txt). *)
   at = list.FindFirst(f -> sys.Exists("$f/AdwaitaSans-Regular.ttf"), fontFolders)
   f = fontFolders[1] if value.IsMissing(at) else at
-  {Body: "$f/AdwaitaSans-Regular.ttf", Strong: "$f/NotoSans-Medium.ttf", Code: "$f/JetBrainsMono-Regular.ttf", Icon: "$f/Codicons.ttf"}
+  {Body: "$f/AdwaitaSans-Regular.ttf", Strong: "$f/NotoSans-Medium.ttf", Code: "$f/JetBrainsMono-Regular.ttf", Icon: "$f/Lucide.ttf"}
 end
 
 failed(w) = result.Err({Kind: "sdl", Message: w.Sdl.Error()})   (* An Err with the last reason SDL gave. *)

@@ -139,35 +139,34 @@ defn Contrast(a, b)
   math.Round((hi + 0.05) / (lo + 0.05) * 100) / 100
 end
 
-(* ---- Icons: Codicons (Microsoft, CC BY 4.0), the icons of a desktop tool drawn for a grid of 16 pixels, as the font
-   src/sdl/fonts/Codicons.ttf and web/icons.js hold them, the 161 of this table only (tools/icons.sh). *)
+(* ---- Icons: Lucide (https://lucide.dev, ISC), icons drawn with strokes on a grid of 24, as the font
+   src/sdl/fonts/Lucide.ttf and web/icons.js hold them, the 158 of this table only (tools/icons.sh). *)
 
 (* The icons as texts of name:code, the code point in hex, a space between: a table of records would make every page
    carry ten times its bytes in its module. tools/icons.sh reads the code points from here. *)
 iconCodes = [
-  "account:eb99 add:ea60 archive:ea98 arrow-down:ea9a arrow-left:ea9b arrow-right:ea9c arrow-swap:ebcb",
-  "arrow-up:eaa1 beaker:ea79 bell:eaa2 bell-dot:eb9a bold:eaa3 book:eaa4 bookmark:eaa5 broadcast:eaad",
-  "bug:eaaf calendar:eab0 check:eab2 check-all:ebb1 chevron-down:eab4 chevron-left:eab5 chevron-right:eab6",
-  "chevron-up:eab7 circle-filled:ea71 circle-large:ebb5 circle-slash:eabd clear-all:eabf clockface:ec75",
-  "close:ea76 cloud:ebaa cloud-download:eac2 cloud-upload:eac3 code:eac4 collapse-all:eac5 color-mode:eac6",
-  "comment:ea6b copy:ebcc credit-card:eac9 dashboard:eacd database:eace debug-console:eb9b debug-pause:ead1",
-  "debug-restart:ead2 debug-start:ead3 debug-stop:ead7 discard:eae2 edit:ea73 ellipsis:ea7c error:ea87",
-  "expand-all:eb95 export:ebac eye:ea70 eye-closed:eae7 file-code:eae9 file-text:ec5e files:eaf0",
-  "filter:eaf1 filter-filled:ebce flag:ec3f fold:eaf5 folder:ea83 folder-opened:eaf7 gear:eaf8 gift:eaf9",
-  "globe:eb01 go-to-file:ea94 grabber:eb02 graph:eb03 graph-line:ebe2 gripper:eb04 history:ea82 home:eb06",
-  "inbox:eb09 info:ea74 kebab-vertical:eb10 key:eb11 law:eb12 layers:ebd2 layout:ebeb layout-panel:ebf2",
-  "layout-sidebar-left:ebf3 layout-sidebar-right:ebf4 lightbulb:ea61 link:eb15 link-external:eb14",
-  "list-filter:eb83 list-flat:eb84 list-tree:eb86 list-unordered:eb17 location:eb1a lock:ea75 mail:eb1c",
-  "menu:eb94 milestone:eb20 new-file:ea7f new-folder:ea80 note:eb26 organization:ea7e output:eb9d",
-  "package:eb29 pass:eba4 pass-filled:ebb3 person:ea67 person-add:ebcd pie-chart:ebe4 pin:eb2b pinned:eba0",
-  "play:eb2c plug:eb2d pulse:eb31 question:eb32 radio-tower:eb34 record:eba7 redo:ebb0 refresh:eb37",
-  "remove:eb3b rocket:eb44 rss:eb47 run-all:eb9e save:eb4b save-all:eb49 screen-full:eb4c",
-  "screen-normal:eb4d search:ea6d send:ec0f server:eb50 server-process:eba2 settings-gear:eb51 shield:eb53",
-  "sign-in:ea6f sign-out:ea6e sort-precedence:eb55 split-horizontal:eb56 split-vertical:eb57",
-  "star-empty:ea6a star-full:eb59 stop-circle:eba5 symbol-boolean:ea8f symbol-class:eb5b symbol-field:eb5f",
-  "symbol-numeric:ea90 symbol-property:eb65 symbol-string:ea93 symbol-variable:ea88 sync:ea77 table:ebb7",
-  "tag:ea66 target:ebf8 terminal:ea85 tools:eb6d trash:ea81 triangle-down:eb6e triangle-right:eb70",
-  "unfold:eb73 unlock:eb74 verified:eb77 versions:eb23 warning:ea6c watch:eb7c zoom-in:eb81 zoom-out:eb82"
+  "activity:e038 archive:e041 arrow-down:e042 arrow-left:e048 arrow-left-right:e24a arrow-right:e049 arrow-up:e04a",
+  "arrow-up-down:e37d badge-check:e241 ban:e051 bell:e059 bell-dot:e42b book:e05e bookmark:e060 box:e061 bug:e20c",
+  "building:e1cc calendar:e063 chart-column:e2a3 chart-line:e2a5 chart-pie:e06b check:e06c check-check:e38e",
+  "chevron-down:e06d chevron-left:e06e chevron-right:e06f chevron-up:e070 chevrons-down-up:e228",
+  "chevrons-up-down:e211 circle:e076 circle-check:e226 circle-dot:e345 circle-exclamation-point:e077",
+  "circle-question-mark:e082 circle-stop:e083 circle-user:e461 circle-x:e084 clock:e087 cloud:e088",
+  "cloud-download:e089 cloud-upload:e091 code:e093 cog:e30b columns-2:e098 copy:e09e credit-card:e0aa database:e0ad",
+  "download:e0b2 ellipsis:e0b6 ellipsis-vertical:e0b7 external-link:e0b9 eye:e0ba eye-off:e0bb fast-forward:e0bd",
+  "file-code:e0c3 file-plus:e0c9 file-search:e0cb file-text:e0cc files:e0cf flag:e0d1 flask-conical:e0d5",
+  "folder:e0d7 folder-open:e247 folder-plus:e0d9 funnel:e0dc gift:e0e1 globe:e0e8 grip-horizontal:e0ea",
+  "grip-vertical:e0eb hash:e0ef house:e0f5 inbox:e0f7 info:e0f9 key:e0fd layers:e529 layout-dashboard:e1c1",
+  "layout-grid:e0ff lightbulb:e1c2 link:e102 list:e106 list-checks:e1d0 list-filter:e460 list-tree:e408 list-x:e240",
+  "lock:e10b lock-open:e10c log-in:e10d log-out:e10e logs:e5f4 mail:e10f map-pin:e111 maximize:e112 menu:e115",
+  "message-square:e117 milestone:e298 minimize:e11a minus:e11c monitor:e11d moon:e11e package:e129",
+  "panel-bottom:e42c panel-left:e12a panel-right:e431 pause:e12e pencil:e1f9 pin:e259 play:e13c plug:e37f plus:e13d",
+  "radio:e142 radio-tower:e404 receipt:e3d3 redo-2:e2a0 refresh-ccw:e144 refresh-cw:e145 rocket:e286",
+  "rotate-ccw:e148 rotate-ccw-clock:e1f5 rows-2:e439 rss:e14a save:e14d save-all:e40f scale:e212 search:e151",
+  "send:e152 server:e153 server-cog:e341 settings:e154 share:e155 shield:e158 sliders-horizontal:e29a square:e167",
+  "square-terminal:e20a star:e176 sticky-note:e303 sun:e178 sun-moon:e2b2 table:e17d tag:e17f target:e180",
+  "terminal:e181 text-cursor-input:e265 timer:e1e0 toggle-left:e18b trash:e18d triangle-exclamation-point:e193",
+  "type:e198 undo-2:e2a1 upload:e19e user:e19f user-plus:e1a2 users:e1a4 variable:e473 webhook:e374 wrench:e1b1",
+  "x:e1b2 zoom-in:e1b6 zoom-out:e1b7"
 ]
 
 defn iconTable(lines)
@@ -186,16 +185,17 @@ defn iconTable(lines)
   out
 end
 
-(** The icons a widget names, by their names in Codicons, each its code point in the font of the icons.
+(** The icons a widget names, by their names in Lucide (as lucide.dev shows them), each its code point in the font of
+    the icons.
 
-      Icons["gear"] --> 0xeaf8 *)
+      Icons["settings"] --> 0xe154 *)
 Icons = iconTable(iconCodes)
 
 defn glyph(name)
   (** The text of an icon: its character in the font of the icons, from its name, or a code point of that font. *)
   cp = if value.IsNumber(name) name else dict.Get(name, Icons) end
   if value.IsMissing(cp)
-    bug.Panic("There is no icon named $name in web.Icons: its names are those of Codicons, as \"database\" or \"gear\".")
+    bug.Panic("There is no icon named $name in web.Icons: its names are those of Lucide, as \"database\" or \"settings\".")
   end
   text.FromBytes([224 + math.Div(cp, 4096), 128 + math.Mod(math.Div(cp, 64), 64), 128 + math.Mod(cp, 64)])
 end
@@ -205,6 +205,6 @@ defn Icon(name, size = missing, color = missing)
       text's by default: a number 0xRRGGBB or a role of the theme. A screen reader doesn't read it: what it says is in
       the label beside it.
 
-        Icon("gear").Kind --> "icon" *)
+        Icon("settings").Kind --> "icon" *)
   {Kind: "icon", Name: name, Glyph: glyph(name), Size: size, Color: color, Kit: kit}
 end
