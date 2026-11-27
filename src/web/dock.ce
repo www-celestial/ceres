@@ -244,6 +244,7 @@ defn layDesk(id, maxW, ui)
   else if k == "asked" layAsked(id, maxW, ui)
   else if k == "strip" layStrip(id, maxW, ui)
   else if k == "metric" layMetric(id, maxW, ui)
+  else if k == "vtabs" layViewTabs(id, maxW, ui)
   else bug.Panic("No layout for the widget kind $k.") end
 end
 
@@ -715,7 +716,7 @@ defn dockDown(h, e, ui)
     return u
   else if k == "tree"
     return treeDown(h, u)
-  else if k in ["nav", "chips", "picks", "asked"]
+  else if k in ["nav", "chips", "picks", "asked", "vtabs"]
     return shellDown(h, e, u)
   end
   focus(0, u)
@@ -1009,7 +1010,7 @@ end
 defn semDesk(b, x, y, ui, inner)
   (** The semantic nodes of a tree, tabs, a section or a toolbar, at x, y, inner those of its children. *)
   k = b.Node.Kind
-  if k in ["nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell"]
+  if k in ["nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell", "vtabs"]
     shellSem(b, x, y, ui, inner)
   else if k == "tree"
     [treeSem(b, x, y, ui)]
@@ -1069,7 +1070,7 @@ defn patchDesk(id, at, since, ui)
   ey = at[2] if b.W > 0 else y
   f = ui.Focus == id
   k = b.Node.Kind
-  if k in ["nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell"]
+  if k in ["nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell", "vtabs"]
     return shellPatch(id, at, since, ui)
   end
   if k == "tree"

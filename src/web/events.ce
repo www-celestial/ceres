@@ -48,7 +48,7 @@ defn resized(e, ui)
   touch(u.Root, u)
 end
 
-active = ["button", "link", "input", "select", "table", "split", "tabs", "tree", "scroll", "section", "nav", "chips", "picks", "metric", "asked"]   (* The kinds of widgets that take the mouse. *)
+active = ["button", "link", "input", "select", "table", "split", "tabs", "tree", "scroll", "section", "nav", "chips", "picks", "metric", "asked", "vtabs"]   (* The kinds of widgets that take the mouse. *)
 
 defn hitIn(id, x, y, ui)
   (** The deepest box under x, y, given in the box's own coordinates, or 0. *)
@@ -198,7 +198,7 @@ defn mouse(e, ui)
     u.Pressed = h.Id
     u = touch(h.Id, u)
     return if k == "link" u else focus(h.Id, u) end
-  else if k in ["split", "tabs", "tree", "scroll", "nav", "chips", "picks", "asked"]
+  else if k in ["split", "tabs", "tree", "scroll", "nav", "chips", "picks", "asked", "vtabs"]
     return u.Kit.Down(h, e, u)
   else if k == "input"
     u = focus(h.Id, u)

@@ -22,7 +22,7 @@ said1(say, t) = if value.IsMissing(say) t else say(t) end   (* One of the shell'
 
 (* ---- Constructors *)
 
-defn Shell(p, page, side = [], top = [], sheet = missing, find = missing, view = missing, label = "", say = missing)
+defn Shell(p, page, side = [], top = [], sheet = missing, find = missing, view = missing, label = "", say = missing, tabs = false, title = missing)
   (** The layout of a web app, which fills the window: side, the widgets of the side bar one under the other (the
       app's name, a web.Nav of its pages, and after a web.Spacer() what stands at its foot, as who is signed in); top,
       those of the top bar at its left, as where one is (a path of links); page, the page shown, which scrolls by
@@ -32,12 +32,14 @@ defn Shell(p, page, side = [], top = [], sheet = missing, find = missing, view =
       without the thing opened in the sheet, as "/data/invoice" for "/data/invoice/65691"), keeps the scroll of each
       view; the path by default. The top bar holds at its right a button for the density of the rows (web.Densities),
       which goes round them, and one for the theme, each kept on the machine (web.SetLook). say gives the shell's own
-      English texts in the app's language. A route of the app gives the same shell each time (made once and kept, as
-      a web.Dock), so that it stays mounted from page to page.
+      English texts in the app's language. With tabs = true, each view opened stays as a tab under the top bar, as in
+      an editor: a click goes back to it, its cross closes it; title, a function, gives the title of the view shown
+      for its tab (its path by default). The shell is made once (web.App's frame), so that it stays mounted from page
+      to page.
 
         Shell({Path: "/"}, Text("Hello")).Kind --> "shell" *)
   st = {Id: fresh(), Drawer: Signal(false), Find: Signal(false), Query: Signal(""), Pick: Signal(1), Entries: find,
-    Scrolls: cell(dict.Dict()), View: cell(missing), Opened: cell(false), P: p, Say: say}
+    Scrolls: cell(dict.Dict()), View: cell(missing), Opened: cell(false), P: p, Say: say, Tabs: tabs, Title: title, Open: cell([])}
   menu = {Kind: "narrow", Kids: [IconButton("menu", said1(say, "Menu"), () -> Set(st.Drawer, not nowOf(st.Drawer)))], Kit: kit}
   tools = [if value.IsSome(find) IconButton("search", said1(say, "Search"), () -> openFind(st), key = "C-k") else missing end,
     () -> densityButton(p, say), () -> themeButton(p, say)]
@@ -45,7 +47,7 @@ defn Shell(p, page, side = [], top = [], sheet = missing, find = missing, view =
   sides = if value.IsSome(find) and not value.IsEmpty(side) list.Concat([side[1], findField(st, say)], list.Skip(1, side)) else side end
   {Kind: "shell", State: st, View: view, Label: label, Kit: kit,
     Kids: [{Kind: "side", Kids: [Scroll(Stack(sides, gap = 10, pad = 10))], State: st, Kit: kit}, bar, Scroll({Kind: "inset", Kids: [kid(page)], Kit: kit}),
-      {Kind: "live", Fn: () -> sheetPart(sheet)}, {Kind: "live", Fn: () -> findPart(st)}]}
+      {Kind: "live", Fn: () -> sheetPart(sheet)}, {Kind: "live", Fn: () -> findPart(st)}, {Kind: "vtabs", State: st, Label: said1(say, "Views"), Kit: kit}]}
 end
 
 sheetPart(sheet) = if value.IsMissing(sheet) missing else sheet() end   (* The sheet shown, or nothing. *)
@@ -249,6 +251,7 @@ defn layShell(id, maxW, ui)
   pg = ks[3]
   sh = ks[4]
   fd = ks[5]
+  vt = ks[6]
   (* the scroll of the page, kept for each view *)
   view = got.Value.View
   was = peek(st.View)
@@ -260,6 +263,15 @@ defn layShell(id, maxW, ui)
     quiet(sc.Offset, dict.GetOr(view, 0, peek(st.Scrolls)))
     put(view, st.View)
     u = touch(pg, u)
+    if st.Tabs
+      (* the view shown among the tabs: its own updated, or a new one at the end *)
+      path = if value.IsSome(ui.Nav) nowOf(ui.Nav) else "/" end
+      name = if value.IsFunction(st.Title) st.Title() else view end
+      open = peek(st.Open)
+      put(if list.Any([x.View == view for x in open]) [if x.View == view {View: view, Path: path, Title: name} else x end for x in open]
+        else list.Take(12, list.Append({View: view, Path: path, Title: name}, open)) end, st.Open)
+      u = touch(vt, u)
+    end
   end
   phone = w < phoneWidth
   drawer = phone and got.Value.Drawer
@@ -277,6 +289,7 @@ defn layShell(id, maxW, ui)
   end
   mainW = w - sideW - (sheetW if mode == "beside" else 0)
   top = z.Top
+  strip = if st.Tabs t.Field + 6 else 0 end
   if not peek(st.Opened) and nowOf(st.Find)
     (* the palette just opened: the focus in its field, before it is laid out *)
     put(true, st.Opened)
@@ -292,14 +305,16 @@ defn layShell(id, maxW, ui)
   u = place(side, 0 if not phone or drawer else -drawerW - 40, 0, u)
   u = layout(bar, mainW - px - 10, false, u)
   u = place(bar, sideW + px, math.Div(top - u.Boxes[bar].H, 2), u)
-  u = layout(pg, mainW, false, u, h = h - top)
-  u = place(pg, sideW, top, u)
+  u = layout(vt, mainW, false, u)
+  u = place(vt, sideW, top, u)
+  u = layout(pg, mainW, false, u, h = h - top - strip)
+  u = place(pg, sideW, top + strip, u)
   u = layout(sh, sheetW, false, u, h = h)
   u = place(sh, w - sheetW, 0, u)
   pw = list.Min(580, w - 32)
   u = layout(fd, pw, false, u, h = h)
   u = place(fd, math.Div(w - pw, 2), list.Max(16, math.Div(h * 12, 100)), u)
-  order = if drawer [bar, pg, sh, side, fd] else [side, bar, pg, sh, fd] end
+  order = if drawer [bar, vt, pg, sh, side, fd] else [side, bar, vt, pg, sh, fd] end
   u.Boxes[id].Kids = order
   k = dict.Get("Tokens", t)
   ground = if value.IsDict(k) k.Ground else t.Back end
@@ -312,6 +327,7 @@ defn layShell(id, maxW, ui)
   clips[pg] = true
   clips[sh] = false
   clips[fd] = false
+  clips[vt] = true
   groups = [group(u.Boxes[c].X, u.Boxes[c].Y, u.Boxes[c].W, u.Boxes[c].H, clips[c], u.Boxes[c].Items) for c in order]
   toast = toastItems(got.Value.Toast, w, h, t, u)
   boxed(id, w, h, list.Concat(list.Concat(own, groups), toast), {Phone: phone, Drawer: drawer, DrawerW: drawerW, Mode: mode, Toast: got.Value.Toast,
@@ -600,6 +616,44 @@ defn layNav(id, maxW, ui)
     end
   end
   cached(id, maxW, list.Max(rh, y), items, {Spots: spots, Text: n.Label, Chosen: got.Value.Chosen}, u)
+end
+
+defn layViewTabs(id, maxW, ui)
+  (** The tabs of the views opened (web.Shell's tabs): the one shown raised, each its title and its cross; nothing
+      without tabs. *)
+  b = ui.Boxes[id]
+  st = b.Node.State
+  if not st.Tabs
+    return cached(id, maxW, 0, [], {Spans: [], Text: ""}, ui)
+  end
+  got = watched(id, () -> if value.IsSome(ui.Nav) Get(ui.Nav) else "/" end, ui)
+  u = got.Ui
+  t = u.Theme
+  k = dict.Get("Tokens", t)
+  h = t.Field + 6
+  lh = lineOf(t.Size, u)
+  now = peek(st.View)
+  items = [rect(0, 0, maxW, h, if value.IsDict(k) k.Desk else role("Header", t) end), rect(0, h - 1, maxW, 1, if value.IsDict(k) k.Divider else t.Grid end)]
+  spans = []
+  x = 6
+  for one in peek(st.Open)
+    tw = list.Min(200, widthOf(one.Title, t.Size, "body", u))
+    w = tw + 44
+    on = one.View == now
+    hot = u.Hover == id and u.HoverPart == value.Len(spans) + 1
+    if on
+      items = list.Append(rect(x, 4, w, h - 4, if value.IsDict(k) k.Panel else role("Panel", t) end, 4), items)
+      items = list.Append(rect(x, 4, w, 2, t.Accent), items)
+    else if hot
+      items = list.Append(rect(x, 4, w, h - 6, if value.IsDict(k) k.GhostHover else role("Hover", t) end, 4), items)
+    end
+    ink = if on or hot role("Strong", t) if value.IsDict(k) else t.Ink else if value.IsDict(k) k.TabOff else t.Muted end
+    items = list.Append(group(x + 10, 0, tw, h, true, [words(0, 2 + math.Div(h - 2 - lh, 2), one.Title, t.Size, ink)]), items)
+    items = list.Append(iconItem(x + w - 24, 2 + math.Div(h - 2 - 12, 2), "x", 12, ink), items)
+    spans = list.Append({X: x, W: w, One: one, On: on}, spans)
+    x += w + 2
+  end
+  cached(id, maxW, h, items, {Spans: spans, Text: b.Node.Label}, u)
 end
 
 defn layHeader(id, maxW, ui)
@@ -1027,6 +1081,9 @@ defn shellHover(h, ui)
   else if k == "asked"
     s = list.FindFirst(x -> h.X >= x.X and h.X < x.X + x.W and h.Y >= x.Y and h.Y < x.Y + x.H, b.Cache.Spots)
     return {Id: 0, Part: missing, Cursor: "pointer" if value.IsSome(s) else "default"}
+  else if k == "vtabs"
+    j = list.FindFirst(i -> h.X >= b.Cache.Spans[i].X and h.X < b.Cache.Spans[i].X + b.Cache.Spans[i].W, 1..value.Len(b.Cache.Spans))
+    return {Id: if value.IsSome(j) h.Id else 0 end, Part: j, Cursor: "pointer" if value.IsSome(j) else "default"}
   else if k == "table"
     c = b.Cache
     head = dict.GetOr("Head", c.Row, c)
@@ -1072,6 +1129,26 @@ defn shellDown(h, e, ui)
   else if k == "asked"
     s = list.FindFirst(x -> h.X >= x.X and h.X < x.X + x.W and h.Y >= x.Y and h.Y < x.Y + x.H, b.Cache.Spots)
     return if value.IsSome(s) heldAnswered(s.Act, u) else u end
+  else if k == "vtabs"
+    s = list.FindFirst(x -> h.X >= x.X and h.X < x.X + x.W, b.Cache.Spans)
+    if value.IsMissing(s)
+      return u
+    end
+    st = n.State
+    if h.X >= s.X + s.W - 30
+      (* its cross: the tab closes; the view shown goes to the tab before it *)
+      open = peek(st.Open)
+      i = list.IndexOf(s, b.Cache.Spans)
+      rest = [x for x in open if x.View != s.One.View]
+      put(rest, st.Open)
+      u = touch(h.Id, u)
+      if s.On and not value.IsEmpty(rest)
+        _ = going(u.Router, rest[list.Max(1, list.Min(value.Len(rest), i - 1))].Path, missing)
+      end
+      return u
+    end
+    _ = going(u.Router, s.One.Path, missing)
+    return u
   end
   u
 end
@@ -1152,6 +1229,12 @@ defn shellSem(b, x, y, ui, inner)
       Focused: false, Kids: []} for r in c.Rows])]
   else if k == "pop"
     return [node("dialog", "", b, x, y, ui, kids = inner)]
+  else if k == "vtabs"
+    if value.IsEmpty(c.Spans)
+      return []
+    end
+    return [node("tablist", c.Text, b, x, y, ui, kids = [{Id: "$(b.Id)v$j", Role: "tab", Name: c.Spans[j].One.Title, Value: missing, X: x + c.Spans[j].X, Y: y, W: c.Spans[j].W,
+      H: b.H, Focused: false, Kids: [], Href: c.Spans[j].One.Path, Selected: c.Spans[j].On} for j in 1..value.Len(c.Spans)])]
   else if k == "shell"
     t = dict.Get("Toast", c)
     if value.IsSome(t)
@@ -1214,15 +1297,15 @@ defn shellPatch(id, at, since, ui)
   end
   rows = dict.Dict()
   ids = []
-  role1 = if k == "nav" "navigation" else if k == "chips" "radiogroup" else if k == "asked" "alert" else "listbox" end
-  name = if k == "asked" or k == "picks" dict.GetOr("Text", "", c) else b.Node.Label end
-  if k == "asked" and value.IsEmpty(c.Spots)
+  role1 = if k == "nav" "navigation" else if k == "chips" "radiogroup" else if k == "asked" "alert" else if k == "vtabs" "tablist" else "listbox" end
+  name = if k == "asked" or k == "picks" or k == "vtabs" dict.GetOr("Text", "", c) else b.Node.Label end
+  if k == "asked" and value.IsEmpty(c.Spots) or k == "vtabs" and value.IsEmpty(c.Spans)
     return kept(id, at, false, [], missing, ui)
   end
   e = json.Text([id, role1, name, missing, ex, ey, b.W, b.H, f, missing])
   sent(e, was)
   before = if had and value.IsDict(old.Rows) old.Rows else dict.Dict() end
-  parts = if k == "nav" [[c.Spots[j], j] for j in 1..value.Len(c.Spots)] else if k == "chips" [[c.Spans[j], j] for j in 1..value.Len(c.Spans)]
+  parts = if k == "nav" [[c.Spots[j], j] for j in 1..value.Len(c.Spots)] else if k == "chips" or k == "vtabs" [[c.Spans[j], j] for j in 1..value.Len(c.Spans)]
     else if k == "asked" [[c.Spots[j], j] for j in 1..value.Len(c.Spots)] else [[r, r.I] for r in c.Rows] end
   for pj in parts
     p = pj[1]
@@ -1234,6 +1317,8 @@ defn shellPatch(id, at, since, ui)
       json.Text([rid, "radio", p[4], missing, p[1], 0, p[2], b.H, false, {Selected: p[3] == c.Now}])
     else if k == "asked"
       json.Text([rid, "button", p.Text, missing, p.X, p.Y, p.W, p.H, false, missing])
+    else if k == "vtabs"
+      json.Text([rid, "tab", p.One.Title, missing, p.X, 0, p.W, b.H, false, {Href: p.One.Path, Selected: p.On}])
     else
       json.Text([rid, "option", c.Found[p.I].Label, missing, 0, p.Y, b.W, p.H, false, {Selected: p.I == nowOf(b.Node.State.Pick)}])
     end

@@ -643,7 +643,7 @@ defn semOf(id, x0, y0, ui)
     [node("img", b.Cache.Text, b, x, y, ui)]
   else if k == "table"
     [tableSem(b, x, y, ui)]
-  else if k in ["tree", "tabs", "section", "toolbar", "nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell"]
+  else if k in ["tree", "tabs", "section", "toolbar", "nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell", "vtabs"]
     ui.Kit.Sem(b, x, y, ui, inner)
   else if k == "each"
     [node("list", "", b, x, y, ui, kids = [{Id: "$(c)i", Role: "listitem", Name: "", Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: semOf(c, x, y, ui)} for c in b.Kids])]

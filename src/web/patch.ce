@@ -117,7 +117,7 @@ defn semWalk(id, ax, ay, x0, y0, since, ui)
     return kept(id, at, loose, [id], e, ui)
   else if k == "table"
     return tablePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
-  else if k in ["tree", "tabs", "section", "toolbar", "nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell"]
+  else if k in ["tree", "tabs", "section", "toolbar", "nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell", "vtabs"]
     return ui.Kit.Patch(id, at, since, ui)
   else if k == "each"
     e = json.Text([id, "list", "", missing, ex, ey, b.W, b.H, f, missing])
