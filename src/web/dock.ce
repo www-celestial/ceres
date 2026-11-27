@@ -353,14 +353,15 @@ defn areaTabs(st, area, u)
 end
 
 defn paneTo(back, ui)
-  (** F6 and Shift+F6: the focus to the next area of the page's dock, or the one before, in the order left, center,
-      right, bottom: on the first widget of its panel that takes it, else on its tabs. Whether there was a dock. *)
+  (** F6 and Shift+F6: the focus to the next area of the page's dock, or the one before, column after column as Tab
+      goes (left, center, bottom, right): on the first widget of its panel that takes it, else on its tabs. The page
+      after, or missing when it has no dock. *)
   docks = [id for id in dict.Keys(ui.Boxes) if ui.Boxes[id].Node.Kind == "dock"]
   if value.IsEmpty(docks)
     return missing
   end
   st = ui.Boxes[docks[1]].Node.State
-  areas = [a for a in ["Left", "Center", "Right", "Bottom"] if areaTabs(st, a, ui) != 0]
+  areas = [a for a in ["Left", "Center", "Bottom", "Right"] if areaTabs(st, a, ui) != 0]
   if value.IsEmpty(areas)
     return missing
   end

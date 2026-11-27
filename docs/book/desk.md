@@ -59,8 +59,9 @@ or opens them by hand, and the layout keeps that choice.
 ## The keyboard
 
 Everything the mouse does, the keyboard does, and the band at the bottom of the window says the keys of the widget in
-focus. Tab and Shift+Tab go from widget to widget in the order of the page; F6 and Shift+F6 go from area to area of the
-dock (left, center, right, bottom), on the first widget of each that takes the focus. On the tabs of an area, Left and
+focus. Tab and Shift+Tab go from widget to widget in the order of the page, column after column; F6 and Shift+F6 go
+from area to area of the dock in the same order (left, center, bottom, right), on the first widget of each that takes
+the focus. On the tabs of an area, Left and
 Right show the panel before or after, and Alt+Shift with an arrow moves the panel shown to the area on that side, as a
 drag of its tab does. In an outliner, Up and Down choose a row, Left and Right close and open, Enter runs it. Ctrl+J
 folds or opens the bottom panels.

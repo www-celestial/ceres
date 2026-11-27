@@ -119,26 +119,40 @@ key(k, p, alt = false, shift = false) = web.Handle({Kind: "key", Key: k, Ctrl: f
 focused(p) = list.FindFirst(l -> text.Contains(" focused", l), text.Lines(headless.Tree(p)))
 
 defn isPaneByF6()
-  (** F6 goes from area to area of the dock, left, center, right, bottom, on the first widget of each that takes the
-      focus, else its tabs; Shift+F6 goes back. *)
+  (** F6 goes from area to area of the dock, column after column as Tab goes: left, center, bottom, right, on the first
+      widget of each that takes the focus, else its tabs; Shift+F6 goes back. *)
   p = headless.Open(app, width = 1000, height = 640)
   p = key("f6", p)
   left = text.Contains("tree \"Sections\"", focused(p))
   p = key("f6", p)
   center = text.Contains("table \"Invoices\"", focused(p))
   p = key("f6", p)
-  right = text.Contains("button \"Invoice\"", focused(p))
-  p = key("f6", p)
   bottom = text.Contains("tablist \"Bottom\"", focused(p))
+  p = key("f6", p)
+  right = text.Contains("button \"Invoice\"", focused(p))
   p = key("f6", p, shift = true)
-  list.All([left, center, right, bottom, text.Contains("button \"Invoice\"", focused(p))])
+  list.All([left, center, right, bottom, text.Contains("tablist \"Bottom\"", focused(p))])
 end
 
 defn isPanelMovedByKeys()
   (** Alt+Shift and an arrow on the tabs of an area move the panel shown to the area on that side, the focus with it. *)
   p = headless.Open(app, width = 1000, height = 640)
-  p = key("f6", key("f6", key("f6", key("f6", p))))
+  p = key("f6", key("f6", key("f6", p)))
   p = key("right", p, alt = true, shift = true)
   t = headless.Tree(p)
   list.All([text.Contains("tab \"Log\" selected", t), text.Contains("tablist \"Right\" focused", t), not text.Contains("tablist \"Bottom\" focused", t)])
+end
+
+defn isTabInColumnOrder()
+  (** Tab goes through the dock as a person reads it, column after column: the toolbar, the outliner, the center, the
+      bottom under it, then the details at the right; Shift+Tab comes back the same way. *)
+  p = headless.Open(app, width = 1000, height = 640)
+  seen = []
+  for k in 1..16
+    p = headless.Press("tab", p)
+    seen = list.Append(focused(p), seen)
+  end
+  first = name -> list.IndexOf(list.FindFirst(l -> text.Contains(name, l), seen), seen)
+  order = [first("button \"Save\""), first("tree \"Sections\""), first("table \"Invoices\""), first("tablist \"Bottom\""), first("textbox \"Client\"")]
+  list.All([value.IsSome(x) for x in order]) and value.Equal(order, list.Sort(order))
 end
