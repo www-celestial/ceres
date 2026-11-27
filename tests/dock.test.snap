@@ -108,7 +108,7 @@ page at 0,0 1000x640
   text "Live" at 4,590 24x19
   text "super@app.test" at 53,590 84x19
   text "200 invoices" at 924,590 72x19
-== isDockFillsTheWindow 2 (187 lines, no line end)
+== isDockFillsTheWindow 2 (189 lines, no line end)
 rect 0,0 1000x640 #151515
 rect 0,0 1000x613 #151515
 rect 0,0 1000x32 #1c1c1c
@@ -290,12 +290,14 @@ text 12,617 "Tab" 13 code #6cb4ff
 text 38,617 "first field" 13 #dcdcdc
 text 124,617 "PgUp PgDn" 13 code #6cb4ff
 text 186,617 "scroll the page" 13 #dcdcdc
-text 296,617 "C-j" 13 code #6cb4ff
-text 322,617 "fold or open the bottom panels" 13 #dcdcdc
-text 522,617 "C-s" 13 code #6cb4ff
-text 548,617 "Save" 13 #dcdcdc
-text 592,617 "f5" 13 code #6cb4ff
-text 612,617 "Refresh" 13 #dcdcdc
+text 296,617 "f6 S-f6" 13 code #6cb4ff
+text 346,617 "next panel, previous" 13 #dcdcdc
+text 486,617 "C-j" 13 code #6cb4ff
+text 512,617 "fold or open the bottom panels" 13 #dcdcdc
+text 712,617 "C-s" 13 code #6cb4ff
+text 738,617 "Save" 13 #dcdcdc
+text 782,617 "f5" 13 code #6cb4ff
+text 802,617 "Refresh" 13 #dcdcdc
 == isLayoutKept 1 (103 lines, no line end)
 page at 0,0 1000x640
   toolbar at 0,0 1000x32

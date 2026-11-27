@@ -7,6 +7,43 @@ use std/math
 use std/text
 use std/value
 
+(** The tokens of a look: each value of its design by its name, colors 0xRRGGBB (a color drawn over others is [color,
+    alpha], alpha from 0 to 255), sizes in pixels. Desktop holds the look of a desktop tool, as an editor of games
+    draws one (Unreal Engine 5's editor: panels on a darker desk, wells darker still, one blue for the choice and the
+    focus), dark and light, from the design the book's chapter Layout like a desktop tool shows; web.Dark and
+    web.Light carry its part as their field Tokens. Web is the place of the look of a web page, missing until its
+    design is done: a page will name its look, and its widgets draw from the tokens of that one. Each text over each
+    surface it is drawn on reaches WCAG 2.2 AA, and the focus 3:1 (tests/contrast.test.ce measures them); the quiet
+    edge of a field, InputLine, doesn't (it is told apart by its fill), so InputLineHigh is the edge of the setting
+    of high contrast.
+
+      Tokens.Desktop.Dark.Primary --> 0x0070e0 *)
+Tokens = {
+  Desktop: {
+    Dark: {Title: 0x0f0f0f, Desk: 0x151515, Recessed: 0x1a1a1a, Panel: 0x242424, Header: 0x2f2f2f, Dropdown: 0x383838, DropdownLine: 0x4c4c4c,
+      Hover: 0x575757, Input: 0x0f0f0f, InputLine: 0x383838, InputLineHover: 0x575757, InputLineHigh: 0x6e6e6e, Divider: 0x151515,
+      PropGap: 0x1a1a1a, PropBg: 0x242424, Ground: 0x1a1a1a, Card: 0x242424, RowAlt: [0xffffff, 5], RowHover: [0xffffff, 15],
+      GhostHover: 0x383838, GhostPress: 0x1a1a1a, Primary: 0x0070e0, PrimaryHover: 0x0e86ff, PrimaryPress: 0x0050a0, Select: 0x0070e0,
+      SelectInactive: 0x2c3e57, SelectInk: 0xffffff, SelectSoft: 0xdce9fa, Focus: 0x0070e0, FocusHalo: [0x0070e0, 102], FgStrong: 0xffffff,
+      Fg: 0xc0c0c0, FgMuted: 0x9a9a9a, FgDisabled: 0x5e5e5e, TabOff: 0x9a9a9a, Icon: 0xa6a6a6,
+      Ok: 0x8bc24a, Warn: 0xffb800, Err: 0xff6b6b, Info: 0x26bbff, Violet: 0xb58cff, Live: 0x1fe44b, Add: 0x8bc24a,
+      S1: 0x338ced, S2: 0xe76624, S3: 0x00a888, S4: 0xd28e05, S5: 0xe24d8b, Grid: 0x303030, Axis: 0x474747},
+    Light: {Title: 0xd9dce1, Desk: 0xbec2c9, Recessed: 0xf9fafb, Panel: 0xeaecef, Header: 0xdde0e5, Dropdown: 0xdde0e5, DropdownLine: 0xbcc1c8,
+      Hover: 0xcdd2d9, Input: 0xffffff, InputLine: 0xbcc1c8, InputLineHover: 0x7c828b, InputLineHigh: 0x7c828b, Divider: 0xd3d7dc,
+      PropGap: 0xdde0e5, PropBg: 0xf6f7f8, Ground: 0xdcdfe4, Card: 0xfbfbfc, RowAlt: [0x000000, 6], RowHover: [0x000000, 13],
+      GhostHover: 0xdde0e5, GhostPress: 0xcdd1d7, Primary: 0x0070e0, PrimaryHover: 0x0062c4, PrimaryPress: 0x00509f, Select: 0x0070e0,
+      SelectInactive: 0xcfe0f5, SelectInk: 0xffffff, SelectSoft: 0xdce9fa, Focus: 0x0070e0, FocusHalo: [0x0070e0, 77], FgStrong: 0x0b0c0e,
+      Fg: 0x26282c, FgMuted: 0x575b63, FgDisabled: 0xa3a7ae, TabOff: 0x3f434a, Icon: 0x555960,
+      Ok: 0x2a7010, Warn: 0x8a5a00, Err: 0xb32424, Info: 0x0961a0, Violet: 0x6b3fc9, Live: 0x17a63a, Add: 0x3d8c1c,
+      S1: 0x257de0, S2: 0xf47230, S3: 0x00b894, S4: 0xf2a600, S5: 0xee7fac, Grid: 0xe7e8ea, Axis: 0xc2c4c8},
+    Shape: {RPanel: 4, RControl: 4, RTag: 3, RCheck: 3},
+    Space: {DockGap: 4, TabGap: 2, ToolGap: 2, CardGap: 8, Cell: 8, Indent: 12, PropIndent: 26, Field: 6, Button: 8},
+    Size: {TitleBar: 30, Toolbar: 40, ToolButton: 30, Tab: 26, ToolRow: 32, Row: 24, TreeRow: 22, LogRow: 22, Category: 26, Property: 28,
+      PropertyName: 116, Field: 22, Footer: 24, Command: 30, StatusBar: 24, Kpi: 40, ChartHead: 28, Check: 14, IconBar: 20, IconRow: 16,
+      IconTab: 14, IconSmall: 12, Scroll: 6},
+    Type: {Font: "Inter", Code: "JetBrains Mono", Body: 12, Small: 11, Title: 13, Figure: 20, Line: 16, Weights: [400, 500, 600]}},
+  Web: missing}
+
 (** The dark theme of a desktop tool, as an editor of games or of code draws one: grey panels on a darker window,
     fields and tables a step darker still, one blue for the choice and the focus, the text light grey; sizes on a grid
     of 4 pixels, dense rows. Each pair of a text and its background reaches the contrast of WCAG 2.2 AA (4.5:1), and
@@ -15,7 +52,7 @@ use std/value
     and the status bar; Raised, a button; Hover and Pressed, a widget under the mouse and held down; Disabled; Edge,
     the edge of a table or a panel; Link; Warn and Ok, the colors of a warning and of a success; Rule, the grid of a
     graph; Unit, the step of the grid of sizes; Icon, the size of an icon; Tab, the height of a strip of tabs; Bar,
-    that of a toolbar.
+    that of a toolbar; Tokens, the values of the design of its look (web.Tokens).
 
       Dark.Name --> "dark" *)
 Dark = {Name: "dark", Size: 13, Title: 16, Unit: 4, Icon: 16, Tab: 28, Bar: 34,
@@ -31,7 +68,7 @@ Light = {Name: "light", Size: 13, Title: 16, Unit: 4, Icon: 16, Tab: 28, Bar: 34
   Back: 0xd4d4d4, Panel: 0xf3f3f3, Header: 0xe4e4e4, Paper: 0xffffff, Raised: 0xfbfbfb, Hover: 0xd8d8d8, Pressed: 0xc4c4c4,
   Ink: 0x1c1c1c, Muted: 0x595959, Disabled: 0x9a9a9a, Line: 0x7a7a7a, Edge: 0xc8c8c8, Grid: 0xe2e2e2, Rule: 0xe0e0e0,
   Accent: 0x0a64d2, Chosen: 0x1a62c4, ChosenInk: 0xffffff, Link: 0x0055b3, Danger: 0xb82518, Warn: 0x7d5000, Ok: 0x1a6e2e,
-  Band: 0xe4e4e4, Gap: 8, Pad: 4, Radius: 2, Field: 24, Row: 22, Page: 12, Keys: true}
+  Band: 0xe4e4e4, Gap: 8, Pad: 4, Radius: 2, Field: 24, Row: 22, Page: 12, Keys: true, Tokens: Tokens.Desktop.Light}
 
 (** The theme that follows the system: dark while the system says dark (the browser's prefers-color-scheme, SDL's
     theme of the system), light while it says light, dark when it says nothing; it changes with it. web.App takes it

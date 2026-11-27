@@ -1,0 +1,79 @@
+(* What can be read, in both themes: the pairs of the tokens of the desktop look that its design measures (a text over
+   each surface it sits on, 4.5:1 for WCAG 2.2 AA; the focus, the edge of a field of high contrast, 3:1), and every text
+   that a page of a desktop tool draws, measured against what is painted under it (headless.Contrasts). *)
+use src/web
+use src/headless
+use std/list
+use std/math
+use std/text
+use std/value
+
+defn tint(c, over)
+  (** The fill of a pill or a tag: its color at 15 % over the surface. *)
+  out = 0
+  for shift in [65536, 256, 1]
+    x = math.Mod(math.Div(c, shift), 256)
+    y = math.Mod(math.Div(over, shift), 256)
+    out += math.Div(math.Round(x * 0.15 + y * 0.85), 1) * shift
+  end
+  out
+end
+
+defn isTokensAA()
+  bad = []
+  for t in [web.Tokens.Desktop.Dark, web.Tokens.Desktop.Light]
+    for pair in [["Fg", "Panel"], ["Fg", "Recessed"], ["FgStrong", "Header"], ["FgMuted", "Panel"], ["FgMuted", "Header"], ["FgMuted", "Title"],
+        ["FgMuted", "Recessed"], ["TabOff", "Desk"], ["FgStrong", "SelectInactive"], ["SelectInk", "Select"], ["Fg", "Dropdown"], ["FgStrong", "Card"],
+        ["FgMuted", "Card"], ["Fg", "Input"]]
+      if web.Contrast(t[pair[1]], t[pair[2]]) < 4.5
+        bad = list.Append("$(pair[1]) on $(pair[2]) $(web.Contrast(t[pair[1]], t[pair[2]]))", bad)
+      end
+    end
+    for status in ["Ok", "Warn", "Err", "Info", "Violet"]
+      if web.Contrast(t[status], tint(t[status], t.Recessed)) < 4.5
+        bad = list.Append("$status on its tint", bad)
+      end
+    end
+    for pair in [["Focus", "Panel"], ["InputLineHigh", "Panel"]]
+      if web.Contrast(t[pair[1]], t[pair[2]]) < 3
+        bad = list.Append("$(pair[1]) on $(pair[2])", bad)
+      end
+    end
+  end
+  value.IsEmpty(bad) and web.Tokens.Web == missing
+end
+
+rows = [{Number: "F-$(k)", Client: "Client $(k)", Total: k * 10.5} for k in 1..60]
+
+defn page(p)
+  name = web.Signal("Martin & Co")
+  web.Dock([web.Panel("Invoices", web.Stack([web.Grow(web.Table(rows, [web.Column("Number", r -> r.Number, sort = "Number", width = 90), web.Column("Client", r -> r.Client),
+    web.Column("Total", r -> web.Money(r.Total), width = 110)], label = "Invoices")), web.Text("60 rows", color = "Muted")]), icon = "table")],
+    left = [web.Panel("Outliner", web.Tree([web.Item("Dashboard", count = 3), web.Item("Data", kids = [web.Item("Invoices", count = 60)])], chosen = "Invoices"), icon = "list-tree")],
+    right = [web.Panel("Details", web.Inspector([web.Section("Invoice", [web.Property("Client", web.Input(name, label = "Client"), note = "text", error = () -> "Too long")])]))],
+    bottom = [web.Panel("Log", web.Empty("No lines yet", "The lines of the log show here.", action = web.Button("Show all", () -> missing, key = "C-l")))],
+    toolbar = web.Toolbar([web.Button("Save", () -> missing, icon = "save", key = "C-s"), web.Divider(), web.Text("Live", color = "Ok"), web.Spacer(), web.Text("Warn", color = "Warn")]),
+    status = web.StatusBar([web.Text("super@app.test"), web.Divider(), web.Text("p50 4 ms", color = "Muted"), web.Text("Danger", color = "Danger"), web.Text("Link", color = "Link")]))
+end
+
+defn unreadable(theme)
+  (** The texts of the page in a theme under 4.5:1, those of the disabled color left out. *)
+  app = web.App([web.Route("/", page)], theme = theme)
+  p = headless.Open(app, width = 1000, height = 640)
+  ["$(c.Text) $(c.Ratio)" for c in headless.Contrasts(p) if c.Ratio < 4.5 and c.Ink != theme.Disabled]
+end
+
+defn isDrawnAA()
+  dark = unreadable(web.Dark)
+  light = unreadable(web.Light)
+  measured = value.Len(headless.Contrasts(headless.Open(web.App([web.Route("/", page)], theme = web.Dark), width = 1000, height = 640)))
+  list.All([value.IsEmpty(dark), value.IsEmpty(light), measured > 25])
+end
+
+defn isCheckerSeesBadText()
+  (* the checker itself: grey on grey is caught *)
+  app = web.App([web.Route("/", _ -> web.Stack([web.Text("faint", color = 0x777777)], fill = 0x666666, pad = 8))], theme = web.Dark)
+  got = headless.Contrasts(headless.Open(app))
+  hit = list.FindFirst(c -> c.Text == "faint", got)
+  value.IsSome(hit) and hit.Ratio < 1.5 and hit.Back == 0x666666
+end

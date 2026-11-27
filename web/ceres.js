@@ -488,7 +488,7 @@ const listed = e => e.Kind === 'mouse' ? ['mouse', e.Action, e.X, e.Y, e.Button,
 // The route in the address, after its # (page.html#/users/42), or null when it holds none.
 const routeOf = () => location.hash.startsWith('#/') ? decodeURIComponent(location.hash.slice(1)) : null
 // Alt+Left and Alt+Right stay the browser's: Back and Forward, which the page follows by the address.
-const browsers = ev => ev.altKey && !ev.ctrlKey && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')
+const browsers = ev => ev.altKey && !ev.ctrlKey && !ev.shiftKey && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')
 export function Start(events, form, net) {
   const canvas = document.querySelector('canvas')
   canvas.style.display = 'block'

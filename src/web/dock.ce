@@ -216,7 +216,7 @@ end
 defn kit()
   (** The functions of the widgets of a desktop tool, as a page calls them. *)
   {Lay: layDesk, Mounted: restored, Sem: semDesk, Patch: patchDesk, Drop: dropItems, Hover: hoverDesk, Down: dockDown,
-    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk, Fold: foldKey}
+    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk, Fold: foldKey, Pane: paneTo}
 end
 
 defn layDesk(id, maxW, ui)
@@ -339,6 +339,37 @@ defn folding(u)
     return missing
   end
   {Id: id, Folded: dict.GetOr("Folded", false, u.Boxes[id].Cache)}
+end
+
+defn areaTabs(st, area, u)
+  (** The box of the tabs of an area of a dock, or 0. *)
+  for id in dict.Keys(u.Boxes)
+    n = u.Boxes[id].Node
+    if n.Kind == "tabs" and value.IsSome(n.Dock) and n.Dock.Id == st.Id and n.Area == area
+      return id
+    end
+  end
+  0
+end
+
+defn paneTo(back, ui)
+  (** F6 and Shift+F6: the focus to the next area of the page's dock, or the one before, in the order left, center,
+      right, bottom: on the first widget of its panel that takes it, else on its tabs. Whether there was a dock. *)
+  docks = [id for id in dict.Keys(ui.Boxes) if ui.Boxes[id].Node.Kind == "dock"]
+  if value.IsEmpty(docks)
+    return missing
+  end
+  st = ui.Boxes[docks[1]].Node.State
+  areas = [a for a in ["Left", "Center", "Right", "Bottom"] if areaTabs(st, a, ui) != 0]
+  if value.IsEmpty(areas)
+    return missing
+  end
+  here = list.FindFirst(a -> holdsFocus(areaTabs(st, a, ui), ui), areas)
+  i = if value.IsMissing(here) (value.Len(areas) if back else 0) else list.IndexOf(here, areas) end
+  j = math.Mod(i - 1 + (-1 if back else 1) + value.Len(areas), value.Len(areas)) + 1
+  tabs = areaTabs(st, areas[j], ui)
+  inside = [k for k in focusables(tabs, ui) if k != tabs]
+  focus(if value.IsEmpty(inside) tabs else inside[1] end, ui, ring = true)
 end
 
 defn foldKey(ui)
@@ -928,6 +959,17 @@ defn tabsKey(e, ui)
   (** The keys of tabs in focus: Left and Right show the panel before or after, Home and End the first and the last. *)
   b = ui.Boxes[ui.Focus]
   n = b.Node
+  to = {left: "Left", right: "Right", up: "Center", down: "Bottom"}
+  if dict.GetOr("Alt", false, e) and dict.GetOr("Shift", false, e) and e.Key in to and value.IsSome(n.Dock)
+    (* the panel shown goes to the area on that side, as a drag of its tab would take it, and the focus with it *)
+    if to[e.Key] == n.Area or value.IsEmpty(n.Panels)
+      return ui
+    end
+    movePanel(n.Dock, n.Panels[b.Cache.Chosen].Key, n.Area, to[e.Key])
+    u = Update(keepDock(n.Dock, ui))
+    there = areaTabs(n.Dock, to[e.Key], u)
+    return if there == 0 u else focus(there, u, ring = true) end
+  end
   if (e.Key == "enter" or e.Key == "space") and value.IsSome(dict.Get("Fold", b.Cache))
     Set(n.Dock.Fold, not b.Cache.Shut)
     return keepDock(n.Dock, ui)

@@ -374,7 +374,7 @@ defn key(e, ui)
       return heldAnswered(act, u)
     end
   end
-  if dict.GetOr("Alt", false, e) and not dict.GetOr("Ctrl", false, e) and (e.Key == "left" or e.Key == "right")
+  if dict.GetOr("Alt", false, e) and not dict.GetOr("Ctrl", false, e) and not dict.GetOr("Shift", false, e) and (e.Key == "left" or e.Key == "right")
     return travel(if e.Key == "left" "back" else "forward" end, u)
   end
   if dict.GetOr("Ctrl", false, e) or dict.GetOr("Alt", false, e) or text.StartsWith("f", e.Key) and value.Len(e.Key) > 1
@@ -384,6 +384,12 @@ defn key(e, ui)
     end
     if chord(e) == "C-j" and value.IsSome(u.Kit) and u.Kit.Fold(u)
       return u
+    end
+    if e.Key == "f6" and value.IsSome(u.Kit)
+      moved = u.Kit.Pane(dict.GetOr("Shift", false, e), u)
+      if value.IsSome(moved)
+        return moved
+      end
     end
   end
   if e.Key == "tab"

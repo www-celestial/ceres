@@ -114,3 +114,31 @@ defn isFocusShownInItsPanel()
   top = y(line("text \"line 1\"", p)) < 80
   list.All([hidden, focused, shown, top])
 end
+
+key(k, p, alt = false, shift = false) = web.Handle({Kind: "key", Key: k, Ctrl: false, Shift: shift, Alt: alt}, p)
+focused(p) = list.FindFirst(l -> text.Contains(" focused", l), text.Lines(headless.Tree(p)))
+
+defn isPaneByF6()
+  (** F6 goes from area to area of the dock, left, center, right, bottom, on the first widget of each that takes the
+      focus, else its tabs; Shift+F6 goes back. *)
+  p = headless.Open(app, width = 1000, height = 640)
+  p = key("f6", p)
+  left = text.Contains("tree \"Sections\"", focused(p))
+  p = key("f6", p)
+  center = text.Contains("table \"Invoices\"", focused(p))
+  p = key("f6", p)
+  right = text.Contains("button \"Invoice\"", focused(p))
+  p = key("f6", p)
+  bottom = text.Contains("tablist \"Bottom\"", focused(p))
+  p = key("f6", p, shift = true)
+  list.All([left, center, right, bottom, text.Contains("button \"Invoice\"", focused(p))])
+end
+
+defn isPanelMovedByKeys()
+  (** Alt+Shift and an arrow on the tabs of an area move the panel shown to the area on that side, the focus with it. *)
+  p = headless.Open(app, width = 1000, height = 640)
+  p = key("f6", key("f6", key("f6", key("f6", p))))
+  p = key("right", p, alt = true, shift = true)
+  t = headless.Tree(p)
+  list.All([text.Contains("tab \"Log\" selected", t), text.Contains("tablist \"Right\" focused", t), not text.Contains("tablist \"Bottom\" focused", t)])
+end
