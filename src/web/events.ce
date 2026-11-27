@@ -1,6 +1,6 @@
 (* Events: a back-end gives each one to Handle as {Kind: "mouse", Action: "down", "up", "move" or "wheel", X, Y,
    Amount}, {Kind: "key", Key, Ctrl, Shift, Alt}, {Kind: "text", Text} or {Kind: "resize", Width, Height}, the same on
-   every platform. A move does nothing unless the mouse drags a scroll bar: a mouse that moves over a page costs no frame. *)
+   every platform. A move costs no frame unless the mouse drags or enters a widget that it lights. *)
 use std/dict
 use std/list
 use std/math
@@ -14,8 +14,31 @@ defn Handle(e, ui)
   else if e.Kind == "key" key(e, ui)
   else if e.Kind == "text" typed(e.Text, ui)
   else if e.Kind == "resize" resized(e, ui)
+  else if e.Kind == "scheme" schemed(e.Dark, ui)
+  else if e.Kind == "nav" navigated(e.Path, ui)
   else ui end
   Update(u)
+end
+
+defn schemed(dark, ui)
+  (** The system turned dark or light: a page whose theme follows it (web.System) is drawn again in the other. *)
+  u = ui
+  u.Dark = dark
+  if not isSystem(u.Choice)
+    return u
+  end
+  u.Theme = atDensity(themeFor(u.Choice, dark), dict.Get("Density", u.Theme))
+  restyled(u)
+end
+
+defn restyled(ui)
+  (** Every box laid out and drawn again, as a new theme asks. *)
+  u = ui
+  for id in dict.Keys(u.Boxes)
+    u.Boxes[id].Dirty = true
+  end
+  u.Changed = true
+  u
 end
 
 defn resized(e, ui)
@@ -25,7 +48,7 @@ defn resized(e, ui)
   touch(u.Root, u)
 end
 
-active = ["button", "link", "input", "select", "table"]   (* The kinds of widgets that take the mouse. *)
+active = ["button", "link", "input", "select", "table", "split", "tabs", "tree", "scroll", "section", "nav", "chips", "picks", "metric", "asked", "vtabs", "date"]   (* The kinds of widgets that take the mouse. *)
 
 defn hitIn(id, x, y, ui)
   (** The deepest box under x, y, given in the box's own coordinates, or 0. *)
@@ -82,15 +105,82 @@ defn focus(id, ui, ring = false)
     end
     u = touch(id, u)
   end
+  if ring and id != 0 and value.IsSome(u.Kit)
+    (* the keyboard moved it: the panels it is in scroll to show it *)
+    u = u.Kit.Reveal(id, u)
+  end
   u
+end
+
+defn hovered(e, ui)
+  (** The mouse moves, no button held: the widget under it, and its part (a tab, a row of a tree), are drawn lighter,
+      and the cursor says what a press would do there, as a split's handle that a press drags or a field's text. Only
+      the widgets it leaves and enters are laid out again: a move inside one costs no frame, and a page that draws
+      no hover (web.Theme's buttons) none. *)
+  h = hit(e.X, e.Y, ui)
+  over = {Id: 0, Part: missing, Cursor: "default"}
+  tokens = value.IsSome(dict.Get("Tokens", ui.Theme))
+  if value.IsSome(h)
+    n = ui.Boxes[h.Id].Node
+    k = n.Kind
+    over = if k == "button" and (tooled(n, ui.Theme) or tokens) or k == "section" {Id: h.Id, Part: missing, Cursor: "pointer" if tokens else "default"}
+    else if k == "input" or k == "select" or k == "date" {Id: h.Id if tokens else 0, Part: missing, Cursor: "text" if k == "input" else "pointer"}
+    else if k == "link" {Id: 0, Part: missing, Cursor: "pointer"}
+    else if value.IsSome(ui.Kit) ui.Kit.Hover(h, ui)
+    else if k == "table" and tokens hoverRow(h, ui)
+    else over end
+  end
+  u = ui
+  (* the crosshair of the graphs of a board: where the mouse is over one, or none once it leaves them *)
+  cross = dict.Get("Cross", over)
+  was1 = dict.Get("Cross", ui)
+  if value.IsSome(was1) and (value.IsMissing(cross) or cross.Id != was1.Id)
+    Set(was1, missing)
+    u.Cross = missing
+  end
+  if value.IsSome(cross)
+    Set(cross, over.At)
+    u.Cross = cross
+  end
+  u.Cursor = over.Cursor
+  if over.Id == u.Hover and same(over.Part, u.HoverPart)
+    return u
+  end
+  was = u.Hover
+  u.Hover = over.Id
+  u.HoverPart = over.Part
+  if was != 0 and was in u.Boxes
+    u = touch(was, u)
+  end
+  if over.Id != 0
+    u = touch(over.Id, u)
+  end
+  u
+end
+
+defn hoverRow(h, ui)
+  (** The row of a table under the mouse, in a theme of tokens, which draws it lit. *)
+  c = ui.Boxes[h.Id].Cache
+  head = dict.GetOr("Head", c.Row, c)
+  i = if h.Y >= head math.Div(h.Y - head + c.Offset, c.Row) + 1 else missing end
+  {Id: if value.IsSome(i) and i <= c.Count h.Id else 0 end, Part: i, Cursor: "pointer" if value.IsFunction(dict.Get("Open", ui.Boxes[h.Id].Node)) else "default"}
 end
 
 defn mouse(e, ui)
   u = ui
+  if e.Action == "down" and value.IsSome(u.Kit) and value.IsSome(dict.Get("Modal", u.Kit))
+    m = u.Kit.Modal(e, u)
+    if value.IsSome(m)
+      return m
+    end
+  end
+  if e.Action == "down" and value.IsSome(held(u)) and e.Y >= seenHeight(u)
+    return bandDown(e, u)
+  end
   if e.Action == "wheel"
     return wheel(e, u)
   else if e.Action == "move"
-    return dragged(e, u)
+    return if value.IsMissing(u.Drag) hovered(e, u) else dragged(e, u) end
   else if e.Action == "up"
     return released(e, u)
   end
@@ -104,13 +194,15 @@ defn mouse(e, ui)
   end
   n = u.Boxes[h.Id].Node
   k = n.Kind
-  if k == "button" or k == "link"
+  if k == "button" or k == "link" or k == "section"
     u.Pressed = h.Id
     u = touch(h.Id, u)
-    return if k == "button" focus(h.Id, u) else u end
+    return if k == "link" u else focus(h.Id, u) end
+  else if k in ["split", "tabs", "tree", "scroll", "nav", "chips", "picks", "asked", "vtabs", "date"]
+    return u.Kit.Down(h, e, u)
   else if k == "input"
     u = focus(h.Id, u)
-    u.Caret = caretAt(h.X - 6 + dict.GetOr("Shift", 0, u.Boxes[h.Id].Cache), h.Id, u)
+    u.Caret = caretAt(h.X - dict.GetOr("Left", 6, u.Boxes[h.Id].Cache) + dict.GetOr("Shift", 0, u.Boxes[h.Id].Cache), h.Id, u)
     return touch(h.Id, u)
   else if k == "select"
     return opened(h.Id, focus(h.Id, u))
@@ -118,6 +210,16 @@ defn mouse(e, ui)
     return tableDown(h, focus(h.Id, u))
   end
   u
+end
+
+defn bandDown(e, ui)
+  (** A press on the band while it asks what to do with the changes of a view left: the answer under the mouse. *)
+  for p in bandSpots(ui).Pairs
+    if e.X >= p.X and e.X < p.X1
+      return heldAnswered(p.Act, ui)
+    end
+  end
+  ui
 end
 
 defn opened(id, ui)
@@ -151,7 +253,11 @@ end
 defn released(e, ui)
   (** The button of the mouse comes up: a press on a button or a link that ends on it is a click. *)
   u = ui
+  d = u.Drag
   u.Drag = missing
+  if value.IsSome(d) and dict.Get("Kind", d) in ["split", "tab"]
+    return u.Kit.Up(d, e, u)
+  end
   if u.Pressed == 0
     return u
   end
@@ -171,7 +277,9 @@ defn clicked(id, ui)
   if n.Kind == "button"
     n.On()
   else if n.Kind == "link"
-    Set(ui.Nav, n.To)
+    if value.IsSome(ui.Router) going(ui.Router, n.To, missing) else Set(ui.Nav, n.To) end
+  else if n.Kind == "section"
+    Set(n.Open, not Get(n.Open))
   end
   ui
 end
@@ -180,20 +288,46 @@ defn wheel(e, ui)
   (** The wheel scrolls the table under the mouse, or else the page. *)
   by = math.Round(-e.Amount * 48)
   h = hit(e.X, e.Y, ui)
-  if value.IsSome(h) and ui.Boxes[h.Id].Node.Kind == "table"
+  if value.IsSome(h) and ui.Boxes[h.Id].Node.Kind == "table" and value.IsDict(ui.Boxes[h.Id].Cache) and dict.GetOr("Most", 0, ui.Boxes[h.Id].Cache) > 0
     return scrollTable(h.Id, by, ui)
+  end
+  if value.IsSome(h) and value.IsSome(ui.Kit) and ui.Kit.Wheel(h.Id, by, ui)
+    return ui
   end
   scrolled(ui.ScrollY + by, ui)
 end
 
 defn tableDown(h, ui)
-  (** A press on a table: on a title it sorts, on the scroll bar it starts a drag, on a row it chooses it. *)
+  (** A press on a table: on a title it sorts, on the scroll bar it starts a drag, on a row it chooses it (and opens
+      it, with open), on its box it checks it or not, on the box of the header all the rows shown. *)
   u = ui
   b = u.Boxes[h.Id]
   n = b.Node
   c = b.Cache
-  if h.Y < c.Row
-    x = 0
+  head = dict.GetOr("Head", c.Row, c)
+  box = dict.GetOr("Box", 0, c)
+  if box > 0 and h.X < box and h.Y >= head
+    i = math.Div(h.Y - head + c.Offset, c.Row) + 1
+    row = tableRow(i, c)
+    if value.IsSome(row)
+      key = n.KeyOf(row)
+      now = Get(n.Checks)
+      Set(n.Checks, if key in now dict.Drop(key, now) else dict.Put(key, true, now) end)
+    end
+    return u
+  else if box > 0 and h.X < box
+    now = Get(n.Checks)
+    rows = [r for r in c.Slice if value.IsSome(r)]
+    all = list.All([n.KeyOf(r) in now for r in rows]) and value.Len(rows) > 0
+    out = now
+    for r in rows
+      out = if all dict.Drop(n.KeyOf(r), out) else dict.Put(n.KeyOf(r), true, out) end
+    end
+    Set(n.Checks, out)
+    return u
+  end
+  if h.Y < head
+    x = box
     for k in 1..value.Len(n.Columns)
       col = n.Columns[k]
       if h.X >= x and h.X < x + c.Widths[k] and value.IsSome(col.Sort)
@@ -203,15 +337,31 @@ defn tableDown(h, ui)
       end
       x += c.Widths[k]
     end
-  else if h.X >= b.W - scrollBar
+  else if h.X >= b.W - scrollBar and c.Most > 0
     u.Drag = {Box: h.Id, Y: h.Y, Offset: Get(n.Offset)}
   else
-    i = math.Div(h.Y - c.Row + c.Offset, c.Row) + 1
+    i = math.Div(h.Y - head + c.Offset, c.Row) + 1
     if i <= c.Count
-      Set(n.Chosen, i)
+      choose(n, i, c)
     end
   end
   u
+end
+
+defn tableRow(i, c)
+  (** The row i of a table, if it is in sight (its box keeps those), or missing. *)
+  rows = dict.GetOr("Slice", [], c)
+  j = i - c.First + 1
+  if j >= 1 and j <= value.Len(rows) rows[j] else missing end
+end
+
+defn choose(n, i, c)
+  (** Chooses the row i of a table, and opens it when the table has open. *)
+  Set(n.Chosen, i)
+  row = tableRow(i, c)
+  if value.IsFunction(dict.Get("Open", n)) and value.IsSome(row)
+    n.Open(row)
+  end
 end
 
 defn dragged(e, ui)
@@ -220,9 +370,12 @@ defn dragged(e, ui)
   if value.IsMissing(d) or not (d.Box in ui.Boxes)
     return ui
   end
+  if dict.Get("Kind", d) in ["split", "tab"]
+    return ui.Kit.Drag(d, e, ui)
+  end
   b = ui.Boxes[d.Box]
   c = b.Cache
-  body = b.H - c.Row
+  body = b.H - dict.GetOr("Head", c.Row, c)
   thumb = list.Max(24, math.Div(body * body, list.Max(1, c.Count * c.Row)))
   p = at(d.Box, ui)
   moved = e.Y - p.Y - d.Y
@@ -234,9 +387,10 @@ defn caretAt(x, id, ui)
   (** The place of the caret nearest x pixels into the text of an input. *)
   s = value.Text(dict.GetOr("Text", "", ui.Boxes[id].Cache))
   size = ui.Theme.Size
+  font = fieldFont(ui.Theme)
   for k in 0..value.Len(s)
-    w = widthOf(head(s, k), size, "code", ui)
-    next = widthOf(head(s, k + 1), size, "code", ui)
+    w = widthOf(head(s, k), size, font, ui)
+    next = widthOf(head(s, k + 1), size, font, ui)
     return k if x < (w + next) / 2
   end
   value.Len(s)
@@ -246,7 +400,10 @@ defn focusables(id, ui)
   (** The boxes that take the focus, in the order of the page. *)
   b = ui.Boxes[id]
   k = b.Node.Kind
-  own = if k == "input" or k == "select" or k == "button" or k == "table" [id] else [] end
+  if k == "narrow" and b.W == 0 or k == "side" and b.X < 0
+    return []
+  end
+  own = if k in ["input", "select", "button", "table", "tree", "tabs", "section", "nav", "chips"] [id] else [] end
   list.Concat(own, list.FlatMap(c -> focusables(c, ui), b.Kids))
 end
 
@@ -281,10 +438,42 @@ end
 
 defn key(e, ui)
   u = ui
+  if value.IsSome(u.Kit) and value.IsSome(dict.Get("Modal", u.Kit)) and value.IsMissing(held(u))
+    m = u.Kit.Modal(e, u)
+    if value.IsSome(m)
+      return m
+    end
+  end
+  if e.Key == "/" and (u.Focus == 0 or not (u.Focus in u.Boxes) or u.Boxes[u.Focus].Node.Kind != "input")
+    (* the key of search: the field that hint = "/" marks *)
+    f = hinted(u.Root, u)
+    if f != 0
+      return focus(f, u, ring = true)
+    end
+  end
+  if value.IsSome(held(u))
+    c = chord(e)
+    act = if c == "escape" "stay" else if c == "C-d" "leave" else if c == "C-s" and list.Any([p[3] == "save" for p in heldPairs(u.Router)]) "save" else missing end
+    if value.IsSome(act)
+      return heldAnswered(act, u)
+    end
+  end
+  if dict.GetOr("Alt", false, e) and not dict.GetOr("Ctrl", false, e) and not dict.GetOr("Shift", false, e) and (e.Key == "left" or e.Key == "right")
+    return travel(if e.Key == "left" "back" else "forward" end, u)
+  end
   if dict.GetOr("Ctrl", false, e) or dict.GetOr("Alt", false, e) or text.StartsWith("f", e.Key) and value.Len(e.Key) > 1
     b = keyed(u.Root, chord(e), u)
     if b != 0
       return clicked(b, u)
+    end
+    if chord(e) == "C-j" and value.IsSome(u.Kit) and u.Kit.Fold(u)
+      return u
+    end
+    if e.Key == "f6" and value.IsSome(u.Kit)
+      moved = u.Kit.Pane(dict.GetOr("Shift", false, e), u)
+      if value.IsSome(moved)
+        return moved
+      end
     end
   end
   if e.Key == "tab"
@@ -298,15 +487,34 @@ defn key(e, ui)
   k = n.Kind
   if k == "input"
     edited(e, u)
+  else if (k == "button" or k == "section") and (e.Key == "pagedown" or e.Key == "pageup") and value.IsSome(u.Kit)
+    u.Kit.Key(e, u)
   else if k == "button"
     if e.Key == "enter" or e.Key == "space" clicked(u.Focus, u) else u end
   else if k == "select"
     selectKey(e, u)
   else if k == "table"
     tableKey(e, u)
+  else if k == "tree" or k == "tabs" or k == "nav" or k == "chips" or k == "date"
+    u.Kit.Key(e, u)
+  else if k == "section"
+    if e.Key == "enter" or e.Key == "space" clicked(u.Focus, u) else u end
   else
     u
   end
+end
+
+defn hinted(id, ui)
+  (** The first field under the box id whose hint is "/", or 0. *)
+  b = ui.Boxes[id]
+  if b.Node.Kind == "input" and dict.Get("Hint", b.Node) == "/"
+    return id
+  end
+  for c in b.Kids
+    got = hinted(c, ui)
+    return got if got != 0
+  end
+  0
 end
 
 defn pageKey(e, ui)
@@ -316,10 +524,30 @@ defn pageKey(e, ui)
 end
 
 defn tableKey(e, ui)
-  (** Keys of a table in focus scroll it. *)
+  (** Keys of a table in focus scroll it; in a table that opens its rows (open), Up and Down choose the row above or
+      under, which shows, and Enter opens the row chosen. *)
   b = ui.Boxes[ui.Focus]
+  n = b.Node
   c = b.Cache
-  body = b.H - c.Row
+  body = b.H - dict.GetOr("Head", c.Row, c)
+  if value.IsFunction(dict.Get("Open", n)) and (e.Key == "down" or e.Key == "up" or e.Key == "enter")
+    now = Get(n.Chosen)
+    i = if e.Key == "enter" now else if value.IsMissing(now) c.First else list.Max(1, list.Min(c.Count, now + (1 if e.Key == "down" else -1))) end
+    if value.IsMissing(i)
+      return ui
+    end
+    top = (i - 1) * c.Row
+    want = if top < c.Offset top else if top + c.Row > c.Offset + body top + c.Row - body else c.Offset end
+    if want != c.Offset
+      _ = scrollTable(ui.Focus, want - c.Offset, ui)
+    end
+    if e.Key == "enter"
+      choose(n, i, c)
+    else
+      Set(n.Chosen, i)
+    end
+    return touch(ui.Focus, ui)
+  end
   by = if e.Key == "down" c.Row else if e.Key == "up" (-c.Row) else if e.Key == "pagedown" body else if e.Key == "pageup" (-body) else if e.Key == "home" (-1000000000) else if e.Key == "end" 1000000000 else 0 end
   if by == 0 ui else scrollTable(ui.Focus, by, ui) end
 end

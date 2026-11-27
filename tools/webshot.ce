@@ -1,9 +1,13 @@
 (* The test of the invoices page in a browser, the page compiled from Cesia to WebAssembly (tools/webshot.sh builds it):
    this program serves it with its app's live screen, as examples/invoices/serve.ce does, opens it in Chrome without a
    window, and reads the title that tests/web/page.html writes once it played a person (the rows of the table, a click
-   into the field Due, "Brun" typed, then Backspace and a space). It drives Chrome by its DevTools protocol, over a
-   WebSocket of std/websocket, and writes the picture of the page in shots/invoices-webgl.png. CHROME names the browser,
-   a Chrome or a chrome-headless-shell; the browser's profile is in /tmp/ceres-webshot. *)
+   into the field Due, "Brun" typed, then Backspace and a space), the hidden DOM and the texts in the middle of their
+   boxes checked (ceres-check). Then it opens tests/web/align.html, the page of tests/web/align.ce, with the system's
+   colors dark and then light, which reads from its pixels that every text and icon is in the middle of its box, and
+   tests/web/route.html, the page of tests/web/route.ce, which goes through its routes by the address and the history. It
+   drives Chrome by its DevTools protocol, over a WebSocket of std/websocket, and writes the picture of the invoices page
+   in shots/invoices-webgl.png. It prints each title and fails when one is off. CHROME names the browser, a Chrome or a
+   chrome-headless-shell; the browser's profile is in /tmp/ceres-webshot. *)
 use examples/invoices/server
 use std/encode
 use std/fiber
@@ -31,17 +35,12 @@ defn ask(conn, id, method, params)
   end
 end
 
-defn main()
-  (** Serves, opens, waits for the title, takes the picture: an Ok of the title. *)
-  chrome = sys.Env("CHROME")
-  store = server.Store()
-  l = net.Listen(0)?
-  app = http.App() then live.Route("/live", server.Screen(store), actions = server.Actions(store)) then http.Static("/tests", "tests/web") then http.Static("", "examples/invoices")
-  fiber.Spawn(() -> http.Serve(app, listener = l))
+defn played(chrome, url, scheme, shot)
+  (** Opens url in a Chrome of its own, the system's colors dark or light as scheme says, waits until the page's title
+      starts with "done", and writes the picture of the page at shot unless it is missing: an Ok of the title. *)
   _ = sys.Remove("$profile/DevToolsActivePort")
   proc = sys.Start(if value.IsMissing(chrome) "chrome" else chrome end, args = ["--headless=new", "--no-sandbox", "--use-angle=swiftshader",
-    "--enable-unsafe-swiftshader", "--window-size=1100,860", "--remote-debugging-port=0", "--user-data-dir=$profile",
-    "http://127.0.0.1:$(net.Port(l))/tests/page.html"])?
+    "--enable-unsafe-swiftshader", "--window-size=1100,860", "--remote-debugging-port=0", "--user-data-dir=$profile", "about:blank"])?
   start = sys.Now()
   while not sys.Exists("$profile/DevToolsActivePort") and sys.Now() - start < 10
     sys.Sleep(0.05)
@@ -50,19 +49,41 @@ defn main()
   targets = json.Parse(http.Fetch("http://127.0.0.1:$port/json")?.Body)?
   page = [t for t in targets if t["type"] == "page"][1]
   conn = websocket.Dial(page["webSocketDebuggerUrl"])?
+  _ = ask(conn, 1, "Emulation.setEmulatedMedia", {features: [{name: "prefers-color-scheme", value: scheme}]})?
+  _ = ask(conn, 2, "Page.navigate", {url: url})?
   title = ""
-  n = 1
+  n = 2
   while not text.StartsWith("done", title) and sys.Now() - start < 40
     sys.Sleep(0.2)
     n += 1
     title = ask(conn, n, "Runtime.evaluate", {expression: "document.title"})?["result"]["value"]
   end
-  shot = ask(conn, n + 1, "Page.captureScreenshot", {format: "png"})?
-  sys.Write("shots/invoices-webgl.png", encode.Unbase64(shot["data"])?)?
+  if value.IsSome(shot)
+    got = ask(conn, n + 1, "Page.captureScreenshot", {format: "png"})?
+    sys.Write(shot, encode.Unbase64(got["data"])?)?
+  end
   sys.Stop(proc)
   result.Ok(title)
 end
 
+defn main()
+  (** Serves, then plays the invoices page (its picture taken), the page of tests/web/align.ce dark and light, and the
+      routes of tests/web/route.ce in the browser's address and its history: an Ok of their titles, one a line. *)
+  chrome = sys.Env("CHROME")
+  store = server.Store()
+  l = net.Listen(0)?
+  app = http.App() then live.Route("/live", server.Screen(store), actions = server.Actions(store)) then http.Static("/tests", "tests/web") then http.Static("", "examples/invoices")
+  fiber.Spawn(() -> http.Serve(app, listener = l))
+  at = "http://127.0.0.1:$(net.Port(l))"
+  page = played(chrome, "$at/tests/page.html?ceres-check", "light", "shots/invoices-webgl.png")?
+  dark = played(chrome, "$at/tests/align.html?ceres-check", "dark", missing)?
+  light = played(chrome, "$at/tests/align.html?ceres-check", "light", missing)?
+  routes = played(chrome, "$at/tests/route.html", "light", missing)?
+  deep = played(chrome, "$at/tests/route.html#/second", "light", missing)?
+  result.Ok([page, dark, light, routes, deep])
+end
+
 got = main()
-io.Print(if result.IsOk(got) got.Value else "webshot: $(got.Error.Message)" end)
-sys.Exit(if result.IsOk(got) and text.StartsWith("done", got.Value) 0 else 1 end)
+io.Print(if result.IsOk(got) text.Join("\n", got.Value) else "webshot: $(got.Error.Message)" end)
+good = result.IsOk(got) and value.Len([t for t in got.Value if text.StartsWith("done", t) and not text.Contains("off:", t)]) == 5
+sys.Exit(if good 0 else 1 end)

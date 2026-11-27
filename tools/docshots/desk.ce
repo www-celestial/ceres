@@ -1,0 +1,30 @@
+(* The pictures of the chapter Layout like a desktop tool, docs/book/desk.md: the page of examples/desk drawn by the SDL3
+   back-end under SDL's dummy driver, dark and light, an invoice chosen (OUT/desk-dark.png, OUT/desk-light.png), and the
+   dock of a fresh app whose bottom panels have nothing yet, folded to their tabs (OUT/desk-folded.png). *)
+use examples/desk/page
+use src/sdl
+use src/web
+use std/io
+use std/sys
+use std/value
+
+click(x, y, ui) = web.Handle({Kind: "mouse", Action: "up", X: x, Y: y, Button: 1, Amount: 0}, web.Handle({Kind: "mouse", Action: "down", X: x, Y: y, Button: 1, Amount: 0}, ui))
+out = if value.IsText(sys.Env("OUT")) sys.Env("OUT") else "docs/book/images" end
+
+defn fresh(p)
+  (** A fresh app: three notes, no event yet, nothing chosen. *)
+  notes = [{Id: 65541, Text: "Call the printer about the toner"}, {Id: 65544, Text: "Send the March invoices"}, {Id: 65547, Text: "Ask Ada to add a passkey"}]
+  table = web.Table(notes, [web.Column("Id", n -> n.Id, width = 80), web.Column("Text", n -> n.Text)], label = "Notes")
+  web.Dock([web.Panel("Notes", web.Stack([web.Grow(table), web.Text("3 notes", color = "Muted")], gap = 4))],
+    left = [web.Panel("Outliner", web.Tree([web.Item("Notes", count = 3), web.Item("Users", count = 1), web.Item("Webhooks", count = 0)], chosen = "Notes", label = "Pages"))],
+    right = [web.Panel("Details", web.Empty("Nothing chosen", "Choose a note in the table to see its fields and change them here."))],
+    bottom = [web.Panel("Events", web.Empty("No events yet", "Sign-ins, changes and jobs show here as they happen.",
+      action = web.Button("Send a test event", () -> missing, key = "C-t"))), web.Panel("Log", web.Empty("The log is empty", "The lines of the server show here."))],
+    toolbar = web.Toolbar([web.Button("New", () -> missing, key = "C-n"), web.Button("Refresh", () -> missing, key = "f5")]),
+    status = web.StatusBar([web.Text("Live", color = "Ok"), web.Divider(), web.Text("super@app.test"), web.Spacer(), web.Text("1 user · 1 tenant", color = "Muted")]),
+    sizes = {Left: 200, Right: 300, Bottom: 160})
+end
+
+io.Print(sdl.Shot(page.App(theme = web.Dark), "$out/desk-dark.png", width = 1280, height = 800, steps = ui -> click(400, 140, ui)))
+io.Print(sdl.Shot(page.App(theme = web.Light), "$out/desk-light.png", width = 1280, height = 800, steps = ui -> click(400, 140, ui)))
+io.Print(sdl.Shot(web.App([web.Route("/", fresh)], theme = web.Dark), "$out/desk-folded.png", width = 1100, height = 560))

@@ -13,7 +13,9 @@ defn newUi(width, height, measure, theme)
   (** An empty page of this size. *)
   {Boxes: dict.Dict(), Root: 0, Comps: dict.Dict(), Deps: dict.Dict(), Subs: dict.Dict(), Width: width, Height: height,
     Measure: measure, Theme: theme, Focus: 0, Ring: false, Caret: 0, Pressed: 0, Popup: 0, Drag: missing, ScrollY: 0, Changed: true,
-    Screens: [], Nav: missing, Memos: dict.Dict(), SemSeq: 0, SemPage: "", SemKids: ""}
+    Screens: [], Nav: missing, Memos: dict.Dict(), SemSeq: 0, SemPage: "", SemKids: "", Hover: 0, HoverPart: missing, Drop: missing,
+    Store: missing, Cursor: "default", Choice: theme, Dark: missing, Kit: missing, Router: missing, SemHeld: "",
+    Foldable: 0}
 end
 
 defn mount(node, parent, ui)
@@ -21,9 +23,22 @@ defn mount(node, parent, ui)
   n = kid(node)
   id = fresh()
   u = ui
-  u.Boxes[id] = {Id: id, Parent: parent, Node: n, Kids: [], W: 0, H: 0, X: 0, Y: 0, Cw: -1, Fit: false, Dirty: true, Items: [], Cache: missing, Laid: 0, Sem: missing, Enc: missing}
+  u.Boxes[id] = {Id: id, Parent: parent, Node: n, Kids: [], W: 0, H: 0, X: 0, Y: 0, Cw: -1, Fit: false, Dirty: true, Items: [], Cache: missing, Laid: 0, Sem: missing, Enc: missing,
+    Gh: missing, Over: 0, Wrap: false}
   k = n.Kind
-  if k == "stack" or k == "row"
+  if value.IsMissing(u.Kit) and value.IsSome(dict.Get("Kit", n))
+    (* the first widget of a desktop tool: the page takes their functions, which a page without them never holds *)
+    u.Kit = n.Kit()
+  end
+  if k == "shell"
+    u.Shell = id
+  end
+  if k == "dock"
+    u = u.Kit.Mounted(n.State, u)
+  else if k == "table"
+    _ = recalled(n, u)
+  end
+  if k in holders
     ids = []
     for c in n.Kids
       got = mount(c, id, u)
@@ -39,6 +54,8 @@ defn mount(node, parent, ui)
   {Id: id, Ui: u}
 end
 
+holders = ["stack", "row", "split", "scroll", "tabs", "dock", "toolbar", "statusbar", "shell", "side", "inset", "narrow", "sheet", "pop", "header", "strip"]   (* The kinds whose Kids are widgets. *)
+
 defn partNode(v)
   (** What a live part gave, as one widget: a list is stacked, missing is an empty stack. *)
   if value.IsMissing(v)
@@ -51,9 +68,24 @@ defn partNode(v)
 end
 
 defn remount(id, ui)
-  (** Runs the live part of box id again, and mounts what it gives in place of what it gave before. *)
+  (** Runs the live part of box id again, and mounts what it gives in place of what it gave before; the same web.Dock
+      as before, as each route of an app may give, stays mounted as it is. *)
+  b = ui.Boxes[id]
+  if value.Len(b.Kids) == 1 and ui.Boxes[b.Kids[1]].Node.Kind in ["dock", "shell"]
+    again = track(b.Node.Fn)
+    n = partNode(again.Value)
+    if n.Kind == ui.Boxes[b.Kids[1]].Node.Kind and n.State.Id == ui.Boxes[b.Kids[1]].Node.State.Id
+      return follow(id, "part", again.Reads, ui)
+    end
+    return mounted(id, again, dropKids(id, ui))
+  end
   u = dropKids(id, ui)
-  got = track(u.Boxes[id].Node.Fn)
+  mounted(id, track(u.Boxes[id].Node.Fn), u)
+end
+
+defn mounted(id, got, ui)
+  (** The box id with what its live part gave, got, mounted as its child. *)
+  u = ui
   u = follow(id, "part", got.Reads, u)
   made = mount(partNode(got.Value), id, u)
   u = made.Ui
@@ -118,6 +150,9 @@ defn unmount(id, ui)
   end
   if u.Popup == id
     u.Popup = 0
+  end
+  if u.Hover == id
+    u.Hover = 0
   end
   u.Boxes = dict.Drop(id, u.Boxes)
   u

@@ -1,0 +1,77 @@
+(** A page laid out as a desktop tool: the invoices of a small office in a web.Dock, its sections in an outliner at the
+    left, the invoices and the clients in tabs at the center, the invoice chosen in an inspector at the right, its
+    fields changed in place and checked as one types, a log at the bottom, a toolbar on top and a status bar. The data
+    lives in the page. examples/desk/desk.ce shows it in a browser, examples/desk/window.ce in a window of SDL3. *)
+use src/web
+use std/list
+use std/math
+use std/plot
+use std/text
+use std/value
+
+clients = [{Id: k, Name: "Client $(k)", City: ["Lyon", "Paris", "Nantes", "Lille"][math.Mod(k - 1, 4) + 1]} for k in 1..12]
+seed = [{Id: k, Number: "F-$(text.PadLeft(4, "0", value.Text(k)))", Client: math.Mod(k * 7, 12) + 1, Total: math.Mod(k * 37, 400) * 12.5 + 40,
+  Status: if math.Mod(k, 3) == 0 "paid" else "unpaid" end, Due: "2026-$(text.PadLeft(2, "0", value.Text(math.Mod(k, 12) + 1)))-15"} for k in 1..2000]
+
+defn amountWrong(s)
+  (** What is wrong with the text of an amount, or "". *)
+  n = text.Number(text.Trim(s))
+  if not value.IsNumber(n) "An amount is a number, as 1280.50." else if n < 0 "An amount is 0 or more." else "" end
+end
+
+defn Page(p)
+  (** The dock of the invoices. *)
+  invoices = web.Signal(seed)
+  log = web.Signal(["2026-11-26 09:00  opened, 2000 invoices"])
+  say = m -> web.Set(log, list.Append(m, web.Get(log)))
+  section = web.Signal("Invoices")
+  table = web.Table(invoices, [web.Column("Number", i -> i.Number, sort = "Number", width = 90), web.Column("Client", i -> clients[i.Client].Name, sort = "Client"),
+    web.Column("Due", i -> i.Due, sort = "Due", width = 100), web.Column("Status", i -> i.Status, sort = "Status", width = 80),
+    web.Column("Total", i -> web.Money(i.Total), sort = "Total", width = 110)], label = "Invoices")
+  chosen = () -> (if value.IsMissing(web.Get(table.Chosen)) missing else web.Get(invoices)[web.Get(table.Chosen)] end)
+  outline = web.Tree([web.Item("Overview", icon = "layout-dashboard", on = () -> web.Set(section, "Overview")),
+    web.Item("Invoices", icon = "table", count = 2000, on = () -> web.Set(section, "Invoices"), kids = [
+      web.Item("Unpaid", icon = "triangle-exclamation-point", count = value.Len([i for i in seed if i.Status == "unpaid"]), key = "unpaid", on = () -> web.Set(section, "Unpaid")),
+      web.Item("Paid", icon = "circle-check", count = value.Len([i for i in seed if i.Status == "paid"]), key = "paid", on = () -> web.Set(section, "Paid"))]),
+    web.Item("Clients", icon = "building", count = 12, on = () -> web.Set(section, "Clients")),
+    web.Item("Settings", icon = "settings", on = () -> web.Set(section, "Settings"))], chosen = "Invoices", label = "Sections")
+  months = () -> plot.Of([plot.Bars(["Jan", "Feb", "Mar", "Apr", "May", "Jun"], [120, 340, 80, 260, 190, 310], color = "#3b82f0")], title = "Unpaid by month (k€)")
+  web.Dock(
+    [web.Panel("Invoices", web.Stack([web.Grow(table), () -> web.Text("$(value.Len(web.Get(invoices))) invoices", color = "Muted")], gap = 4), icon = "table"),
+      web.Panel("Clients", web.Table(clients, [web.Column("Id", c -> c.Id, width = 50), web.Column("Name", c -> c.Name, sort = "Name"), web.Column("City", c -> c.City, sort = "City")],
+        height = 300, label = "Clients"), icon = "building"),
+      web.Panel("Chart", web.Plot(months, height = 260, label = "Unpaid by month"), icon = "chart-column")],
+    left = [web.Panel("Outliner", outline, icon = "list-tree")],
+    right = [web.Panel("Details", () -> details(chosen(), invoices, say), icon = "settings")],
+    bottom = [web.Panel("Log", () -> web.Stack([web.Text(l, font = "code") for l in web.Get(log)], gap = 2), icon = "logs"),
+      web.Panel("Problems", web.Text("No problem.", color = "Muted"), icon = "triangle-exclamation-point")],
+    toolbar = web.Toolbar([web.Button("New", () -> say("new invoice"), icon = "plus", key = "C-n"), web.Button("Save", () -> say("saved"), icon = "save", key = "C-s"),
+      web.Button("Delete", () -> say("deleted"), icon = "trash", key = "C-d"), web.Divider(), web.Button("Refresh", () -> say("refreshed"), icon = "refresh-cw", key = "f5"),
+      web.Button("Export", () -> say("exported"), icon = "share", key = "C-e"), web.Spacer(), web.Icon("search", color = "Muted"), () -> web.Text(web.Get(section), color = "Muted")]),
+    status = web.StatusBar([web.Icon("circle-check", color = "Ok"), web.Text("Ready", color = "Ok"), web.Divider(), web.Icon("circle-user", color = "Muted"), web.Text("ana@office.test"),
+      web.Divider(), web.Text("Office of Lyon", color = "Muted"), web.Spacer(), () -> web.Text("$(value.Len(web.Get(invoices))) invoices · 12 clients", color = "Muted", font = "code")]),
+    key = "desk", sizes = {Left: 220, Right: 330, Bottom: 150})
+end
+
+defn details(i, invoices, say)
+  (** The inspector of the invoice chosen: its fields in place, the amount checked as one types. *)
+  if value.IsMissing(i)
+    return web.Text("Choose an invoice in the table to see its fields.", color = "Muted")
+  end
+  total = web.Signal(value.Text(i.Total))
+  status = web.Signal(i.Status)
+  web.Inspector([
+    web.Section("Invoice $(i.Number)", [
+      web.Property("Number", web.Text(i.Number, font = "code"), note = "text"),
+      web.Property("Client", web.Text(clients[i.Client].Name), note = "link"),
+      web.Property("Due", web.Input(web.Signal(i.Due), label = "Due"), note = "date"),
+      web.Property("Status", web.Input(status, label = "Status"), note = "text"),
+      web.Property("Total", web.Input(total, label = "Total", invalid = () -> amountWrong(web.Get(total)) != ""), note = "money", error = () -> amountWrong(web.Get(total))),
+    ]),
+    web.Section("Client", [web.Property("Name", web.Text(clients[i.Client].Name)), web.Property("City", web.Text(clients[i.Client].City))]),
+    web.Row([web.Button("Save", () -> say("saved $(i.Number): total $(web.Get(total)), $(web.Get(status))"), icon = "save", key = "C-s")], pad = 4),
+  ])
+end
+
+(** The app, in a theme: dark by default. *)
+App(theme = web.System()) = web.App([web.Route("/", Page)], title = "Invoices — desk", theme = theme)

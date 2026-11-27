@@ -7,7 +7,7 @@ use std/value
 defn Encode(items)
   (** The draw list as the bytes that web/ceres.js paints: two u32, the count of f32 numbers and the count of bytes of
       text, then the numbers, then the texts in UTF-8. Each item is a code and its numbers: 1 rect and 2 frame, X Y W
-      H Color Alpha Radius; 3 text, X Y Size Color Alpha Font (0 body, 1 strong, 2 code) Start Length Angle, Start and
+      H Color Alpha Radius; 3 text, X Y Size Color Alpha Font (0 body, 1 strong, 2 code, 3 icon) Start Length Angle, Start and
       Length the place of its text in the bytes of texts; 4 line, n Width Color Alpha then n points x y; 5 tris, n Color
       Alpha then n points; 6 a group, X Y W H Clip (1 or 0), whose items follow, up to 7, its end; and 9, a text whose
       bytes follow those of the 9 before it (the first at 0), X Y Size Color Alpha Font Length Angle, which web.Encoded
@@ -19,7 +19,7 @@ defn Encode(items)
   text.Str(text.FromNumbers("u32", [got.Count, text.ByteLength(words)]), text.Join("", got.Chunks), words)
 end
 
-fonts = {body: 0, strong: 1, code: 2}   (* The number of each font in the bytes. *)
+fonts = {body: 0, strong: 1, code: 2, icon: 3}   (* The number of each font in the bytes. *)
 
 defn encoded(items, at, seq = false)
   (** The bytes of the numbers of items, in chunks, an item each, with their count, and the texts of items, from the
@@ -102,7 +102,7 @@ defn Encoded(ui)
     y = math.Div((seen - bar) * u.ScrollY, root.H - seen)
     rest = [rect(u.Width - 6, y, 4, bar, t.Muted)]
   end
-  tail = encoded(list.Concat(list.Concat(rest, popupItems(u)), bandItems(u)), 0, seq = true)
+  tail = encoded(list.Concat(list.Concat(list.Concat(rest, popupItems(u)), dropped(u)), bandItems(u)), 0, seq = true)
   nums = text.Str(text.Join("", head.Chunks), text.FromNumbers("f32", [6, 0, -u.ScrollY, root.W, root.H, 0]), c.Nums,
     text.FromNumbers("f32", [7]), text.Join("", tail.Chunks))
   words = text.Str(text.Join("", head.Texts), c.Texts, text.Join("", tail.Texts))
@@ -118,18 +118,39 @@ defn chunked(id, ui)
     return ui
   end
   u = ui
-  own = value.Len(b.Items) - value.Len(b.Kids)
-  mine = encoded(if own == value.Len(b.Items) b.Items else list.Take(own, b.Items) end, 0, seq = true)
+  n = value.Len(b.Items)
+  over = b.Over
+  slots = if b.Wrap 1 else value.Len(b.Kids) end
+  own = n - slots - over
+  mine = encoded(if own == n b.Items else list.Take(own, b.Items) end, 0, seq = true)
   nums = [text.Join("", mine.Chunks)]
   ts = [text.Join("", mine.Texts)]
   count = mine.Count
+  wrap = if b.Wrap b.Items[own + 1] else missing end
+  if b.Wrap
+    (* the groups of the children inside one that cuts them *)
+    nums = list.Append(text.FromNumbers("f32", [6, wrap.X, wrap.Y, wrap.W, wrap.H, 1 if wrap.Clip else 0]), nums)
+    count += 7
+  end
+  j = 0
   for c in b.Kids
+    j += 1
     u = chunked(c, u)
     k = u.Boxes[c]
     e = k.Enc
-    nums = list.Append(text.Str(text.FromNumbers("f32", [6, k.X, k.Y, k.W, k.H, 0]), e.Nums, text.FromNumbers("f32", [7])), nums)
+    g = if b.Wrap wrap.Items[j] else b.Items[own + j] end
+    nums = list.Append(text.Str(text.FromNumbers("f32", [6, g.X, g.Y, g.W, g.H, 1 if g.Clip else 0]), e.Nums, text.FromNumbers("f32", [7])), nums)
     ts = list.Append(e.Texts, ts)
     count += 6 + e.Count + 1
+  end
+  if b.Wrap
+    nums = list.Append(text.FromNumbers("f32", [7]), nums)
+  end
+  if over > 0
+    after = encoded(list.Skip(n - over, b.Items), 0, seq = true)
+    nums = list.Append(text.Join("", after.Chunks), nums)
+    ts = list.Append(text.Join("", after.Texts), ts)
+    count += after.Count
   end
   u.Boxes[id].Enc = {Laid: b.Laid, Nums: text.Join("", nums), Count: count, Texts: text.Join("", ts)}
   u

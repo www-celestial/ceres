@@ -12,11 +12,37 @@ use std/sys
 use std/text
 use std/value
 
-(** The measures of the headless text: a character is half the size wide, a line one size and a half high. *)
-Measure = {Width: (s, size, font) -> value.Len(s) * math.Div(size, 2), Line: size -> size + math.Div(size, 2)}
+(** The measures of the headless text: a character is half the size wide, an icon a square, a line one size and a
+    half high, its baseline one size under its top. *)
+Measure = {Width: (s, size, font) -> size if font == "icon" else value.Len(s) * math.Div(math.Round(size), 2), Line: size -> math.Round(size) + math.Div(math.Round(size), 2),
+  Base: (size, font) -> size}
 
-(** An app mounted in a page of width by height pixels at path, its live screen at origin if it has one. *)
-Open(app, width = 800, height = 600, origin = missing, path = "/") = web.Start(app, width, height, Measure, origin = origin, path = path)
+(** An app mounted in a page of width by height pixels at path, its live screen at origin if it has one; dark says
+    whether the system is dark, for a theme that follows it, and store is where a web.Dock keeps its layout
+    (headless.Store()), nowhere by default; clip, the clipboard, {Put: route -> missing}, none by default. *)
+Open(app, width = 800, height = 600, origin = missing, path = "/", dark = missing, store = missing, clip = missing) = web.Start(app, width, height, Measure, origin = origin, path = path, dark = dark, store = store, clip = clip)
+
+defn Store()
+  (** A store in memory, as a back-end gives web.Start one, for a test of what a page keeps: the same store given to
+      two pages keeps for the second what the first put. *)
+  c = fiber.Channel(size = 1)
+  fiber.Send(dict.Dict(), c)
+  look = defn ()
+    v = fiber.Receive(c, timeout = 0).Value
+    fiber.Send(v, c)
+    v
+  end
+  {Get: name -> dict.Get(name, look()), Put: defn (name, v)
+    d = fiber.Receive(c, timeout = 0).Value
+    fiber.Send(dict.Put(name, v, d), c)
+  end}
+end
+
+(** The scheme of the system turned dark (true) or light (false), as a window or a browser says it. *)
+Scheme(dark, page) = web.Handle({Kind: "scheme", Dark: dark}, page)
+
+(** The mouse moved to x, y with no button held, as the hover of a widget follows it. *)
+Move(x, y, page) = web.Handle({Kind: "mouse", Action: "move", X: x, Y: y, Button: 0, Amount: 0}, page)
 
 defn Click(x, y, page)
   (** A click of the left button at x, y of the window: down, then up. *)
@@ -102,6 +128,8 @@ defn lines(items, dx, dy, w, h, pad)
       round = if dict.GetOr("Radius", 0, one) > 0 " r$(number(one.Radius))" else "" end
       alpha = if dict.GetOr("Alpha", 255, one) < 255 " a$(one.Alpha)" else "" end
       out = list.Append("$pad$k $(number(x)),$(number(y)) $(number(one.W))x$(number(one.H)) $(color(one.Color))$round$alpha", out)
+    else if k == "text" and one.Font == "icon"
+      out = list.Append("$(pad)icon $(number(x)),$(number(y)) \"$(dict.GetOr("Icon", "?", one))\" $(one.Size) $(color(one.Color))", out)
     else if k == "text"
       strong = if one.Font != "body" " $(one.Font)" else "" end
       turned = if dict.GetOr("Angle", 0, one) != 0 " turned" else "" end
@@ -111,6 +139,99 @@ defn lines(items, dx, dy, w, h, pad)
       out = list.Append("$pad$k $n points $(color(one.Color))", out)
     else
       bug.Panic("The draw list has no item kind $k.")
+    end
+  end
+  out
+end
+
+(* ---- What can be read: the contrast of each text with what is painted under it. *)
+
+defn flat(items, dx, dy, clip, out)
+  (** The rectangles and the texts of a draw list in the window, in the order they are painted, each rectangle cut to
+      the groups that clip it: out with them after its own. *)
+  acc = out
+  for one in items
+    k = one.Kind
+    if k == "group"
+      x = one.X + dx
+      y = one.Y + dy
+      inner = if one.Clip [list.Max(clip[1], x), list.Max(clip[2], y), list.Min(clip[3], x + one.W), list.Min(clip[4], y + one.H)] else clip end
+      if inner[1] < inner[3] and inner[2] < inner[4]
+        acc = flat(one.Items, x, y, inner, acc)
+      end
+    else if k == "rect"
+      x0 = list.Max(clip[1], one.X + dx)
+      y0 = list.Max(clip[2], one.Y + dy)
+      x1 = list.Min(clip[3], one.X + dx + one.W)
+      y1 = list.Min(clip[4], one.Y + dy + one.H)
+      if x0 < x1 and y0 < y1
+        acc = list.Append({Kind: "rect", X0: x0, Y0: y0, X1: x1, Y1: y1, Color: one.Color, Alpha: dict.GetOr("Alpha", 255, one)}, acc)
+      end
+    else if k == "text" and one.Font != "icon" and text.Trim(value.Text(one.Text)) != ""
+      x = one.X + dx
+      y = one.Y + dy
+      if x >= clip[1] and y >= clip[2] and x < clip[3] and y < clip[4]
+        acc = list.Append({Kind: "text", X: x, Y: y, Size: one.Size, Color: one.Color, Text: one.Text}, acc)
+      end
+    end
+  end
+  acc
+end
+
+defn mixed(c, under, a)
+  (** The color c painted with an alpha a, 0 to 255, over the color under. *)
+  out = 0
+  for shift in [65536, 256, 1]
+    x = math.Mod(math.Div(c, shift), 256)
+    y = math.Mod(math.Div(under, shift), 256)
+    out += math.Div(math.Round((x * a + y * (255 - a)) / 255.0), 1) * shift
+  end
+  out
+end
+
+defn backAt(items, i, x, y)
+  (** The color under the point x, y once the items before the i-th are painted: the last opaque rectangle there, with
+      those painted over it with an alpha mixed in. *)
+  overs = []
+  k = i - 1
+  while k >= 1
+    r = items[k]
+    if r.Kind == "rect" and x >= r.X0 and x < r.X1 and y >= r.Y0 and y < r.Y1
+      if r.Alpha >= 255
+        out = r.Color
+        for o in overs
+          out = mixed(o.Color, out, o.Alpha)
+        end
+        return out
+      end
+      overs = list.Prepend(r, overs)
+    end
+    k -= 1
+  end
+  out = 0xffffff
+  for o in overs
+    out = mixed(o.Color, out, o.Alpha)
+  end
+  out
+end
+
+defn Contrasts(page)
+  (** Each text the page draws in the window, with the color under it and their contrast as WCAG 2.2 measures it, from
+      1 to 21: [{Text, Ink, Back, Ratio}], for a test that every text can be read (4.5 for AA). The color under a text
+      is the one under the middle of its first letter, what was painted there before it: a rectangle drawn with an
+      alpha is mixed with what is under it. A text whose first letter's middle is out of the window is left out. *)
+  items = flat(web.Frame(page), 0, 0, [0, 0, page.Width, page.Height], [])
+  out = []
+  for i in 1..value.Len(items)
+    t = items[i]
+    if t.Kind == "text"
+      x = t.X + math.Div(math.Round(t.Size), 4)
+      y = t.Y + math.Div(math.Round(t.Size) * 3, 4)
+      (* a text cut by the edge of the window, its first letter's middle out of it, is not read there *)
+      if x < page.Width and y < page.Height
+        back = backAt(items, i, x, y)
+        out = list.Append({Text: t.Text, Ink: t.Color, Back: back, Ratio: web.Contrast(t.Color, back)}, out)
+      end
     end
   end
   out
@@ -142,6 +263,12 @@ defn treeLines(n, pad)
   if "Index" in n and n.Index > 0
     more = "$more #$(n.Index)"
   end
+  if "Level" in n
+    more = "$more level $(n.Level)"
+  end
+  if dict.GetOr("Selected", false, n)
+    more = "$more selected"
+  end
   place = if n.W > 0 " at $(number(n.X)),$(number(n.Y)) $(number(n.W))x$(number(n.H))" else "" end
   list.Prepend("$pad$(n.Role)$name$v$more$place", list.FlatMap(c -> treeLines(c, "$pad  "), n.Kids))
 end
@@ -165,7 +292,7 @@ defn ClickOn(name, page)
   (** A click in the middle of the widget whose name is name in the semantics tree: a button's label, a field's; a
       widget that takes the mouse before a text of the same name. *)
   tree = web.Semantics(page)
-  n = find(name, tree, ["button", "link", "textbox", "combobox", "table"])
+  n = find(name, tree, ["button", "link", "textbox", "combobox", "table", "tab", "treeitem"])
   if value.IsMissing(n)
     n = find(name, tree, missing)
   end

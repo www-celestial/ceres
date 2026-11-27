@@ -15,6 +15,66 @@
   Control) sends nothing.
 - `web.Start` and `web.Connect` take `telemetry`, a channel the screen tells of its connection and its actions.
 
+### Pages of a web app
+
+- `web.Shell`, the layout of a web app: the pages in a side bar (`web.Nav`, `web.Group`, `web.Item` with `to`, `count`
+  and `tone`), a top bar with the buttons of the palette, of the density and of the theme, the page that scrolls by
+  itself and keeps its place for each view, the details of a thing in a `web.Sheet` beside the page from 1280 pixels,
+  over it under, the whole window on a phone, where the side bar is a drawer and the rows of a table cards; `tabs` keeps
+  the views opened as tabs. `web.App(frame = ...)` makes what stands around every page once. The chapter Pages of a web
+  app and `examples/pages`.
+- The palette of Ctrl+K (`web.Command`), `web.Toast`, `web.CopyLink` (the address of the view in the clipboard, on a
+  back-end that has one: `web.Start`'s `clip`), `web.Asked` (a change not saved asked in the sheet, inline),
+  `web.Header`, `web.Spread`, `web.Wide`, `web.Chips` and `web.Chip`, `web.Bulk`, `web.Strip`, `web.Metric` (graphs that
+  share a crosshair) and `web.Steps`.
+- `web.Table` takes `checks` and `key` (a box to check each row), `open` and `picked` (a row opened at its address), and
+  `height = missing` (as tall as its rows); `web.Pill(word, tone)` in a cell. `web.Button(style = ...)` (primary,
+  ghost, danger, field) and `web.IconButton`; `web.Input(icon, hint)`, the key / of search; `web.Row(wrap = true)`.
+- `web.Dark` and `web.Light` are made of `web.Tokens.Desktop` (tokens.md) on every platform, at three densities
+  (`web.Densities`); `web.App(density = ...)`, `web.SetLook` and `web.LookOf`, the person's choice kept on his machine.
+  An app that names no theme keeps `web.Theme`, its look of before.
+
+- A part of a `web.Stack` that shows nothing (a live part that gives missing) takes no gap: a band that comes only
+  when it has something to say (a question, a reply, the rows checked) leaves no hole while it is away.
+- `headless.Contrasts` leaves out a text whose first letter's middle is out of the window, which no one reads there.
+
+- `web.DateInput`: a day chosen in a calendar that opens under its field, the arrows, Page Up and Page Down to move it,
+  Delete to clear it, its days as buttons for a screen reader. `web.Input(unit = "€")`: the unit of an amount at the
+  right of its field. On a phone, a table's cards take `web.Table(title = row -> ...)` as their title and their boxes
+  to check; `web.Column(card = false)` keeps a column off them.
+
+### Like a desktop tool
+
+- `web.Dock`, the layout of a desktop tool that fills the window: panels with tabs (`web.Panel`) docked left, center,
+  right and bottom, splitters the mouse drags, a tab dragged to another area moves its panel, the layout kept on the
+  machine with `key`; `web.Toolbar`, `web.StatusBar`, the outliner `web.Tree` of `web.Item`, the details
+  `web.Inspector` of `web.Section` and `web.Property`, and `web.Tabs`, `web.Split`, `web.Scroll` alone; `web.Icon`
+  and `web.Icons`. A page that makes none of them holds none of their code. The chapter Layout like a desktop tool.
+- `web.Dark` and `web.Light`, the themes of a desktop tool, and `web.System()`, which follows the system;
+  `web.App(..., theme = ...)`; a color is a number or the name of a role of the theme. An app that names no theme
+  keeps `web.Theme`, its look of before. `web.Contrast` measures two colors as WCAG 2.2 does.
+- `web.Tokens`: the values of the design of a look by name, `Desktop` dark and light, carried by the themes as
+  `Tokens`; `Web`, the look of a web page, to come.
+- `web.Empty`, what a place with nothing in it yet shows: a title, what goes here, the button that fills it with its
+  key. The bottom panels of a dock fold to their tabs while they have only that to show, and open when something
+  comes; Ctrl+J, the arrow of their strip, Enter on their tabs fold or open them by hand, which the layout keeps.
+- The keyboard of a dock: F6 and Shift+F6 from area to area, Alt+Shift and an arrow on the tabs of an area move its
+  panel to that side; the band of keys lists them.
+- Every text in the middle of its line and of its box, in the browser and in SDL, as CSS centers it (the box of the
+  font, its ascent and descent, centered), an icon in the middle of its square; checked from the pixels.
+
+### Routes as a web site's pages
+
+- In a browser the address holds the route shown after a `#` (`page.html#/invoices/42`): each route the app goes to is
+  an entry of the browser's history, Back and Forward bring its page back, an address kept or shared opens its route,
+  a link (and a row of `web.Tree` made with `to`) opens in a new tab with Ctrl or the middle button, and its element of
+  the hidden DOM is an `<a href>`. In a window, Alt+Left and Alt+Right go back and forward. `web.Path(page)`.
+- A view comes back as it was left: a table shown again in its route has its order, its scroll and its row chosen of
+  before, and the page its scroll.
+- `web.Unsaved(p, changed, save)`: going to another route while a view holds changes not saved asks first, in the
+  band at the bottom of the window (save and leave Ctrl+S, leave without saving Ctrl+D, stay Esc), for a screen reader
+  an alert and its buttons; in a browser, closing the tab asks too. `web.Guarded(page)`.
+
 ### When the connection drops
 
 - A page carries on through a break of its connection, without a reload: it comes back by itself (full jitter from
@@ -79,6 +139,9 @@
 
 ### Tests
 
+- `headless.Contrasts(page)`: the contrast of each text a page draws with what is painted under it;
+  tests/contrast.test.ce reads a whole dock in both themes. tests/route.test.ce and tests/web/route.html (in Chrome, by
+  tools/webshot.sh) go through routes by links, the history and the address; tests/empty.test.ce folds and opens.
 - `tests/patch.test.ce`: a mirror written in Cesia applies each patch of `web.Patch` and holds `web.Semantics` after
   each of 25 steps on a page of every kind of node; a key typed sends its field alone, a notch its rows.
 - `tests/encode.test.ce`: the bytes of `web.Encoded`, read as a painter reads them, are those of
@@ -88,6 +151,9 @@
 - `bench/web/table.ce` and `tests/web/table.html` measure a table of 100,000 rows in a browser (`cesia do webtable`).
 
 ### Docs
+
+- The chapter Layout like a desktop tool (docs/book/desk.md), its pictures drawn by SDL (tools/docshots/desk.ce); the
+  routes in the address, Back and Forward, the views kept and the changes not saved in Widgets.
 
 - A picture of each widget in the book, taken in Chrome from the page compiled to WebAssembly after the steps it says
   (a table sorted by a click, a field with its error, a select open, the band of keys); the tutorial's page in a window

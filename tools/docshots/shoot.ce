@@ -34,6 +34,7 @@ scenes = [
   {Route: "/input", W: 360, H: 120, Steps: [["click", "textbox", "Name"], ["type", "Ana"], ["click", "textbox", "Password"], ["type", "hunter2"],
     ["shot", "widgets-input", "nodes"]]},
   {Route: "/select", W: 300, H: 150, Steps: [["click", "combobox", "City"], ["key", "down"], ["key", "down"], ["shot", "widgets-select", "window-top"]]},
+  {Route: "/date", W: 320, H: 340, Steps: [["click", "combobox", "Due"], ["key", "right"], ["shot", "widgets-date", "window-top"]]},
   {Route: "/each", W: 300, H: 170, Steps: [["shot", "widgets-each-before", "nodes"], ["click", "button", "Change the rows"], ["until", "Cy"],
     ["shot", "widgets-each-after", "nodes"]]},
   {Route: "/table", W: 480, H: 280, Steps: [["clickAt", 200, 22], ["until", "F-13"], ["shot", "widgets-table", "nodes"]]},
@@ -49,11 +50,25 @@ scenes = [
     ["css", "#page > div * { outline: 1px solid #e8590c !important; outline-offset: -1px }"], ["shot", "backends-hidden-dom", "window-top"]]},
   {Page: "/hello/index.html", Route: "/", W: 600, H: 200, Steps: [["click", "button", "Add one*"], ["click", "button", "Add one*"], ["click", "textbox", "Your name"],
     ["type", "Ana"], ["until", "Hello, Ana!"], ["shot", "web-hello", "window"]]},
+  (* the pages of a web app, examples/pages: dark and light, the palette, a change not saved, the board, the densities, a
+     phone; each scene from a machine that keeps nothing (Clear) *)
+  {Page: "/pages/index.html", Route: "/invoices/1017", W: 1280, H: 760, Scheme: "dark", Clear: true, Steps: [["until", "1017"], ["shot", "pages-dark", "window"]]},
+  {Page: "/pages/index.html", Route: "/invoices/1017", W: 1280, H: 760, Scheme: "light", Clear: true, Steps: [["until", "1017"], ["shot", "pages-light", "window"]]},
+  {Page: "/pages/index.html", Route: "/invoices", W: 1280, H: 560, Scheme: "dark", Clear: true, Steps: [["key", "C-k"], ["type", "clie"], ["until", "Clients"],
+    ["shot", "pages-palette", "window"]]},
+  {Page: "/pages/index.html", Route: "/invoices/1017", W: 1280, H: 560, Scheme: "dark", Clear: true, Steps: [["click", "textbox", "Total"], ["type", "9"], ["click", "link", "Dashboard"],
+    ["until", "Changes not saved. Leave without saving?"], ["shot", "pages-unsaved", "window"]]},
+  {Page: "/pages/index.html", Route: "/", W: 1280, H: 380, Scheme: "dark", Clear: true, Steps: [["until", "Dashboard"], ["sleep", 0.5], ["move", 420, 220], ["sleep", 0.3], ["shot", "pages-board", "window"]]},
+  {Page: "/pages/index.html", Route: "/invoices", W: 1280, H: 520, Scheme: "dark", Clear: true, Steps: [["click", "button", "Density: compact"], ["sleep", 0.3],
+    ["shot", "pages-comfortable", "window"], ["click", "button", "Density: comfortable"], ["sleep", 0.3], ["shot", "pages-dense", "window"]]},
+  {Page: "/pages/index.html", Route: "/invoices", W: 390, H: 760, Scheme: "light", Clear: true, Steps: [["until", "Invoices"], ["shot", "pages-phone-list", "window"],
+    ["click", "button", "Menu"], ["sleep", 0.3], ["shot", "pages-phone-drawer", "window"]]},
+  {Page: "/pages/index.html", Route: "/invoices/1017", W: 390, H: 760, Scheme: "light", Clear: true, Steps: [["until", "1017"], ["shot", "pages-phone-sheet", "window"]]},
 ]
 
 (* The keys of the DevTools protocol: its key, code and key code. *)
 keys = {enter: ["Enter", "Enter", 13], escape: ["Escape", "Escape", 27], down: ["ArrowDown", "ArrowDown", 40], up: ["ArrowUp", "ArrowUp", 38],
-  backspace: ["Backspace", "Backspace", 8], tab: ["Tab", "Tab", 9], s: ["s", "KeyS", 83]}
+  backspace: ["Backspace", "Backspace", 8], tab: ["Tab", "Tab", 9], s: ["s", "KeyS", 83], k: ["k", "KeyK", 75], right: ["ArrowRight", "ArrowRight", 39]}
 
 defn ask(conn, method, params)
   (** A command of the DevTools protocol and its result, the events before it left aside: one command at a time, so one
@@ -134,6 +149,10 @@ defn play(conn, port, scene, k, out)
   (** Opens the route of a scene in a window of its size, the page loaded again (k, its number, makes its address its
       own), and plays its steps: the names of its pictures. *)
   ask(conn, "Emulation.setDeviceMetricsOverride", {width: scene.W, height: scene.H, deviceScaleFactor: 1, mobile: false})?
+  ask(conn, "Emulation.setEmulatedMedia", {features: [{name: "prefers-color-scheme", value: dict.GetOr("Scheme", "light", scene)}]})?
+  if dict.GetOr("Clear", false, scene)
+    evaluated(conn, "localStorage.clear()")?
+  end
   ask(conn, "Page.navigate", {url: "http://127.0.0.1:$port$(dict.GetOr("Page", "/page.html", scene))?$k#$(scene.Route)"})?
   start = sys.Now()
   ready = false
@@ -153,6 +172,8 @@ defn play(conn, port, scene, k, out)
       mouse(conn, b.X + b.W / 2, b.Y + b.H / 2)?
     else if s[1] == "clickAt"
       mouse(conn, s[2], s[3])?
+    else if s[1] == "move"
+      ask(conn, "Input.dispatchMouseEvent", {type: "mouseMoved", x: s[2], y: s[3], button: "none"})?
     else if s[1] == "type"
       ask(conn, "Input.insertText", {text: s[2]})?
     else if s[1] == "key"
@@ -206,7 +227,7 @@ defn main()
   profile = env("PROFILE", "/tmp/ceres-docshots")
   l = net.Listen(0)?
   port = net.Port(l)
-  fiber.Spawn(() -> http.Serve(http.App() then http.Static("/hello", "examples/hello") then http.Static("", "tools/docshots"), listener = l))
+  fiber.Spawn(() -> http.Serve(http.App() then http.Static("/hello", "examples/hello") then http.Static("/pages", "examples/pages") then http.Static("", "tools/docshots"), listener = l))
   _ = sys.Remove("$profile/DevToolsActivePort")
   proc = sys.Start(env("CHROME", "chrome"), args = ["--headless=new", "--no-sandbox", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
     "--hide-scrollbars", "--window-size=800,600", "--remote-debugging-port=0", "--user-data-dir=$profile", "--lang=en", "http://127.0.0.1:$port/page.html"])?

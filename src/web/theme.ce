@@ -1,0 +1,247 @@
+(* The themes of a desktop tool, dark and light, the setting that follows the system, the colors named by their role,
+   and the icons. A color in a widget is a number 0xRRGGBB or the name of a role of the theme ("Panel", "Muted"), so a
+   page looks right in both themes without a color of its own. *)
+use std/bug
+use std/dict
+use std/math
+use std/text
+use std/value
+
+(** The tokens of a look: each value of its design by its name, colors 0xRRGGBB (a color drawn over others is [color,
+    alpha], alpha from 0 to 255), sizes in pixels. Desktop holds the look of a desktop tool, as an editor of games
+    draws one (Unreal Engine 5's editor: panels on a darker desk, wells darker still, one blue for the choice and the
+    focus), dark and light, from the design the book's chapter Layout like a desktop tool shows; web.Dark and
+    web.Light carry its part as their field Tokens. Web is the place of the look of a web page, missing until its
+    design is done: a page will name its look, and its widgets draw from the tokens of that one. Each text over each
+    surface it is drawn on reaches WCAG 2.2 AA, and the focus 3:1 (tests/contrast.test.ce measures them); the quiet
+    edge of a field, InputLine, doesn't (it is told apart by its fill), so InputLineHigh is the edge of the setting
+    of high contrast.
+
+      Tokens.Desktop.Dark.Primary --> 0x0070e0 *)
+Tokens = {
+  Desktop: {
+    Dark: {Title: 0x0f0f0f, Desk: 0x151515, Recessed: 0x1a1a1a, Panel: 0x242424, Header: 0x2f2f2f, Dropdown: 0x383838, DropdownLine: 0x4c4c4c,
+      Hover: 0x575757, Input: 0x0f0f0f, InputLine: 0x383838, InputLineHover: 0x575757, InputLineHigh: 0x6e6e6e, Divider: 0x151515,
+      PropGap: 0x1a1a1a, PropBg: 0x242424, Ground: 0x1a1a1a, Card: 0x242424, RowAlt: [0xffffff, 5], RowHover: [0xffffff, 15],
+      GhostHover: 0x383838, GhostPress: 0x1a1a1a, Primary: 0x0070e0, PrimaryHover: 0x0e86ff, PrimaryPress: 0x0050a0, Select: 0x0070e0,
+      SelectInactive: 0x2c3e57, SelectInk: 0xffffff, SelectSoft: 0xdce9fa, Focus: 0x0070e0, FocusHalo: [0x0070e0, 102], FgStrong: 0xffffff,
+      Fg: 0xc0c0c0, FgMuted: 0x9a9a9a, FgDisabled: 0x5e5e5e, TabOff: 0x9a9a9a, Icon: 0xa6a6a6,
+      Ok: 0x8bc24a, Warn: 0xffb800, Err: 0xff6b6b, Info: 0x26bbff, Violet: 0xb58cff, Live: 0x1fe44b, Add: 0x8bc24a,
+      S1: 0x338ced, S2: 0xe76624, S3: 0x00a888, S4: 0xd28e05, S5: 0xe24d8b, Grid: 0x303030, Axis: 0x474747},
+    Light: {Title: 0xd9dce1, Desk: 0xbec2c9, Recessed: 0xf9fafb, Panel: 0xeaecef, Header: 0xdde0e5, Dropdown: 0xdde0e5, DropdownLine: 0xbcc1c8,
+      Hover: 0xcdd2d9, Input: 0xffffff, InputLine: 0xbcc1c8, InputLineHover: 0x7c828b, InputLineHigh: 0x7c828b, Divider: 0xd3d7dc,
+      PropGap: 0xdde0e5, PropBg: 0xf6f7f8, Ground: 0xdcdfe4, Card: 0xfbfbfc, RowAlt: [0x000000, 6], RowHover: [0x000000, 13],
+      GhostHover: 0xdde0e5, GhostPress: 0xcdd1d7, Primary: 0x0070e0, PrimaryHover: 0x0062c4, PrimaryPress: 0x00509f, Select: 0x0070e0,
+      SelectInactive: 0xcfe0f5, SelectInk: 0xffffff, SelectSoft: 0xdce9fa, Focus: 0x0070e0, FocusHalo: [0x0070e0, 77], FgStrong: 0x0b0c0e,
+      Fg: 0x26282c, FgMuted: 0x575b63, FgDisabled: 0xa3a7ae, TabOff: 0x3f434a, Icon: 0x555960,
+      Ok: 0x2a7010, Warn: 0x8a5a00, Err: 0xb32424, Info: 0x0961a0, Violet: 0x6b3fc9, Live: 0x17a63a, Add: 0x3d8c1c,
+      S1: 0x257de0, S2: 0xf47230, S3: 0x00b894, S4: 0xf2a600, S5: 0xee7fac, Grid: 0xe7e8ea, Axis: 0xc2c4c8},
+    Shape: {RPanel: 4, RControl: 4, RTag: 3, RCheck: 3},
+    Space: {DockGap: 4, TabGap: 2, ToolGap: 2, CardGap: 8, Cell: 8, Indent: 12, PropIndent: 26, Field: 6, Button: 8},
+    Size: {TitleBar: 30, Toolbar: 40, ToolButton: 30, Tab: 26, ToolRow: 32, Row: 24, TreeRow: 22, LogRow: 22, Category: 26, Property: 28,
+      PropertyName: 116, Field: 22, Footer: 24, Command: 30, StatusBar: 24, Kpi: 40, ChartHead: 28, Check: 14, IconBar: 20, IconRow: 16,
+      IconTab: 14, IconSmall: 12, Scroll: 6},
+    Type: {Font: "Inter", Code: "JetBrains Mono", Body: 12, Small: 11, Title: 13, Figure: 20, Line: 16, Weights: [400, 500, 600]}},
+  Web: missing}
+
+(** The sizes of each density, the same in both looks (the desktop's dock and the web's pages): Size the text, Row a
+    row of a table or a list, Field a field or a button, Title the title of a page, Gap and Pad the space between and
+    around parts, Side the side bar of web.Shell, Top its top bar, Sheet the details at its right, Nav a row of its
+    side bar, Px and Py the margins of its page, Figure a number of web.Metric. "compact" is the default; "dense" fits
+    more rows, "comfortable" is easier to touch.
+
+      Densities.dense.Row --> 24 *)
+Densities = {
+  dense: {Size: 12.5, Row: 24, Field: 24, Title: 16, Gap: 6, Pad: 10, Side: 200, Top: 38, Sheet: 380, Nav: 24, Px: 12, Py: 10, Figure: 17},
+  compact: {Size: 13, Row: 30, Field: 28, Title: 17, Gap: 8, Pad: 12, Side: 212, Top: 42, Sheet: 400, Nav: 26, Px: 16, Py: 12, Figure: 19},
+  comfortable: {Size: 14, Row: 44, Field: 34, Title: 22, Gap: 12, Pad: 16, Side: 252, Top: 52, Sheet: 460, Nav: 32, Px: 28, Py: 24, Figure: 24}}
+
+defn look(k, name, link)
+  (** A theme from the tokens k of a look, at the density "compact": each role of web.Theme and of a desktop tool
+      taken from them. *)
+  d = Densities.compact
+  {Name: name, Size: d.Size, Title: d.Title, Unit: 4, Icon: 16, Tab: 26, Bar: 34,
+    Back: k.Desk, Panel: k.Panel, Header: k.Header, Paper: k.Recessed, Raised: k.Dropdown, Hover: k.GhostHover, Pressed: k.GhostPress,
+    Ink: k.Fg, Strong: k.FgStrong, Muted: k.FgMuted, Disabled: k.FgDisabled, Line: k.InputLineHigh, Edge: k.InputLine, Grid: k.Grid,
+    Rule: k.Grid, Soft: k.SelectInactive, Accent: k.Primary, Chosen: k.Select, ChosenInk: k.SelectInk, Link: link, Danger: k.Err, Warn: k.Warn, Ok: k.Ok,
+    Band: k.Panel, Gap: d.Gap, Pad: 4, Radius: 4, Field: d.Field, Row: d.Row, Page: 12, Keys: true, Tokens: k, Density: "compact", Sizes: d}
+end
+
+(** The dark theme, the look of Unreal Engine 5's editor (web.Tokens.Desktop.Dark), on every platform: grey panels on
+    a darker desk, wells darker still, one blue for the choice and the focus, the text light grey; sizes on a grid of
+    4 pixels, at a density of web.Densities. Each pair of a text and its background reaches the contrast of WCAG 2.2 AA
+    (4.5:1), the ring of the focus 3:1 (web.Contrast measures them; tests/contrast.test.ce checks it). Its fields are
+    those of web.Theme and these: Panel, the body of a panel; Header, a column's title and a section's band; Raised,
+    a button; Hover and Pressed, a widget under the mouse and held down; Strong, a title's text; Disabled; Edge, the
+    quiet edge of a field or a table; Link; Warn and Ok, the colors of a warning and of a success; Rule, the grid of a
+    graph; Unit, the step of the grid of sizes; Icon, the size of an icon; Tab, the height of a strip of tabs; Bar,
+    that of a toolbar; Tokens, the values of its design (web.Tokens); Density, its name, and Sizes, its sizes.
+
+      Dark.Name --> "dark"
+      Dark.Panel --> 0x242424 *)
+Dark = look(Tokens.Desktop.Dark, "dark", 0x4da3ff)
+
+(** The light theme of the same look: the same roles and sizes, a grey frame around wells near white.
+
+      Light.Paper --> 0xf9fafb *)
+Light = look(Tokens.Desktop.Light, "light", 0x0062c4)
+
+defn atDensity(t, name)
+  (** The theme t at the density name, "dense", "compact" or "comfortable" (web.Densities): a theme without Tokens
+      (web.Theme, or one made by hand) and a name that isn't one stay as they are.
+
+        atDensity(Dark, "dense").Row --> 24
+        atDensity(Theme, "dense").Row --> 22 *)
+  if not value.IsDict(t) or value.IsMissing(dict.Get("Tokens", t)) or not value.IsText(name) or not (name in Densities)
+    return t
+  end
+  d = Densities[name]
+  out = t
+  out.Size = d.Size
+  out.Title = d.Title
+  out.Row = d.Row
+  out.Field = d.Field
+  out.Gap = d.Gap
+  out.Density = name
+  out.Sizes = d
+  out
+end
+
+(** The theme that follows the system: dark while the system says dark (the browser's prefers-color-scheme, SDL's
+    theme of the system), light while it says light, dark when it says nothing; it changes with it. web.App takes it
+    as its theme, as it takes Dark or Light.
+
+      System().Kind --> "system" *)
+System(dark = Dark, light = Light) = {Kind: "system", Dark: dark, Light: light}
+
+isSystem(t) = value.IsDict(t) and dict.Get("Kind", t) == "system"   (* Is this the theme that follows the system? *)
+
+defn themeFor(theme, dark)
+  (** The theme to draw with: theme itself, or for web.System its dark or its light one; dark is missing when the
+      back-end can't tell. *)
+  if not isSystem(theme)
+    return theme
+  end
+  if dark == false theme.Light else theme.Dark end
+end
+
+(* The roles that web.Theme, the plain theme of before, lacks: each the role it takes the color of, or its value. *)
+older = {Panel: "Paper", Header: "Band", Raised: "Paper", Hover: "Band", Pressed: "Grid", Edge: "Line", Link: "Accent",
+  Disabled: "Muted", Warn: 0x8a5a00, Ok: 0x1e6b2e, Rule: 0xe6eaef, Unit: 4, Icon: 16, Tab: 26, Bar: 32}
+
+defn role(name, t)
+  (** A field of the theme t, as "Panel": its own, or for a theme made before the field was, the one it stands for. *)
+  got = dict.Get(name, t)
+  if value.IsSome(got)
+    return got
+  end
+  instead = dict.Get(name, older)
+  if value.IsText(instead) dict.Get(instead, t) else instead end
+end
+
+defn tone(c, t)
+  (** A color as a number: c itself, or the color of the theme t that a name gives, "Panel" for t.Panel; missing
+      stays missing. Ceres's own widgets give a pair [role, color]: the role in a theme of a desktop tool (one that has
+      Raised), the color in web.Theme, whose look stays as it was. *)
+  if value.IsArray(c)
+    return if value.IsSome(dict.Get("Raised", t)) tone(c[1], t) else c[2] end
+  end
+  if value.IsText(c)
+    got = role(c, t)
+    if not value.IsNumber(got)
+      bug.Panic("The theme has no color named $c: a color is 0xRRGGBB or a role of the theme, as \"Muted\" or \"Panel\".")
+    end
+    return got
+  end
+  c
+end
+
+defn channel(v)
+  (** One channel of sRGB, 0 to 255, as light: WCAG 2.2's relative luminance of it. *)
+  s = v / 255.0
+  if s <= 0.04045 s / 12.92 else math.Exp(2.4 * math.Log((s + 0.055) / 1.055)) end
+end
+
+luminance(c) = 0.2126 * channel(math.Div(c, 65536)) + 0.7152 * channel(math.Mod(math.Div(c, 256), 256)) + 0.0722 * channel(math.Mod(c, 256))
+
+defn Contrast(a, b)
+  (** The contrast of two colors 0xRRGGBB as WCAG 2.2 measures it, from 1 to 21: a text needs 4.5 against its
+      background for AA, a large text, the edge of a field or a ring of focus 3.
+
+        Contrast(0x000000, 0xffffff) --> 21.0 *)
+  la = luminance(a)
+  lb = luminance(b)
+  hi = la if la > lb else lb
+  lo = lb if la > lb else la
+  math.Round((hi + 0.05) / (lo + 0.05) * 100) / 100
+end
+
+(* ---- Icons: Lucide (https://lucide.dev, ISC), icons drawn with strokes on a grid of 24, as the font
+   src/sdl/fonts/Lucide.ttf and web/icons.js hold them, the 158 of this table only (tools/icons.sh). *)
+
+(* The icons as texts of name:code, the code point in hex, a space between: a table of records would make every page
+   carry ten times its bytes in its module. tools/icons.sh reads the code points from here. *)
+iconCodes = [
+  "activity:e038 archive:e041 arrow-down:e042 arrow-left:e048 arrow-left-right:e24a arrow-right:e049 arrow-up:e04a",
+  "arrow-up-down:e37d badge-check:e241 ban:e051 bell:e059 bell-dot:e42b book:e05e bookmark:e060 box:e061 bug:e20c",
+  "building:e1cc calendar:e063 chart-column:e2a3 chart-line:e2a5 chart-pie:e06b check:e06c check-check:e38e",
+  "chevron-down:e06d chevron-left:e06e chevron-right:e06f chevron-up:e070 chevrons-down-up:e228",
+  "chevrons-up-down:e211 circle:e076 circle-check:e226 circle-dot:e345 circle-exclamation-point:e077",
+  "circle-question-mark:e082 circle-stop:e083 circle-user:e461 circle-x:e084 clock:e087 cloud:e088",
+  "cloud-download:e089 cloud-upload:e091 code:e093 cog:e30b columns-2:e098 copy:e09e credit-card:e0aa database:e0ad",
+  "download:e0b2 ellipsis:e0b6 ellipsis-vertical:e0b7 external-link:e0b9 eye:e0ba eye-off:e0bb fast-forward:e0bd",
+  "file-code:e0c3 file-plus:e0c9 file-search:e0cb file-text:e0cc files:e0cf flag:e0d1 flask-conical:e0d5",
+  "folder:e0d7 folder-open:e247 folder-plus:e0d9 funnel:e0dc gift:e0e1 globe:e0e8 grip-horizontal:e0ea",
+  "grip-vertical:e0eb hash:e0ef house:e0f5 inbox:e0f7 info:e0f9 key:e0fd layers:e529 layout-dashboard:e1c1",
+  "layout-grid:e0ff lightbulb:e1c2 link:e102 list:e106 list-checks:e1d0 list-filter:e460 list-tree:e408 list-x:e240",
+  "lock:e10b lock-open:e10c log-in:e10d log-out:e10e logs:e5f4 mail:e10f map-pin:e111 maximize:e112 menu:e115",
+  "message-square:e117 milestone:e298 minimize:e11a minus:e11c monitor:e11d moon:e11e package:e129",
+  "panel-bottom:e42c panel-left:e12a panel-right:e431 pause:e12e pencil:e1f9 pin:e259 play:e13c plug:e37f plus:e13d",
+  "radio:e142 radio-tower:e404 receipt:e3d3 redo-2:e2a0 refresh-ccw:e144 refresh-cw:e145 rocket:e286",
+  "rotate-ccw:e148 rotate-ccw-clock:e1f5 rows-2:e439 rss:e14a save:e14d save-all:e40f scale:e212 search:e151",
+  "send:e152 server:e153 server-cog:e341 settings:e154 share:e155 shield:e158 sliders-horizontal:e29a square:e167",
+  "square-terminal:e20a star:e176 sticky-note:e303 sun:e178 sun-moon:e2b2 table:e17d tag:e17f target:e180",
+  "terminal:e181 text-cursor-input:e265 timer:e1e0 toggle-left:e18b trash:e18d triangle-exclamation-point:e193",
+  "type:e198 undo-2:e2a1 upload:e19e user:e19f user-plus:e1a2 users:e1a4 variable:e473 webhook:e374 wrench:e1b1",
+  "x:e1b2 zoom-in:e1b6 zoom-out:e1b7"
+]
+
+defn iconTable(lines)
+  (** The table of the icons, from their texts. *)
+  out = dict.Dict()
+  for line in lines
+    for one in text.Split(" ", line)
+      p = text.Split(":", one)
+      cp = 0
+      for b in text.Bytes(p[2])
+        cp = cp * 16 + (b - 48 if b < 58 else b - 87)
+      end
+      out[p[1]] = cp
+    end
+  end
+  out
+end
+
+(** The icons a widget names, by their names in Lucide (as lucide.dev shows them), each its code point in the font of
+    the icons.
+
+      Icons["settings"] --> 0xe154 *)
+Icons = iconTable(iconCodes)
+
+defn glyph(name)
+  (** The text of an icon: its character in the font of the icons, from its name, or a code point of that font. *)
+  cp = if value.IsNumber(name) name else dict.Get(name, Icons) end
+  if value.IsMissing(cp)
+    bug.Panic("There is no icon named $name in web.Icons: its names are those of Lucide, as \"database\" or \"settings\".")
+  end
+  text.FromBytes([224 + math.Div(cp, 4096), 128 + math.Mod(math.Div(cp, 64), 64), 128 + math.Mod(cp, 64)])
+end
+
+defn Icon(name, size = missing, color = missing)
+  (** An icon of web.Icons, as "database", in a square of size pixels (the theme's Icon by default), in a color, the
+      text's by default: a number 0xRRGGBB or a role of the theme. A screen reader doesn't read it: what it says is in
+      the label beside it.
+
+        Icon("settings").Kind --> "icon" *)
+  {Kind: "icon", Name: name, Glyph: glyph(name), Size: size, Color: color, Kit: kit}
+end

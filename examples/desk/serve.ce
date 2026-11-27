@@ -1,0 +1,9 @@
+(* The files of examples/desk on port 8080 of this machine (PORT for another): cesia do desk, then open
+   http://127.0.0.1:8080/. *)
+use std/http
+use std/sys
+use std/text
+use std/value
+
+port = if value.IsText(sys.Env("PORT")) text.Number(sys.Env("PORT")) else 8080 end
+http.Serve(http.App() then http.Static("", "examples/desk"), port = port)!

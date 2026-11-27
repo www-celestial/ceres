@@ -21,9 +21,16 @@ frame(x, y, w, h, color, radius = 0) = {Kind: "frame", X: x, Y: y, W: w, H: h, C
 words(x, y, s, size, color, font = "body") = {Kind: "text", X: x, Y: y, Text: s, Size: size, Color: color, Font: font}
 group(x, y, w, h, clip, items) = {Kind: "group", X: x, Y: y, W: w, H: h, Clip: clip, Items: items}
 
-sizeOf(n, t) = t.Size if value.IsMissing(n.Size) else t.Title if n.Size == "title" else n.Size   (* The size of a text widget. *)
+(* The size of a text widget: its own in pixels, or the theme's for "title", "small" (tags, counts, notes) and
+   "figure" (a number that stands out, as a count of a dashboard). *)
+sizeOf(n, t) = t.Size if value.IsMissing(n.Size) else t.Title if n.Size == "title" else t.Size - 1.5 if n.Size == "small" else figureOf(t) if n.Size == "figure" else n.Size
+figureOf(t) = if value.IsDict(dict.Get("Sizes", t)) t.Sizes.Figure else 20 end   (* The size of a figure. *)
 widthOf(s, size, font, u) = u.Measure.Width(s, size, font)   (* The width of a text in pixels, in a font: "body", "strong" or "code". *)
 lineOf(size, u) = u.Measure.Line(size)   (* The height of a line of text. *)
+
+(* Where the baseline of a line of text is, under its top: the back-end's, which centers the letters of each font in
+   their line, or four fifths of the size from a back-end that doesn't say. *)
+baseOf(size, font, u) = if value.IsSome(dict.Get("Base", u.Measure)) u.Measure.Base(size, font) else math.Round(size * 0.8) end
 
 defn valueOf(x)
   (** The value that a widget shows: a signal's or a function's read here, a text widget's own. *)
@@ -39,7 +46,7 @@ defn fontOf(x)
   if value.IsNumber(x)
     "code"
   else if value.IsDict(x) and dict.Get("Kind", x) == "text"
-    dict.GetOr("Font", "body", x)
+    if value.IsSome(dict.Get("Font", x)) x.Font else "body" end
   else
     "body"
   end
@@ -70,26 +77,33 @@ defn wrapped(s, maxW, size, font, u)
   list.Append(line, out)
 end
 
-defn layout(id, maxW, fit, ui)
-  (** Lays out the box id in maxW pixels; fit asks a container for the width of its children rather than all of it. *)
+defn layout(id, maxW, fit, ui, h = missing)
+  (** Lays out the box id in maxW pixels; fit asks a container for the width of its children rather than all of it.
+      h is the height it is given, as a panel gives its own, for a widget that fills it (a dock, a split, tabs, a
+      scroll, a part that web.Grow marks in a stack): missing lets it be as tall as it needs. *)
   b = ui.Boxes[id]
-  if not b.Dirty and b.Cw == maxW and b.Fit == fit
+  if not b.Dirty and b.Cw == maxW and b.Fit == fit and same(b.Gh, h)
     return ui
   end
   u = ui
+  if not same(b.Gh, h)
+    u.Boxes[id].Gh = h
+  end
   k = b.Node.Kind
   u = if k == "stack" or k == "each" layStack(id, maxW, fit, u)
   else if k == "row" layRow(id, maxW, fit, u)
   else if k == "live" layLive(id, maxW, fit, u)
   else if k == "text" layText(id, maxW, u)
-  else if k == "button" layButton(id, u)
+  else if k == "button" layButton(id, maxW, u)
   else if k == "input" layInput(id, maxW, u)
   else if k == "select" laySelect(id, maxW, u)
   else if k == "link" layLink(id, u)
   else if k == "table" layTable(id, maxW, u)
   else if k == "plot" layPlot(id, maxW, u)
+  else if k == "toolbar" or k == "statusbar" layRow(id, maxW, fit, u)
   else if k == "spacer" sized(id, 0 if fit else maxW, b.Node.Size, [], u)
-  else if k == "divider" sized(id, maxW, 1, [rect(0, 0, maxW, 1, u.Theme.Line)], u)
+  else if k == "divider" sized(id, maxW, 1, [rect(0, 0, maxW, 1, tok("Divider", u.Theme, "Line"))], u)
+  else if value.IsSome(u.Kit) u.Kit.Lay(id, maxW, u)
   else bug.Panic("No layout for the widget kind $k.") end
   done = u.Boxes[id]
   done.Cw = maxW
@@ -111,6 +125,22 @@ defn sized(id, w, h, items, ui)
   u
 end
 
+defn boxed(id, w, h, items, cache, ui, over = 0, wrap = false)
+  (** Gives the box id its size, its items and what it keeps, for a box whose children's groups aren't all at the end
+      of its items: over items come after them, and with wrap they are inside one group, which cuts them (web.Encoded
+      copies the bytes of each child into the same places). *)
+  u = ui
+  b = u.Boxes[id]
+  b.W = w
+  b.H = h
+  b.Items = items
+  b.Cache = cache
+  b.Over = over
+  b.Wrap = wrap
+  u.Boxes[id] = b
+  u
+end
+
 defn cached(id, w, h, items, cache, ui)
   (** Gives the box id its size, its items and what it keeps of its widget: one write of the box. *)
   u = ui
@@ -123,14 +153,14 @@ defn cached(id, w, h, items, cache, ui)
   u
 end
 
-defn decor(n, w, h)
-  (** The background and the edge of a container. *)
+defn decor(n, w, h, t)
+  (** The background and the edge of a container, each a color or a role of the theme t. *)
   out = []
   if value.IsSome(n.Fill)
-    out = list.Append(rect(0, 0, w, h, n.Fill, n.Radius), out)
+    out = list.Append(rect(0, 0, w, h, tone(n.Fill, t), n.Radius), out)
   end
   if value.IsSome(n.Border)
-    out = list.Append(frame(0, 0, w, h, n.Border, n.Radius), out)
+    out = list.Append(frame(0, 0, w, h, tone(n.Border, t), n.Radius), out)
   end
   out
 end
@@ -150,26 +180,42 @@ defn place(id, x, y, ui)
   u
 end
 
+spaced(h, gap) = if h > 0 h + gap else 0 end   (* A part of a stack and the gap after it: none for a part that shows nothing (a live part of missing). *)
+
 defn layStack(id, maxW, fit, ui)
   u = ui
   b = u.Boxes[id]
   n = b.Node
-  pad = dict.GetOr("Pad", 0, n)
+  pad = 0 if id == u.Root and pageFills(u) else dict.GetOr("Pad", 0, n)
   gap = u.Theme.Gap if value.IsMissing(n.Gap) else n.Gap
   fixed = dict.Get("Width", n)
   inner = (maxW if value.IsMissing(fixed) else fixed) - 2 * pad
+  given = b.Gh
+  growing = if value.IsSome(given) [c for c in b.Kids if grows(c, u)] else [] end
   y = pad
   widest = 0
   for c in b.Kids
-    u = layout(c, inner, fit, u)
-    widest = list.Max(widest, u.Boxes[c].W)
-    y += u.Boxes[c].H + gap
+    if not (c in growing)
+      u = layout(c, inner, fit, u)
+      widest = list.Max(widest, u.Boxes[c].W)
+      y += spaced(u.Boxes[c].H, gap)
+    end
   end
-  if value.Len(b.Kids) > 0
+  if not value.IsEmpty(growing)
+    (* the parts that grow share the height that the others leave of the one given *)
+    left = list.Max(0, given - y - pad - gap * value.Len(growing) + gap)
+    shares = list.Sum([u.Boxes[c].Node.Grow for c in growing])
+    for c in growing
+      u = layout(c, inner, fit, u, h = math.Div(left * u.Boxes[c].Node.Grow, shares))
+      widest = list.Max(widest, u.Boxes[c].W)
+      y += u.Boxes[c].H + gap
+    end
+  end
+  if y > pad
     y -= gap
   end
   w = if value.IsSome(fixed) fixed else if fit widest + 2 * pad else maxW end
-  h = if value.IsSome(dict.Get("Height", n)) n.Height else y + pad end
+  h = if value.IsSome(dict.Get("Height", n)) n.Height else if value.IsEmpty(growing) y + pad else list.Max(given, y + pad) end
   align = dict.GetOr("Align", "start", n)
   room = w - 2 * pad
   y = pad
@@ -177,15 +223,18 @@ defn layStack(id, maxW, fit, ui)
     cw = u.Boxes[c].W
     x = pad + (0 if align == "start" else math.Div(room - cw, 2) if align == "center" else room - cw)
     u = place(c, x, y, u)
-    y += u.Boxes[c].H + gap
+    y += spaced(u.Boxes[c].H, gap)
   end
-  sized(id, w, h, list.Concat(decor(n, w, h), kidGroups(u.Boxes[id], u)), u)
+  sized(id, w, h, list.Concat(decor(n, w, h, u.Theme), kidGroups(u.Boxes[id], u)), u)
 end
 
 defn layRow(id, maxW, fit, ui)
   u = ui
   b = u.Boxes[id]
   n = b.Node
+  if dict.GetOr("Wrap", false, n)
+    return layFlow(id, maxW, fit, u)
+  end
   gap = u.Theme.Gap if value.IsMissing(n.Gap) else n.Gap
   w0 = maxW if value.IsMissing(n.Width) else n.Width
   inner = w0 - 2 * n.Pad
@@ -222,14 +271,55 @@ defn layRow(id, maxW, fit, ui)
     x += u.Boxes[c].W + gap
   end
   w = if value.IsSome(n.Width) n.Width else if fit and shares == 0 used + gaps + 2 * n.Pad else maxW end
-  sized(id, w, h, list.Concat(decor(n, w, h), kidGroups(u.Boxes[id], u)), u)
+  sized(id, w, h, list.Concat(decor(n, w, h, u.Theme), kidGroups(u.Boxes[id], u)), u)
+end
+
+defn layFlow(id, maxW, fit, ui)
+  (** A row that wraps: each child as wide as it needs, on the next line when it doesn't fit, each line's children in
+      its middle; the space of a web.Spacer only between those on one line. *)
+  u = ui
+  b = u.Boxes[id]
+  n = b.Node
+  gap = u.Theme.Gap if value.IsMissing(n.Gap) else n.Gap
+  inner = (maxW if value.IsMissing(n.Width) else n.Width) - 2 * n.Pad
+  lines = []
+  line = []
+  x = 0
+  for c in b.Kids
+    u = layout(c, inner, true, u)
+    cw = u.Boxes[c].W
+    if x > 0 and x + cw > inner
+      lines = list.Append(line, lines)
+      line = []
+      x = 0
+    end
+    line = list.Append(c, line)
+    x += cw + gap
+  end
+  lines = list.Append(line, lines)
+  y = n.Pad
+  widest = 0
+  for l in lines
+    tall = list.Max(list.Append(0, [u.Boxes[c].H for c in l]))
+    x = n.Pad
+    for c in l
+      ch = u.Boxes[c].H
+      u = place(c, x, y + (0 if n.Align == "start" else math.Div(tall - ch, 2) if n.Align == "center" else tall - ch), u)
+      x += u.Boxes[c].W + gap
+    end
+    widest = list.Max(widest, x - gap)
+    y += tall + gap
+  end
+  h = y - gap + n.Pad
+  w = if fit widest + n.Pad else maxW end
+  sized(id, w, h, list.Concat(decor(n, w, h, u.Theme), kidGroups(u.Boxes[id], u)), u)
 end
 
 defn layLive(id, maxW, fit, ui)
   u = ui
   b = u.Boxes[id]
   c = b.Kids[1]
-  u = layout(c, maxW, fit, u)
+  u = layout(c, maxW, fit, u, h = b.Gh if fills(c, u) else missing)
   u = place(c, 0, 0, u)
   sized(id, u.Boxes[c].W, u.Boxes[c].H, kidGroups(u.Boxes[id], u), u)
 end
@@ -239,7 +329,7 @@ defn layText(id, maxW, ui)
   got = watched(id, () -> valueOf(n.Text), ui)
   u = got.Ui
   size = sizeOf(n, u.Theme)
-  color = u.Theme.Ink if value.IsMissing(n.Color) else n.Color
+  color = u.Theme.Ink if value.IsMissing(n.Color) else tone(n.Color, u.Theme)
   font = if value.IsSome(n.Font) n.Font else fontOf(got.Value) end
   lh = lineOf(size, u)
   s = textOf(got.Value)
@@ -248,11 +338,20 @@ defn layText(id, maxW, ui)
   cached(id, list.Min(widest, maxW), lh * value.Len(lines), [words(0, k * lh - lh, lines[k], size, color, font) for k in 1..value.Len(lines) if text.Trim(lines[k]) != ""], {Text: s}, u)
 end
 
-defn layButton(id, ui)
-  (** A plain button: its label in an edge of one pixel, and its key beside, as "Enter"; pressed, ink and paper swap. *)
+defn layButton(id, maxW, ui)
+  (** A plain button: its label in an edge of one pixel, and its key beside, as "Enter"; pressed, ink and paper swap.
+      In a theme of a desktop tool (one that has Raised), a button is raised from its panel, an icon may stand before
+      its label, and it is lighter under the mouse; in a toolbar, it is flat until then. In a theme of tokens
+      (web.Dark, web.Light), a button is drawn as the look's design says (layKey). *)
   u = ui
   n = u.Boxes[id].Node
   t = u.Theme
+  if value.IsSome(dict.Get("Tokens", t))
+    return layKey(id, maxW, u)
+  end
+  if tooled(n, t)
+    return layTool(id, u)
+  end
   label = shown(n.Label)
   lw = widthOf(label, t.Size, "body", u)
   kw = if value.IsMissing(n.Key) 0 else widthOf(n.Key, t.Size, "code", u) + 8 end
@@ -272,20 +371,161 @@ defn layButton(id, ui)
   cached(id, w, h, out, {Text: label}, u)
 end
 
+(* Is a button drawn as a desktop tool draws one: in such a theme (one that has Raised), with an icon, or in a toolbar? *)
+tooled(n, t) = value.IsSome(dict.Get("Raised", t)) or value.IsSome(dict.Get("Icon", n)) or dict.GetOr("Flat", false, n)
+
+defn layTool(id, ui)
+  (** A button of a desktop tool: raised, or flat in a toolbar, lighter under the mouse, darker held down; its icon,
+      its label, its key in the muted color. *)
+  u = ui
+  n = u.Boxes[id].Node
+  t = u.Theme
+  label = shown(n.Label)
+  icon = dict.Get("Icon", n)
+  flat = dict.GetOr("Flat", false, n)
+  ic = role("Icon", t)
+  iw = if value.IsMissing(icon) 0 else ic + (6 if label != "" else 0) end
+  lw = widthOf(label, t.Size, "body", u)
+  kw = if value.IsMissing(n.Key) 0 else widthOf(n.Key, t.Size, "code", u) + 8 end
+  w = iw + lw + kw + 16
+  h = t.Field
+  ty = math.Div(h - lineOf(t.Size, u), 2)
+  r = dict.GetOr("Radius", 0, t)
+  back = if u.Pressed == id role("Pressed", t) else if u.Hover == id role("Hover", t) else if flat missing else role("Raised", t) end
+  out = if value.IsMissing(back) [] else [rect(0, 0, w, h, back, r)] end
+  if not flat
+    out = list.Append(frame(0, 0, w, h, t.Accent if u.Focus == id else role("Edge", t), r), out)
+  end
+  if value.IsSome(icon)
+    out = list.Append(iconItem(8, math.Div(h - ic, 2), icon, ic, t.Ink), out)
+  end
+  out = list.Append(words(8 + iw, ty, label, t.Size, t.Ink), out)
+  if value.IsSome(n.Key)
+    out = list.Append(words(8 + iw + lw + 8, ty, n.Key, t.Size, t.Muted, "code"), out)
+  end
+  if u.Focus == id and u.Ring
+    out = list.Append(frame(-2, -2, w + 4, h + 4, t.Accent, r), out)
+  end
+  cached(id, w, h, out, {Text: label}, u)
+end
+
+(* ---- The widgets in a theme of tokens (web.Dark, web.Light): tokens.md's design, on every platform. *)
+
+defn keyName(k)
+  (** A key as a button shows it: "C-s" is Ctrl S, "M-n" Alt N, "f5" F5, "escape" Esc, "/" itself. *)
+  parts = []
+  rest = k
+  while text.StartsWith("C-", rest) or text.StartsWith("M-", rest) or text.StartsWith("S-", rest)
+    parts = list.Append(if text.StartsWith("C-", rest) "Ctrl" else if text.StartsWith("M-", rest) "Alt" else "Shift" end, parts)
+    rest = text.Slice(3, value.Len(rest), rest) if value.Len(rest) > 2 else ""
+  end
+  named = {escape: "Esc", enter: "Enter", space: "Space", tab: "Tab", up: "↑", down: "↓", left: "←", right: "→", pageup: "PgUp", pagedown: "PgDn", delete: "Del", backspace: "⌫"}
+  last = if rest in named named[rest] else text.Upper(rest) end
+  text.Join(" ", list.Append(last, parts))
+end
+
+defn keycap(x, y, k, t, u, on = missing)
+  (** A key drawn as a key of the keyboard: its name in small letters on a tile 18 pixels high, at x, y, filled with
+      on (a color) or edged in the text's color when on is missing: {Items, W}. *)
+  s = keyName(k)
+  size = t.Size - 2
+  w = widthOf(s, size, "body", u) + 10
+  h = 18 if t.Field >= 26 else 16
+  back = if value.IsSome(on) [rect(x, y, w, h, on, 3)] else [{Kind: "frame", X: x, Y: y, W: w, H: h, Color: t.ChosenInk, Radius: 3, Alpha: 102}] end
+  ink = if value.IsSome(on) tok("Icon", t, "Muted") else t.ChosenInk end
+  {Items: list.Append(words(x + 5, y + math.Div(h - lineOf(size, u), 2), s, size, ink), back), W: w}
+end
+
+tok(name, t, fallback) = if value.IsDict(dict.Get("Tokens", t)) and value.IsSome(dict.Get(name, t.Tokens)) t.Tokens[name] else role(fallback, t) end   (* A token of the theme's look, or a role in a theme without. *)
+
+defn ringItems(w, h, t, r = 4)
+  (** The ring of the focus around a box w by h: one pixel of Focus, and one of its halo outside. *)
+  halo = tok("FocusHalo", t, "Accent")
+  hc = if value.IsArray(halo) halo[1] else halo end
+  ha = if value.IsArray(halo) halo[2] else 102 end
+  [frame(0, 0, w, h, tok("Focus", t, "Accent"), r), {Kind: "frame", X: -1, Y: -1, W: w + 2, H: h + 2, Color: hc, Radius: r + 1, Alpha: ha}]
+end
+
+defn layKey(id, maxW, ui)
+  (** A button in a theme of tokens: its style (web.Button's style) gives its fill, under the mouse and held down:
+      "primary" the accent, "ghost" none until the mouse is over it, "field" a field that opens something (a search),
+      as wide as it is given, "danger" the color of errors on a secondary fill; a button of web.IconButton is a square
+      of its icon. Its icon, its label and its key, as a key of the keyboard. *)
+  u = ui
+  n = u.Boxes[id].Node
+  t = u.Theme
+  k = t.Tokens
+  style = dict.GetOr("Style", if dict.GetOr("Flat", false, n) "ghost" else "secondary" end, n)
+  bare = dict.GetOr("Bare", false, n)
+  label = shown(n.Label)
+  icon = dict.Get("Icon", n)
+  h = t.Field
+  ic = 16
+  hover = u.Hover == id
+  down = u.Pressed == id
+  pad = 10 if t.Field >= 28 else 8
+  kc = if value.IsSome(n.Key) and not bare and style != "ghost" keycap(0, 0, n.Key, t, u, on = if style == "primary" missing else if style == "field" k.Dropdown else k.Header end) else missing end
+  iw = if value.IsMissing(icon) 0 else ic + (6 if label != "" and not bare else 0) end
+  lw = if bare 0 else widthOf(label, t.Size, "body", u) end
+  kw = if value.IsSome(kc) kc.W + 8 else 0 end
+  w = if bare h else if style == "field" maxW else pad + iw + lw + kw + pad end
+  back = if style == "primary" (k.PrimaryPress if down else k.PrimaryHover if hover else k.Primary)
+    else if style == "ghost" or bare (k.GhostPress if down else k.GhostHover if hover else missing)
+    else if style == "field" k.Input
+    else if style == "danger" (k.Dropdown if down else k.GhostHover if hover else missing)
+    else (k.Header if down else k.Hover if hover else k.Dropdown) end
+  ink = if style == "primary" k.SelectInk else if style == "field" k.FgMuted else if style == "danger" k.Err else if style == "ghost" or bare (k.FgStrong if hover else k.Icon) else k.FgStrong end
+  out = if value.IsMissing(back) [] else [rect(0, 0, w, h, back, 4)] end
+  if style == "field"
+    out = list.Append(frame(0, 0, w, h, k.InputLineHover if hover else k.InputLine, 4), out)
+  end
+  x = if bare math.Div(h - ic, 2) else pad end
+  if value.IsSome(icon)
+    out = list.Append(iconItem(x, math.Div(h - ic, 2), icon, ic, ink if style == "primary" or style == "danger" or hover and style != "field" else k.Icon), out)
+  end
+  if not bare
+    out = list.Append(words(x + iw, math.Div(h - lineOf(t.Size, u), 2), label, t.Size, ink), out)
+  end
+  if value.IsSome(kc)
+    kx = if style == "field" w - pad - kc.W + 4 else x + iw + lw + 8 end
+    out = list.Concat(out, [moved1(one, kx, math.Div(h - (18 if t.Field >= 26 else 16), 2)) for one in kc.Items])
+  end
+  if u.Focus == id and u.Ring
+    out = list.Concat(out, ringItems(w, h, t))
+  end
+  cached(id, w, h, out, {Text: label}, u)
+end
+
+moved1(one, dx, dy) = dict.Put("Y", one.Y + dy, dict.Put("X", one.X + dx, one))   (* A draw item moved by dx, dy. *)
+
 defn layLink(id, ui)
   u = ui
   n = u.Boxes[id].Node
   t = u.Theme
   w = widthOf(n.Label, t.Size, "body", u)
   h = lineOf(t.Size, u)
-  sized(id, w, h, [words(0, 0, n.Label, t.Size, t.Accent), rect(0, h - 2, w, 1, t.Accent)], u)
+  c = role("Link", t)
+  sized(id, w, h, [words(0, 0, n.Label, t.Size, c), rect(0, h - 2, w, 1, c)], u)
 end
 
 defn fieldEdge(id, bad, w, h, u)
-  (** The paper and the edge of a field: the accent when it has the focus, the color of danger when it is wrong. *)
+  (** The paper and the edge of a field: the accent when it has the focus, the color of danger when it is wrong. In a
+      theme of tokens: the field's fill, its quiet edge, lighter under the mouse, the focus's with its halo. *)
   t = u.Theme
-  [rect(0, 0, w, h, t.Paper), frame(0, 0, w, h, t.Danger if bad else t.Accent if u.Focus == id else t.Line)]
+  k = dict.Get("Tokens", t)
+  if value.IsDict(k)
+    edge = if bad k.Err else if u.Focus == id k.Focus else if u.Hover == id k.InputLineHover else k.InputLine end
+    out = [rect(0, 0, w, h, k.Input, 4), frame(0, 0, w, h, edge, 4)]
+    if u.Focus == id or bad
+      halo = if bad [k.Err, 89] else k.FocusHalo end
+      out = list.Append({Kind: "frame", X: -1, Y: -1, W: w + 2, H: h + 2, Color: halo[1], Radius: 5, Alpha: halo[2]}, out)
+    end
+    return out
+  end
+  [rect(0, 0, w, h, t.Paper, t.Radius), frame(0, 0, w, h, t.Danger if bad else t.Accent if u.Focus == id else t.Line, t.Radius)]
 end
+
+fieldFont(t) = if value.IsSome(dict.Get("Tokens", t)) "body" else "code" end   (* The font of a field's text: the code font in web.Theme. *)
 
 defn layInput(id, maxW, ui)
   n = ui.Boxes[id].Node
@@ -302,15 +542,33 @@ defn layInput(id, maxW, ui)
   s = got.Value.Text
   lh = lineOf(t.Size, u)
   ty = math.Div(h - lh, 2)
+  font = fieldFont(t)
+  icon = dict.Get("Icon", n)
+  hint = dict.Get("Hint", n)
+  left = if value.IsSome(icon) 28 else 6 end
+  kc = if value.IsSome(hint) and value.IsSome(dict.Get("Tokens", t)) and u.Focus != id keycap(0, 0, hint, t, u, on = t.Tokens.Dropdown) else missing end
+  unit = dict.Get("Unit", n)
+  uw = if value.IsText(unit) widthOf(unit, t.Size, "body", u) else 0 end
+  right = if value.IsSome(kc) kc.W + 10 else if uw > 0 uw + 14 else 6 end
   inside = []
   shift = 0
   if u.Focus == id
-    cx = widthOf(head(s, u.Caret), t.Size, "code", u)
-    shift = list.Max(0, cx - (w - 16))
-    inside = [rect(cx - shift, ty, 1, lh, t.Ink)]
+    cx = widthOf(head(s, u.Caret), t.Size, font, u)
+    shift = list.Max(0, cx - (w - left - right - 4))
+    inside = [rect(cx - shift, ty, 1, lh, role("Strong", t) if value.IsSome(dict.Get("Tokens", t)) else t.Ink)]
   end
-  shownText = if s == "" and n.Placeholder == "" [] else if s == "" [words(0, ty, n.Placeholder, t.Size, t.Muted, "code")] else [words(-shift, ty, s, t.Size, t.Ink, "code")] end
-  cached(id, w, h, list.Append(group(6, 0, w - 12, h, true, list.Concat(shownText, inside)), fieldEdge(id, got.Value.Bad, w, h, u)), {Text: s, Shift: shift}, u)
+  ink = role("Strong", t) if value.IsSome(dict.Get("Tokens", t)) and u.Focus == id else t.Ink
+  shownText = if s == "" and n.Placeholder == "" [] else if s == "" [words(0, ty, n.Placeholder, t.Size, t.Muted, font)] else [words(-shift, ty, s, t.Size, ink, font)] end
+  out = list.Append(group(left, 0, w - left - right, h, true, list.Concat(shownText, inside)), fieldEdge(id, got.Value.Bad, w, h, u))
+  if value.IsSome(icon)
+    out = list.Append(iconItem(8, math.Div(h - 16, 2), icon, 16, t.Muted), out)
+  end
+  if value.IsSome(kc)
+    out = list.Concat(out, [moved1(one, w - kc.W - 6, math.Div(h - (18 if t.Field >= 26 else 16), 2)) for one in kc.Items])
+  else if uw > 0
+    out = list.Append(words(w - uw - 8, ty, unit, t.Size, t.Muted, "body"), out)
+  end
+  cached(id, w, h, out, {Text: s, Shift: shift, Left: left}, u)
 end
 
 defn optionsOf(n)
@@ -338,7 +596,14 @@ defn laySelect(id, maxW, ui)
   h = t.Field
   ty = math.Div(h - lineOf(t.Size, u), 2)
   label = got.Value.Label
-  shownText = if value.IsMissing(label) words(6, ty, n.Placeholder, t.Size, t.Muted, "code") else words(6, ty, label, t.Size, t.Ink, "code") end
+  font = fieldFont(t)
+  lx = if value.IsSome(dict.Get("Tokens", t)) 8 else 6 end
+  shownText = if value.IsMissing(label) words(lx, ty, n.Placeholder, t.Size, t.Muted, font) else words(lx, ty, label, t.Size, t.Ink, font) end
+  if value.IsSome(dict.Get("Tokens", t))
+    (* the chevron of the look's icons at the right *)
+    return cached(id, w, h, list.Concat(fieldEdge(id, false, w, h, u), [group(0, 0, w - 30, h, true, [shownText]), iconItem(w - 22, math.Div(h - 14, 2), "chevron-down", 14, t.Tokens.Icon)]),
+      {Text: "" if value.IsMissing(label) else label}, u)
+  end
   vw = widthOf("v", t.Size, "code", u)
   cached(id, w, h, list.Concat(fieldEdge(id, false, w, h, u), [group(0, 0, w - vw - 10, h, true, [shownText]), words(w - vw - 6, ty, "v", t.Size, t.Ink, "code")]), {Text: "" if value.IsMissing(label) else label}, u)
 end

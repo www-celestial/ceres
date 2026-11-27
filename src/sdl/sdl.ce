@@ -63,12 +63,13 @@ sdlSpecs = {Version: ["SDL_GetVersion", [], "i32"], Init: ["SDL_Init", ["u32"], 
   Poll: ["SDL_PollEvent", ["ptr"], "bool"], Wait: ["SDL_WaitEventTimeout", ["ptr", "i32"], "bool"], StartText: ["SDL_StartTextInput", ["ptr"], "bool"],
   Read: ["SDL_RenderReadPixels", ["ptr", "ptr"], "ptr"], Convert: ["SDL_ConvertSurface", ["ptr", "u32"], "ptr"],
   DestroySurface: ["SDL_DestroySurface", ["ptr"], "void"], DestroyRenderer: ["SDL_DestroyRenderer", ["ptr"], "void"],
-  DestroyWindow: ["SDL_DestroyWindow", ["ptr"], "void"], Quit: ["SDL_QuitSubSystem", ["u32"], "void"], SetTitle: ["SDL_SetWindowTitle", ["ptr", "text"], "bool"]}
+  DestroyWindow: ["SDL_DestroyWindow", ["ptr"], "void"], Quit: ["SDL_QuitSubSystem", ["u32"], "void"], SetTitle: ["SDL_SetWindowTitle", ["ptr", "text"], "bool"],
+  SystemTheme: ["SDL_GetSystemTheme", [], "i32"]}
 
 ttfSpecs = {Init: ["TTF_Init", [], "bool"], Engine: ["TTF_CreateRendererTextEngine", ["ptr"], "ptr"], Open: ["TTF_OpenFont", ["text", "f32"], "ptr"],
   Make: ["TTF_CreateText", ["ptr", "ptr", "text", "u64"], "ptr"], Color: ["TTF_SetTextColor", ["ptr", "u8", "u8", "u8", "u8"], "bool"],
   Draw: ["TTF_DrawRendererText", ["ptr", "f32", "f32"], "bool"], Size: ["TTF_GetStringSize", ["ptr", "text", "u64", "ptr", "ptr"], "bool"],
-  Height: ["TTF_GetFontHeight", ["ptr"], "i32"], Hinting: ["TTF_SetFontHinting", ["ptr", "i32"], "void"], DestroyText: ["TTF_DestroyText", ["ptr"], "void"],
+  Height: ["TTF_GetFontHeight", ["ptr"], "i32"], Ascent: ["TTF_GetFontAscent", ["ptr"], "i32"], Hinting: ["TTF_SetFontHinting", ["ptr", "i32"], "void"], DestroyText: ["TTF_DestroyText", ["ptr"], "void"],
   CloseFont: ["TTF_CloseFont", ["ptr"], "void"], DestroyEngine: ["TTF_DestroyRendererTextEngine", ["ptr"], "void"], Quit: ["TTF_Quit", [], "void"]}
 
 (* The fonts that come with Ceres, from the root of a project that is Ceres or that takes it. *)
@@ -76,10 +77,11 @@ fontFolders = ["src/sdl/fonts", "deps/www-celestial/ceres/src/sdl/fonts"]
 
 defn defaultFonts()
   (** The fonts of Ceres, as Cemacs has them: Adwaita Sans for the body, Noto Sans Medium for the strong face and
-      JetBrains Mono for code and numbers, all under the SIL Open Font License. *)
+      JetBrains Mono for code and numbers, all under the SIL Open Font License; and the icons of web.Icons, cut from
+      Lucide (ISC, Lucide-ISC.txt). *)
   at = list.FindFirst(f -> sys.Exists("$f/AdwaitaSans-Regular.ttf"), fontFolders)
   f = fontFolders[1] if value.IsMissing(at) else at
-  {Body: "$f/AdwaitaSans-Regular.ttf", Strong: "$f/NotoSans-Medium.ttf", Code: "$f/JetBrainsMono-Regular.ttf"}
+  {Body: "$f/AdwaitaSans-Regular.ttf", Strong: "$f/NotoSans-Medium.ttf", Code: "$f/JetBrainsMono-Regular.ttf", Icon: "$f/Lucide.ttf"}
 end
 
 failed(w) = result.Err({Kind: "sdl", Message: w.Sdl.Error()})   (* An Err with the last reason SDL gave. *)
@@ -126,7 +128,7 @@ defn opened(title, width, height, fonts, vsync, driver, hidden)
   engine = ttf.Engine(ren)
   w = {Sdl: api, Ttf: ttf, Win: win, Ren: ren, Engine: engine, Paths: paths, Fonts: cell(dict.Dict()), Texts: cell(dict.Dict()),
     Masks: cell(dict.Dict()), Sizes: cell(dict.Dict()), Rect: c.Alloc(16), IRect: c.Alloc(16), Out: c.Alloc(8), Event: c.Alloc(128),
-    Buffer: cell({Block: c.Alloc(65536), Size: 65536}), Width: width, Height: height}
+    Buffer: cell({Block: c.Alloc(65536), Size: 65536}), Drops: cell(dict.Dict()), Width: width, Height: height}
   for face in ["body", "strong", "code"]
     _ = fontOf(14, face, w)?
   end
@@ -141,7 +143,7 @@ defn fontOf(size, face, w)
   if key in fonts
     return result.Ok(fonts[key])
   end
-  path = w.Paths.Strong if face == "strong" else w.Paths.Code if face == "code" else w.Paths.Body
+  path = w.Paths.Strong if face == "strong" else w.Paths.Code if face == "code" else iconFont(w) if face == "icon" else w.Paths.Body
   f = w.Ttf.Open(path, px * 1.0)
   if value.IsMissing(f)
     return result.Err({Kind: "sdl", Message: "The font $path can't be opened: $(w.Sdl.Error())"})
@@ -151,6 +153,8 @@ defn fontOf(size, face, w)
   put(fonts, w.Fonts)
   result.Ok(f)
 end
+
+iconFont(w) = dict.GetOr("Icon", defaultFonts().Icon, w.Paths)   (* The font of the icons: the window's, or Ceres's. *)
 
 font(size, face, w) = result.Unwrap(fontOf(size, face, w))   (* A font that must open: a missing font is a bug here. *)
 
@@ -162,7 +166,8 @@ end
 
 defn Measure(w)
   (** The measures of a window's texts, for web.Start: widths kept once measured. *)
-  {Width: (s, size, face) -> widthOf(s, size, face, w), Line: size -> lineOf(size, w)}
+  {Width: (s, size, face) -> widthOf(s, size, face, w), Line: size -> lineOf(size, w),
+    Base: (size, face) -> dropOf(size, face, w) + w.Ttf.Ascent(font(size, face, w))}
 end
 
 defn widthOf(s, size, face, w)
@@ -183,6 +188,21 @@ defn widthOf(s, size, face, w)
 end
 
 lineOf(size, w) = w.Ttf.Height(font(size, "body", w))   (* The height of a line of text of a size. *)
+
+defn dropOf(size, face, w)
+  (** How far under the top of its line a text is drawn: the box of its font (its ascent and its descent, its height)
+      in the middle of the line, a line of the body's font, or the square of an icon, as the browser centers it. *)
+  key = "$face$(math.Round(size))"
+  drops = peek(w.Drops)
+  got = dict.Get(key, drops)
+  if value.IsSome(got)
+    return got
+  end
+  room = if face == "icon" math.Div(math.Round(size), 1) else lineOf(size, w) end
+  d = math.Div(room - w.Ttf.Height(font(size, face, w)) + 1, 2)
+  put(dict.Put(key, d, drops), w.Drops)
+  d
+end
 
 (* ---- Painting the draw list *)
 
@@ -373,9 +393,10 @@ defn paint(items, dx, dy, cl, w)
           _ = w.Sdl.Edge(w.Ren, area(one.X + dx, one.Y + dy, one.W, one.H, w))
         end
       else if k == "text"
-        t = textObject(one.Text, one.Size, dict.GetOr("Font", "body", one), w)
+        face = dict.GetOr("Font", "body", one)
+        t = textObject(one.Text, one.Size, face, w)
         _ = w.Ttf.Color(t, red(one.Color), green(one.Color), blue(one.Color), alphaOf(one))
-        _ = w.Ttf.Draw(t, one.X + dx, one.Y + dy)
+        _ = w.Ttf.Draw(t, one.X + dx, one.Y + dy + dropOf(one.Size, face, w))
       else if k == "line"
         pts = shifted(one.Points, dx, dy)
         if dict.GetOr("Width", 1, one) < 2
@@ -427,6 +448,8 @@ defn decoded(e)
   code = c.Get("u32", 0, e)
   if code == 0x100
     {Kind: "quit"}
+  else if code == 0x108
+    {Kind: "theme"}
   else if code == 0x206
     {Kind: "resize", Width: c.Get("i32", 20, e), Height: c.Get("i32", 24, e)}
   else if code == 0x300
@@ -453,11 +476,19 @@ defn Events(w)
   out = []
   while w.Sdl.Poll(w.Event)
     one = decoded(w.Event)
-    if value.IsSome(one)
+    if value.IsSome(one) and one.Kind == "theme"
+      out = list.Append({Kind: "scheme", Dark: dark(w) != false}, out)
+    else if value.IsSome(one)
       out = list.Append(one, out)
     end
   end
   if sys.StopAsked() list.Append({Kind: "quit"}, out) else out end
+end
+
+defn dark(w)
+  (** Is the system's theme dark, as SDL tells it: true, false, or missing when it can't tell. *)
+  t = w.Sdl.SystemTheme()
+  if t == 2 true else if t == 1 false else missing end
 end
 
 defn Run(app, origin = missing, title = missing, width = 1100, height = 860, path = "/", fonts = missing, driver = missing, hidden = false)
@@ -466,7 +497,7 @@ defn Run(app, origin = missing, title = missing, width = 1100, height = 860, pat
       changed or the window asks for one; a still page waits in SDL, waking every 50 ms with a live screen, so that
       what the app pushes is drawn, and every 250 ms without. driver and hidden are as for Open. *)
   w = Open(if value.IsMissing(title) app.Title else title end, width, height, fonts = fonts, driver = driver, hidden = hidden)?
-  ui = web.Start(app, width, height, Measure(w), origin = origin, path = path)
+  ui = web.Start(app, width, height, Measure(w), origin = origin, path = path, dark = dark(w))
   rest = 50 if value.IsSome(app.Live) and value.IsSome(origin) else 250
   while true
     events = Events(w)
@@ -520,7 +551,7 @@ defn Shot(app, path, origin = missing, width = 1100, height = 860, settle = miss
       settle(page) waits for, at most 5 seconds, and steps(page) gave the page after the events it sends, as
       web.Handle takes them; writes it as a PNG at path: Ok(path), or an Err. It needs write= for path. *)
   w = Open(app.Title, width, height, fonts = fonts, vsync = false, driver = "dummy")?
-  ui = web.Start(app, width, height, Measure(w), origin = origin)
+  ui = web.Start(app, width, height, Measure(w), origin = origin, dark = dark(w))
   start = sys.Now()
   while value.IsSome(settle) and not settle(ui) and sys.Now() - start < 5
     sys.Sleep(0.01)

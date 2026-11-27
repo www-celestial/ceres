@@ -1,0 +1,17 @@
+(* The page whose routes tests/web/route.html goes through in a browser: two routes, a link from each to the other, and a
+   field whose change isn't saved on the second. tools/webshot.sh builds it (cesia build --target wasm tests/web/route.ce). *)
+use src/browser
+use src/web
+
+name = web.Signal("Ada")
+
+defn first(p)
+  web.Stack([web.Title("First"), web.Link("To the second", "/second")], gap = 8, pad = 8)
+end
+
+defn second(p)
+  web.Unsaved(p, () -> web.Get(name) != "Ada")
+  web.Stack([web.Title("Second"), web.Link("Back to the first", "/"), web.Input(name, label = "Name", width = 200)], gap = 8, pad = 8)
+end
+
+browser.Run(web.App([web.Route("/", first), web.Route("/second", second)], title = "Routes — Ceres"))

@@ -76,7 +76,8 @@ their catalogue.
 
 1. It asks `ceres.js` to set the canvas up and to send each event of the page, a click, a key, a text typed, a new size,
    as the list of its fields on a channel of `std/fiber`; `ceres.js` gives back the canvas's size and the page's origin.
-2. It mounts the app with `web.Start`, its texts measured by the browser's own fonts.
+2. It mounts the app with `web.Start`, its texts measured by the browser's own fonts, and paints its first frame at
+   once, before what the live screen brings meanwhile, which the next frame shows.
 3. It waits on the channel. While it waits, nothing of the page's code runs: the browser is free, and a still page costs
    nothing. A fiber that waits sets its stack aside by JavaScript Promise Integration, which Chrome runs since 137,
    Firefox since 153 and Safari since 27.

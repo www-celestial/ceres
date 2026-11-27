@@ -70,8 +70,9 @@ in the same program, where an accountant pays an invoice elsewhere every 4 secon
 
 In the browser, the page's code, Ceres's and the app's, runs in WebAssembly, compiled by `cesia build --target wasm`:
 [Ceres in a web page](web.md) is the tutorial. `browser.Run(app, origin = ..., path = ...)` is the loop of a window,
-its window the page's first `<canvas>`: it waits for the page's events on a channel, handles them, and paints at the
-browser's next frame when the page changed. Its live screen opens at the page's own origin unless `origin` names
+its window the page's first `<canvas>`: it paints the page's first frame as soon as the page is laid out, before what
+its live screen brings, then waits for the page's events on a channel, handles them, and paints at the browser's next
+frame when the page changed. Its live screen opens at the page's own origin unless `origin` names
 another, and its first route is the canvas's `data-path`, or `/`.
 
 What WebAssembly can't reach, the canvas, WebGL2, the events and the DOM, goes through `web/ceres.js`: 500 lines
@@ -99,6 +100,8 @@ anything about the page. The page calls it by `js.Call("../../web/ceres.js", nam
   An element is placed in the element of its node above (a node of a width), as the tree places it. `Mirror(json)`
   takes the whole tree, `web.Semantics(page)` as JSON, the same way;
 - `Wake()` sends `"frame"` on the channel at the browser's next frame, the time to paint;
+- `Begin()` says that the page paints a frame at once, not at the browser's next frame: its first, whose time in
+  `Stats()` counts from there;
 - `Check(json)`, in a page whose address holds `ceres-check`, where `Start` gives `check` true: `src/browser` sends the
   whole tree after each frame, and `tests/web/check.js` checks the hidden DOM against it (below).
 

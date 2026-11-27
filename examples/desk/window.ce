@@ -1,0 +1,5 @@
+(* The page of examples/desk/page.ce in a window of SDL3: cesia do desk-window. *)
+use examples/desk/page
+use src/sdl
+
+sdl.Run(page.App(), width = 1280, height = 800)!

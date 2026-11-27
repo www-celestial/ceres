@@ -1,10 +1,17 @@
 (** The browser: a page of Ceres compiled to WebAssembly by cesia build --target wasm, painted by web/ceres.js, which
-    the build puts beside the page. Run takes the events of the page, runs the app and paints a frame when the page changed,
-    at the browser's next frame: the loop of src/sdl, its window the page's canvas. Between events it waits, and
+    the build puts beside the page. Run paints the page's first frame as soon as it is laid out, then takes the events of
+    the page, runs the app and paints a frame when the page changed, at the browser's next frame: the loop of src/sdl,
+    its window the page's canvas. Between events it waits, and
     nothing runs: the live screen wakes it when the app pushed something. The browser's online and offline, and the
     tab shown again, reach the live screen, which then tries at once or knows it is cut. The hidden DOM gets what changed in the
     semantics tree at each frame, web.Patch; a page whose address holds ceres-check, as page.html?ceres-check, also
-    sends the whole tree, which ceres.js checks the hidden DOM against (Stats().checks). *)
+    sends the whole tree, which ceres.js checks the hidden DOM against (Stats().checks). The icons' font comes in
+    web/icons.js, which ceres.js imports the first time the page draws an icon (the build puts it beside the page, as a
+    module that ceres.js imports: a page without icons never fetches it); a web.Dock keeps its layout in the browser's
+    local storage, and a page whose theme is web.System follows the browser's prefers-color-scheme. The address holds
+    the route shown after a #, as page.html#/users/42: each route the app goes to is a new entry of the browser's
+    history, Back and Forward bring the page back to theirs, and an address kept or shared opens its route; a view
+    whose changes aren't saved (web.Unsaved) makes the browser ask before the tab closes. *)
 use src/web
 use std/fiber
 use std/js
@@ -15,23 +22,39 @@ use std/value
 
 defn Measure()
   (** The texts measured by the browser's own fonts, as web.Start takes them. *)
-  {Width: (t, size, font) -> js.Call("../../web/ceres.js", "Measure", [t, size, font]), Line: size -> js.Call("../../web/ceres.js", "Line", [size])}
+  {Width: (t, size, font) -> js.Call("../../web/ceres.js", "Measure", [t, size, font]), Line: size -> js.Call("../../web/ceres.js", "Line", [size]),
+    Base: (size, font) -> js.Call("../../web/ceres.js", "Base", [size, font])}
+end
+
+defn Store()
+  (** Where a page keeps what it keeps on the machine, as web.Start takes it: the browser's local storage. *)
+  {Get: name -> js.Call("../../web/ceres.js", "Kept", [name]), Put: (name, v) -> js.Call("../../web/ceres.js", "Keep", [name, v])}
 end
 
 defn Run(app, origin = missing, path = missing)
   (** Runs the app in the page's canvas, until the page closes. Its live screen, if it has one, opens at origin, the
-      page's own by default; path is the route shown first, the canvas's data-path or "/". *)
+      page's own by default; path is the route shown first, the one in the address after its #, else the canvas's
+      data-path, else "/". *)
   events = fiber.Channel()
   net = fiber.Channel()
   told = fiber.Channel()
   page = js.Call("../../web/ceres.js", "Start", [events, "lists", net])
+  dark = if value.Len(page) >= 6 and value.IsBool(page[6]) page[6] else missing end
   first = if value.IsMissing(path) page[4] else path end
   ui = web.Start(app, page[1], page[2], Measure(), origin = if value.IsMissing(origin) page[3] else origin end,
-    path = first, wake = events, net = net, telemetry = told)
+    path = first, wake = events, net = net, dark = dark, store = Store(),
+    clip = {Put: route -> js.Call("../../web/ceres.js", "Copy", [route])}, telemetry = told)
   fiber.Spawn(() -> Telemetry(told, app, first))   (* waits for the app's settings, and does nothing unless they ask *)
   shown = first
   check = value.Len(page) >= 5 and page[5] == true
+  (* the first frame at once, as the page was laid out, without waiting for the browser's next frame: before what the
+     live screen brings meanwhile, which the next frame shows *)
+  js.Call("../../web/ceres.js", "Begin", [])
+  ui = painted(ui, check)
   asked = false
+  cursor = "default"
+  synced = web.Path(ui)
+  guarded = false
   while true
     if web.Changed(ui) and not asked
       js.Call("../../web/ceres.js", "Wake", [])
@@ -44,34 +67,57 @@ defn Run(app, origin = missing, path = missing)
     frame = false
     for x in list.Prepend(got.Value, drain(events))
       if not value.IsText(x)
+        if x[1] == "nav"
+          synced = x[2]
+        end
         ui = web.Handle(event(x), ui)
       else if x == "frame"
         frame = true
       end
     end
     ui = web.Update(ui)
-    if value.IsSome(ui.Nav) and web.Get(ui.Nav) != shown
-      shown = web.Get(ui.Nav)
+    now = web.Path(ui)
+    if now != synced
+      (* the app went to another route, or stayed where Back would have lost its changes: the address follows *)
+      js.Call("../../web/ceres.js", "Go", [now])
+      synced = now
+    end
+    if value.IsSome(ui.Nav) and now != shown
+      shown = now
       fiber.Send({Kind: "view", Path: shown}, told)
+    end
+    g = web.Guarded(ui)
+    if g != guarded
+      js.Call("../../web/ceres.js", "Unsaved", [g])
+      guarded = g
+    end
+    if ui.Cursor != cursor
+      cursor = ui.Cursor
+      js.Call("../../web/ceres.js", "Cursor", [cursor])
     end
     if frame
       asked = false
       if web.Changed(ui)
-        drawn = web.Encoded(ui)
-        ui = drawn.Ui
-        js.Call("../../web/ceres.js", "Paint", [drawn.Bytes])
-        sem = web.Patch(ui)
-        ui = sem.Ui
-        if sem.Text != ""
-          js.Call("../../web/ceres.js", "Patch", [sem.Text])
-        end
-        if check
-          js.Call("../../web/ceres.js", "Check", [json.Text(web.Semantics(ui))])
-        end
-        ui = web.Painted(ui)
+        ui = painted(ui, check)
       end
     end
   end
+end
+
+defn painted(ui, check)
+  (** The page painted: its draw list, what changed in its hidden DOM, and with check the whole tree. *)
+  drawn = web.Encoded(ui)
+  u = drawn.Ui
+  js.Call("../../web/ceres.js", "Paint", [drawn.Bytes])
+  sem = web.Patch(u)
+  u = sem.Ui
+  if sem.Text != ""
+    js.Call("../../web/ceres.js", "Patch", [sem.Text])
+  end
+  if check
+    js.Call("../../web/ceres.js", "Check", [json.Text(web.Semantics(u))])
+  end
+  web.Painted(u)
 end
 
 defn event(x)
@@ -83,6 +129,10 @@ defn event(x)
     {Kind: k, Key: x[2], Ctrl: x[3], Alt: x[4], Shift: x[5]}
   else if k == "text"
     {Kind: k, Text: x[2]}
+  else if k == "scheme"
+    {Kind: k, Dark: x[2] == true}
+  else if k == "nav"
+    {Kind: k, Path: x[2]}
   else
     {Kind: k, Width: x[2], Height: x[3]}
   end

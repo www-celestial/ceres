@@ -1,0 +1,35 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Ceres route test</title>
+<style>html, body { margin: 0; } #page { width: 480px; height: 320px; }</style>
+<div id="page"><canvas></canvas></div>
+<script type="module" src="/tests/route.js"></script>
+<script type="module">
+// The routes of a page in the browser's address (tests/web/route.ce): a click on a link adds an entry to the history and
+// shows the route after the #, Back and Forward bring the routes back, the link of the hidden DOM points at its route,
+// and an address with a route opens on it. Writes in the title "done routes" and what went through, or "done off: ".
+import { Tree } from '/tests/ceres.js'
+const wait = ms => new Promise(r => setTimeout(r, ms))
+const until = async (f, ms = 10000) => { for (let t = 0; t < ms && !f(); t += 50) await wait(50); return f() }
+const heading = name => (Tree() || '').includes('"Role":"heading","Name":"' + name + '"') || (Tree() || '').includes('"heading","' + name + '"')
+const shows = name => { const t = Tree(); if (!t) return false; const find = n => (n.Role === 'heading' && n.Name === name) || (n.Kids || []).some(find); return find(JSON.parse(t)) }
+const bad = []
+const deep = location.hash === '#/second'
+await until(() => shows(deep ? 'Second' : 'First'))
+if (deep) {
+  document.title = 'done ' + (shows('Second') ? 'deep link' : 'off: the address #/second showed another route')
+} else {
+  const link = document.querySelector('a[href]')
+  if (!link || link.getAttribute('href') !== '#/second') bad.push('the link of the hidden DOM points at ' + (link && link.getAttribute('href')))
+  const canvas = document.querySelector('canvas'), r = link.getBoundingClientRect()
+  const at = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, button: 0, bubbles: true, pointerId: 1 }
+  canvas.dispatchEvent(new PointerEvent('pointerdown', at)); canvas.dispatchEvent(new PointerEvent('pointerup', at))
+  if (!await until(() => shows('Second') && location.hash === '#/second')) bad.push('the link went to ' + location.hash)
+  const entries = history.length
+  history.back()
+  if (!await until(() => shows('First'))) bad.push('Back showed no first route')
+  history.forward()
+  if (!await until(() => shows('Second') && location.hash === '#/second')) bad.push('Forward showed no second route')
+  document.title = 'done ' + (bad.length ? 'off: ' + bad.join('; ') : 'routes (' + entries + ' entries)')
+}
+</script>

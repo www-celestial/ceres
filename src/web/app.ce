@@ -3,6 +3,7 @@
    nothing changes costs nothing. *)
 use std/bug
 use std/dict
+use std/fiber
 use std/list
 use std/math
 use std/text
@@ -12,9 +13,17 @@ use std/value
     missing for an app without. title names its window. say gives the text shown for each of Ceres's own English
     texts, those of the band of keys and of the page of no route, already filled in ("No page of this app is at /x."):
     a page in another language passes its translation, as t -> i18n.Say(words, "fr", t); missing shows the English.
+    theme is its look: web.Dark, web.Light, web.System() which follows the system, a theme made from one of them with
+    a field changed, or missing for web.Theme, the plain look of ink on paper. density is the size of its rows, fields
+    and texts in web.Dark and web.Light: "dense", "compact" (the default) or "comfortable" (web.Densities). A person
+    may choose another theme and density on his machine (web.SetLook), which then win. frame(p, page) gives what
+    stands around every page, made once and kept from route to route, as a web.Shell or a web.Dock: p is the page of
+    the first route (its Nav, its Router, its Screen), page the live part that shows the page of the route shown.
 
-      App([], say = t -> if t == "Nothing here" "Rien ici" else t end).Say("Nothing here") --> "Rien ici" *)
-App(routes, live = missing, title = "Ceres", say = missing) = {Routes: routes, Live: live, Title: title, Say: say}
+      App([], say = t -> if t == "Nothing here" "Rien ici" else t end).Say("Nothing here") --> "Rien ici"
+      App([], theme = Dark).Theme.Name --> "dark"
+      App([], density = "dense").Density --> "dense" *)
+App(routes, live = missing, title = "Ceres", say = missing, theme = missing, density = missing, frame = missing) = {Routes: routes, Live: live, Title: title, Say: say, Theme: theme, Density: density, Frame: frame}
 
 said(say, t) = if value.IsMissing(say) t else say(t) end   (* One of Ceres's own texts, in the app's language. *)
 
@@ -40,24 +49,33 @@ defn matched(pattern, path)
   params
 end
 
-defn routed(app, nav, screen)
+defn routed(app, router, screen)
   (** The live part of the whole app: the page of the route of the current path. *)
-  () -> pageAt(app, Get(nav), nav, screen)
+  () -> pageAt(app, Get(router.Nav), router, screen)
 end
 
-defn pageAt(app, path, nav, screen)
+defn pageAt(app, path, router, screen)
   (** The page of the first route that a path matches, or a page that says there is none. *)
   for r in app.Routes
     params = matched(r.Pattern, path)
     if value.IsSome(params)
-      return r.Page({Path: path, Params: params, Screen: screen, Nav: nav})
+      return r.Page({Path: path, Params: params, Screen: screen, Nav: router.Nav, Router: router})
     end
   end
   Stack([Title(said(dict.Get("Say", app), "Nothing here")), Text(said(dict.Get("Say", app), "No page of this app is at $path."))])
 end
 
-(** Goes to another route of the app, as a link does. *)
-Go(path, p) = Set(p.Nav, path)
+defn Go(path, p)
+  (** Goes to another route of the app, as a link does. In a browser the address shows each route (page.html#/users/42):
+      Back and Forward go through them, a link opens in a new tab with Ctrl or the middle button, and an address
+      kept or shared opens the same route; in a window Alt+Left and Alt+Right go back and forward. A view whose
+      changes aren't saved (web.Unsaved) asks first. *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r)
+    return Set(p.Nav, path)
+  end
+  going(r, path, missing)
+end
 
 defn RouteOf(app, path)
   (** The pattern of the route that takes a path, or "" when none does: what a page's telemetry names a view by, never
@@ -72,20 +90,308 @@ defn RouteOf(app, path)
   ""
 end
 
-defn Start(app, width, height, measure, origin = missing, path = "/", theme = Theme, headers = [], wake = missing, net = missing, telemetry = missing)
+defn Unsaved(p, changed, save = missing)
+  (** Says that the view of the page p has changes that aren't saved while changed() is true (a function, or a signal
+      of true or false). Going to another route then asks first, in the band at the bottom of the window: save and
+      leave (Ctrl+S, which runs save(), the function that saves them, when there is one), leave without saving
+      (Ctrl+D) or stay (Esc); in a browser, closing the tab or loading another address asks too. A page calls it as it
+      makes its widgets; it gives nothing to show.
+
+        Unsaved({Path: "/"}, () -> false) --> missing *)
+  r = dict.Get("Router", p)
+  if value.IsSome(r)
+    put({Path: p.Path, Changed: changed, Save: save}, r.Guard)
+  end
+  missing
+end
+
+defn changedNow(g)
+  (** Has the view of a guard changes that aren't saved, now? *)
+  c = g.Changed
+  (if isSignal(c) nowOf(c) else c() end) == true
+end
+
+defn guardOf(r)
+  (** The guard of the view shown, when its changes aren't saved: {Path, Changed, Save}, or missing. *)
+  g = peek(r.Guard)
+  if value.IsSome(g) and g.Path == nowOf(r.Nav) and changedNow(g) g else missing end
+end
+
+defn going(r, path, way)
+  (** Goes to path, or holds the way there while the view shown has changes that aren't saved: way is "back" or
+      "forward" for a move through the window's history, "address" when a browser's address changed, missing for a
+      link or web.Go. *)
+  if path == nowOf(r.Nav)
+    return Set(r.Held, missing)
+  end
+  if value.IsSome(guardOf(r))
+    return Set(r.Held, {To: path, Way: way})
+  end
+  put(missing, r.Guard)
+  Set(r.Held, missing)
+  Set(r.Nav, path)
+end
+
+(* ---- The history of a window: Alt+Left and Alt+Right. A browser keeps its own, which web/ceres.js follows. *)
+
+defn routeMoved(ui)
+  (** The page after its route changed since the last update: the route left goes into the history (unless the move
+      came from it), and each route keeps where its page was scrolled to, found again when it comes back. The history
+      and the memory of the views live in cells of the router, so that the page keeps its shape. *)
+  r = ui.Router
+  h = peek(r.Hist)
+  path = nowOf(r.Nav)
+  if path == h.Shown
+    return ui
+  end
+  scrolls = dict.Put(h.Shown, ui.ScrollY, peek(r.Scrolls))
+  put(scrolls, r.Scrolls)
+  put({Shown: path, Back: if h.Going h.Back else list.Append(h.Shown, h.Back) end, Forward: if h.Going h.Forward else [] end, Going: false}, r.Hist)
+  u = ui
+  u.ScrollY = math.Div(dict.GetOr(path, 0, scrolls), 1)
+  u.Changed = true
+  u
+end
+
+defn travel(way, ui)
+  (** Goes back or forward in the window's history (way "back" or "forward"), as a browser's buttons do. *)
+  if value.IsMissing(ui.Router)
+    return ui
+  end
+  h = peek(ui.Router.Hist)
+  from = if way == "back" h.Back else h.Forward end
+  if value.IsEmpty(from)
+    return ui
+  end
+  to = from[value.Len(from)]
+  _ = going(ui.Router, to, way)
+  if nowOf(ui.Nav) == to
+    arrived(way, ui.Router)
+  end
+  ui
+end
+
+defn arrived(way, r)
+  (** The history once a move back or forward went through: the route left goes to the other side. *)
+  h = peek(r.Hist)
+  if way == "back"
+    put({Shown: h.Shown, Back: list.Take(value.Len(h.Back) - 1, h.Back), Forward: list.Append(h.Shown, h.Forward), Going: true}, r.Hist)
+  else
+    put({Shown: h.Shown, Back: list.Append(h.Shown, h.Back), Forward: list.Take(value.Len(h.Forward) - 1, h.Forward), Going: true}, r.Hist)
+  end
+end
+
+defn went(r)
+  (** The move that comes is one through the history: it doesn't go into it. *)
+  h = peek(r.Hist)
+  put({Shown: h.Shown, Back: h.Back, Forward: h.Forward, Going: true}, r.Hist)
+end
+
+defn navigated(path, ui)
+  (** The browser went back or forward to path (its address changed): the page follows, or asks first. *)
+  if value.IsMissing(ui.Router)
+    return ui
+  end
+  _ = going(ui.Router, path, "address")
+  if nowOf(ui.Nav) == path
+    went(ui.Router)
+  end
+  ui
+end
+
+defn Path(ui)
+  (** The route the page shows, as a back-end writes it in its address. *)
+  if value.IsMissing(ui.Nav) "/" else nowOf(ui.Nav) end
+end
+
+defn Guarded(ui)
+  (** Would leaving the page now lose changes (web.Unsaved)? A browser asks before it closes the tab when it would. *)
+  value.IsSome(ui.Router) and value.IsSome(guardOf(ui.Router))
+end
+
+(* ---- The look a person chooses on his machine: the theme and the density, kept by the back-end's store. *)
+
+defn named(x)
+  (** A theme from its name, "dark", "light" or "system", or the theme itself. *)
+  if x == "dark" Dark else if x == "light" Light else if x == "system" System() else x end
+end
+
+defn nameOf(theme)
+  (** The name of a theme as web.LookOf gives it: "system", "dark", "light", or "own" for one made by the app. *)
+  if isSystem(theme) "system" else if value.IsDict(theme) and value.IsSome(dict.Get("Tokens", theme)) and dict.Get("Name", theme) in ["dark", "light"] theme.Name else "own" end
+end
+
+defn keptLook(store)
+  (** The theme and the density kept on the machine: {Theme, Density}, each a name or missing. *)
+  if value.IsMissing(store)
+    return {Theme: missing, Density: missing}
+  end
+  th = store.Get("look theme")
+  de = store.Get("look density")
+  {Theme: if th in ["dark", "light", "system"] th else missing end, Density: if value.IsText(de) and de in Densities de else missing end}
+end
+
+defn SetLook(p, theme = missing, density = missing)
+  (** Changes the look of the page p while it runs: theme web.Dark, web.Light or web.System() (or their names "dark",
+      "light", "system"), density "dense", "compact" or "comfortable"; missing keeps each as it is. The page is drawn
+      again in it at once, and the browser keeps the choice on this machine, found again at the next start: a
+      person's own look over the app's.
+
+        SetLook({Path: "/"}, density = "dense") --> missing *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r)
+    return missing
+  end
+  now = nowOf(r.Look)
+  next = {Theme: if value.IsMissing(theme) now.Theme else named(theme) end, Density: if value.IsText(density) and density in Densities density else now.Density end}
+  if nameOf(next.Theme) != nameOf(now.Theme) or next.Density != now.Density or value.IsSome(theme) and nameOf(next.Theme) == "own"
+    Set(r.Look, next)
+  end
+  missing
+end
+
+defn LookOf(p)
+  (** The look of the page p: {Theme, Density}, Theme "dark", "light", "system" or "own" (a theme of the app's own),
+      Density "dense", "compact" or "comfortable". A live part that reads it runs again when it changes.
+
+        LookOf({Path: "/"}).Density --> "compact" *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r)
+    return {Theme: "own", Density: "compact"}
+  end
+  l = Get(r.Look)
+  {Theme: nameOf(l.Theme), Density: l.Density}
+end
+
+defn relooked(ui)
+  (** The page in the look its router holds now: drawn again in it, and the look kept on the machine. *)
+  u = ui
+  l = nowOf(u.Router.Look)
+  u.LookSeen = version(u.Router.Look)
+  u.Choice = l.Theme
+  u.Theme = atDensity(themeFor(l.Theme, u.Dark), l.Density)
+  if value.IsSome(u.Store)
+    name = nameOf(l.Theme)
+    if name != "own"
+      u.Store.Put("look theme", name)
+    end
+    u.Store.Put("look density", l.Density)
+  end
+  restyled(u)
+end
+
+defn CopyLink(p, done = "Link copied")
+  (** Puts the address of the route shown in the clipboard, as a browser writes it (its page's own with the route
+      after its #), to send to someone: the same view opens for him. A toast says done, in the app's language when
+      it is one of the app's texts. Nothing on a back-end without a clipboard.
+
+        CopyLink({Path: "/"}) --> missing *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r) or value.IsMissing(dict.Get("Clip", r))
+    return missing
+  end
+  r.Clip.Put(nowOf(r.Nav))
+  Toast(p, done)
+end
+
+defn Toast(p, words)
+  (** A short word of what just happened ("Invoice 1027 saved"), at the bottom of the page for four seconds, as a
+      web.Shell shows it, read aloud by a screen reader (a status).
+
+        Toast({Path: "/"}, "Saved") --> missing *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r)
+    return missing
+  end
+  seq = fresh()
+  Set(r.Toast, {Text: words, Seq: seq})
+  fiber.Spawn(defn ()
+    _ = fiber.Receive(fiber.Channel(), timeout = 4)
+    t = nowOf(r.Toast)
+    if value.IsSome(t) and t.Seq == seq
+      Set(r.Toast, missing)
+      if value.IsSome(r.Wake)
+        fiber.Send("toast", r.Wake)
+      end
+    end
+  end)
+  missing
+end
+
+(* ---- The question of a view left with its changes not saved, in the band at the bottom of the window. *)
+
+defn held(ui)
+  (** The way out that waits for an answer: {To, Way}, Way "back" or "forward" through the window's history,
+      "address" when a browser's address changed, missing for a link or web.Go; or missing. *)
+  if value.IsMissing(ui.Router) missing else nowOf(ui.Router.Held) end
+end
+
+defn heldPairs(r)
+  (** The answers to the question, as the band shows them: [key, what it does, its action] for each. *)
+  g = peek(r.Guard)
+  save = if value.IsSome(g) and value.IsFunction(g.Save) [["C-s", "save and leave", "save"]] else [] end
+  list.Concat(save, [["C-d", "leave without saving", "leave"], ["Esc", "stay", "stay"]])
+end
+
+defn heldAnswered(act, ui)
+  (** The page once the question is answered: act is "save", "leave" or "stay". *)
+  h = held(ui)
+  if value.IsMissing(h)
+    return ui
+  end
+  r = ui.Router
+  if act == "stay"
+    Set(r.Held, missing)
+    return touch(ui.Root, ui)
+  end
+  g = peek(r.Guard)
+  if act == "save" and value.IsSome(g) and value.IsFunction(g.Save)
+    g.Save()
+  end
+  put(missing, r.Guard)
+  Set(r.Held, missing)
+  Set(r.Nav, h.To)
+  if h.Way == "back" or h.Way == "forward"
+    arrived(h.Way, r)
+  else if h.Way == "address"
+    went(r)
+  end
+  touch(ui.Root, ui)
+end
+
+defn Start(app, width, height, measure, origin = missing, path = "/", theme = missing, headers = [], wake = missing, net = missing, dark = missing, store = missing, clip = missing, telemetry = missing)
   (** Mounts an app in a window of width by height pixels, at a path: the state that a back-end keeps and gives to
-      Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels}, font "body", "strong" or
-      "code". With
+      Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels, Base:
+      (size, font) -> pixels}: the width of a text, the height of a line, which holds the letters of every font in its
+      middle, and where its baseline is under its top; font "body", "strong", "code" or "icon". With
       origin, as "http://127.0.0.1:8080", an app with live opens its screen there, sending headers with it; wake is as
-      for the live screen (web.Connect), and net, the channel of the browser's online, offline and now; telemetry, a
-      channel that the screen tells of its connection and its actions (src/browser/telemetry.ce). *)
-  ui = newUi(width, height, measure, theme)
+      for the live screen (web.Connect), and net, the channel of the browser's online, offline and now. theme is the
+      app's (App's theme) unless given here; dark tells whether the system is dark, for web.System, missing when the
+      back-end can't tell; store is where a web.Dock keeps its layout, {Get: name -> text or missing, Put: (name, text)
+      -> missing}, as the browser's local storage, or missing for nowhere; clip is the clipboard, {Put: route ->
+      missing}, which puts the address of a route there (web.CopyLink), or missing; telemetry, a channel that the
+      screen tells of its connection and its actions (src/browser/telemetry.ce). *)
+  given = if value.IsSome(theme) theme else if value.IsSome(dict.Get("Theme", app)) app.Theme else Theme end
+  mine = keptLook(store)
+  choice = if value.IsSome(mine.Theme) and value.IsSome(dict.Get("Tokens", themeFor(given, dark))) named(mine.Theme) else given end
+  density = if value.IsSome(mine.Density) mine.Density else if value.IsText(dict.Get("Density", app)) app.Density else "compact" end
+  ui = newUi(width, height, measure, atDensity(themeFor(choice, dark), density))
+  ui.Choice = choice
+  ui.Dark = dark
+  ui.Store = store
   ui.Say = dict.Get("Say", app)
   screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net, telemetry = telemetry) else missing end
   nav = Signal(path)
+  router = {Nav: nav, Guard: cell(missing), Held: Signal(missing), Hist: cell({Shown: path, Back: [], Forward: [], Going: false}),
+    Views: cell(dict.Dict()), Scrolls: cell(dict.Dict()), Look: Signal({Theme: choice, Density: density}), Toast: Signal(missing), Wake: wake, Clip: clip}
+  ui.LookSeen = version(router.Look)
   ui.Nav = nav
+  ui.Router = router
   ui.Screens = if value.IsSome(screen) [screen] else [] end
-  made = mount(Stack([routed(app, nav, screen)], pad = theme.Page), 0, ui)
+  page = routed(app, router, screen)
+  framer = dict.Get("Frame", app)
+  top = if value.IsFunction(framer) framer({Path: path, Params: {}, Screen: screen, Nav: nav, Router: router}, page) else page end
+  made = mount(Stack([top], pad = ui.Theme.Page), 0, ui)
   u = made.Ui
   u.Root = made.Id
   Update(u)
@@ -98,6 +404,12 @@ defn Update(ui)
     pump(s)
   end
   u = flush(ui)
+  if value.IsSome(u.Router)
+    u = routeMoved(u)
+    if version(u.Router.Look) != dict.GetOr("LookSeen", 0, u)
+      u = relooked(u)
+    end
+  end
   if u.Boxes[u.Root].Dirty
     u = layout(u.Root, u.Width, false, u)
     u = scrolled(u.ScrollY, u)
@@ -139,10 +451,13 @@ defn Frame(ui)
     y = math.Div((seen - bar) * ui.ScrollY, root.H - seen)
     page = list.Append(rect(ui.Width - 6, y, 4, bar, t.Muted), page)
   end
-  list.Concat(list.Concat(page, popupItems(ui)), bandItems(ui))
+  list.Concat(list.Concat(list.Concat(page, popupItems(ui)), dropped(ui)), bandItems(ui))
 end
 
-bandHeight(ui) = lineOf(ui.Theme.Size, ui) + 8 if ui.Theme.Keys else 0   (* The height of the band of keys. *)
+(* The height of the band of keys: none in a web.Shell, which shows each action's key beside it, unless a question of
+   changes not saved waits that no part of the page asks inline (web.Asked). *)
+bandHeight(ui) = lineOf(ui.Theme.Size, ui) + 8 if ui.Theme.Keys and not shelled(ui) or value.IsSome(held(ui)) and not (dict.GetOr("Asks", 0, ui) in ui.Boxes) else 0
+shelled(ui) = dict.GetOr("Shell", 0, ui) in ui.Boxes   (* Is the page a web.Shell? *)
 seenHeight(ui) = ui.Height - bandHeight(ui)   (* The height of the window that shows the page. *)
 
 defn buttonKeys(id, ui)
@@ -163,36 +478,101 @@ defn Keys(ui)
     list.Concat([["Tab S-Tab", "next field, previous"], ["Left Right Home End", "move"]], if value.IsFunction(ui.Boxes[f].Node.OnEnter) [["Enter", "send"]] else [] end)
   else if k == "select" and ui.Popup == f
     [["Up Down", "choose"], ["Enter Esc", "close the list"]]
+  else if k == "date" and ui.Popup == f
+    [["Left Right Up Down", "day, week"], ["PgUp PgDn", "month"], ["Enter Esc", "close"]]
+  else if k == "date"
+    [["Enter Down", "open the calendar"], ["Delete", "clear"], ["Tab S-Tab", "next field, previous"]]
   else if k == "select"
     [["Up Down", "choose"], ["Enter", "open the list"], ["Tab S-Tab", "next field, previous"]]
   else if k == "button"
     [["Enter Space", "press"], ["Tab S-Tab", "next field, previous"]]
   else if k == "table"
     [["Up Down PgUp PgDn", "scroll"], ["Home End", "first row, last"], ["click a title", "sort"], ["Tab", "next field"]]
+  else if k == "tree"
+    [["Up Down", "choose"], ["Left Right", "close, open"], ["Enter", "open"], ["Tab", "next field"]]
+  else if k == "tabs"
+    [["Left Right", "previous tab, next"], ["Tab", "next field"]]
+  else if k == "section"
+    [["Enter Space", "open or close"], ["Tab S-Tab", "next field, previous"]]
   else
     [["Tab", "first field"], ["PgUp PgDn", "scroll the page"]]
+  end
+  if dict.GetOr("Foldable", 0, ui) != 0 and value.IsSome(ui.Kit)
+    own = list.Concat(own, [["f6 S-f6", "next panel, previous"], ["C-j", "fold or open the bottom panels"]])
+  end
+  if k == "tabs" and value.IsSome(dict.Get("Dock", ui.Boxes[f].Node))
+    own = list.Append(["M-S-arrows", "move the panel to that side"], own)
   end
   say = dict.Get("Say", ui)
   list.Concat(if value.IsMissing(say) own else [[say(x[1]), say(x[2])] for x in own] end, buttonKeys(ui.Root, ui))
 end
 
-defn bandItems(ui)
-  (** The band of keys at the bottom of the window: each key in the code font, then what it does. *)
-  t = ui.Theme
-  if not t.Keys
-    return []
-  end
-  h = bandHeight(ui)
-  y = ui.Height - h
-  out = [rect(0, y, ui.Width, h, t.Band), rect(0, y, ui.Width, 1, t.Grid)]
-  x = t.Page
-  for pair in Keys(ui)
-    out = list.Append(words(x, y + 4, pair[1], t.Size, t.Accent, "code"), out)
-    x += widthOf(pair[1], t.Size, "code", ui) + 8
-    out = list.Append(words(x, y + 4, pair[2], t.Size, t.Ink), out)
-    x += widthOf(pair[2], t.Size, "body", ui) + 20
+defn spotted(pairs, x0, t, m)
+  (** Pairs of a key and what it does placed in the band from x0: [{X, Wx, X1, Key, What, Act}], X1 where each ends. *)
+  x = x0
+  out = []
+  for pair in pairs
+    kx = x
+    x += m.Width(pair[1], t.Size, "code") + 8
+    wx = x
+    x += m.Width(pair[2], t.Size, "body") + 20
+    out = list.Append({X: kx, Wx: wx, X1: x - 12, Key: pair[1], What: pair[2], Act: pair[3]}, out)
   end
   out
+end
+
+defn heldSpots(r, t, m, say)
+  (** The question of a view left with changes not saved and its answers, placed in the band: {Lead, Pairs}, Lead
+      {X, Text}; or missing while none waits. It reads only what it needs of the page, so that the patch of the
+      semantics and the frame take it without the page whole. *)
+  if value.IsMissing(r) or value.IsMissing(nowOf(r.Held))
+    return missing
+  end
+  q = said(say, "The changes of this page aren't saved.")
+  {Lead: {X: t.Page, Text: q}, Pairs: spotted([[p[1], said(say, p[2]), p[3]] for p in heldPairs(r)], t.Page + m.Width(q, t.Size, "strong") + 20, t, m)}
+end
+
+defn bandSpots(ui)
+  (** What the band at the bottom of the window shows, placed: {Lead, Pairs}, Lead the question of a view left with
+      changes not saved ({X, Text}) or missing, Pairs [{X, Key, What, Act, X1}] for each key, X1 where it ends. *)
+  got = heldSpots(ui.Router, ui.Theme, ui.Measure, dict.Get("Say", ui))
+  if value.IsSome(got) got else {Lead: missing, Pairs: spotted([[k[1], k[2], missing] for k in Keys(ui)], ui.Theme.Page, ui.Theme, ui.Measure)} end
+end
+
+defn bandItems(ui)
+  (** The band of keys at the bottom of the window: each key in the code font, then what it does. While a view with
+      changes not saved waits to be left, the band asks what to do with them instead, its edge in the color of
+      warnings. *)
+  t = ui.Theme
+  h = bandHeight(ui)
+  if h == 0
+    return []
+  end
+  y = ui.Height - h
+  spots = bandSpots(ui)
+  asking = value.IsSome(spots.Lead)
+  out = [rect(0, y, ui.Width, h, t.Band), rect(0, y, ui.Width, 2 if asking else 1, role("Warn", t) if asking else t.Grid)]
+  if asking
+    out = list.Append(words(spots.Lead.X, y + 4, spots.Lead.Text, t.Size, t.Ink, "strong"), out)
+  end
+  for p in spots.Pairs
+    out = list.Append(words(p.X, y + 4, p.Key, t.Size, role("Link", t), "code"), out)
+    out = list.Append(words(p.Wx, y + 4, p.What, t.Size, t.Ink), out)
+  end
+  out
+end
+
+defn heldSem(r, t, m, say, height, asksInline = false)
+  (** The question of a view left with changes not saved, as the semantics tree holds it: an alert and a button for
+      each answer, in the band at the bottom of a window height pixels high. *)
+  spots = heldSpots(r, t, m, say)
+  if value.IsMissing(spots) or asksInline
+    return []
+  end
+  h = m.Line(t.Size) + 8
+  y = height - h
+  one = {Id: "held", Role: "alert", Name: spots.Lead.Text, Value: missing, X: spots.Lead.X, Y: y, W: spots.Pairs[1].X - spots.Lead.X, H: h, Focused: false, Kids: []}
+  list.Prepend(one, [{Id: "held$(p.Act)", Role: "button", Name: "$(p.What) ($(p.Key))", Value: missing, X: p.X, Y: y, W: p.X1 - p.X, H: h, Focused: false, Kids: []} for p in spots.Pairs])
 end
 
 defn at(id, ui)
@@ -211,7 +591,7 @@ end
 
 defn popup(ui)
   (** The open list of a select: {Box, X, Y, W, Row, Options}, or missing. *)
-  if ui.Popup == 0 or not (ui.Popup in ui.Boxes)
+  if ui.Popup == 0 or not (ui.Popup in ui.Boxes) or ui.Boxes[ui.Popup].Node.Kind != "select"
     return missing
   end
   b = ui.Boxes[ui.Popup]
@@ -224,7 +604,8 @@ defn popupItems(ui)
   (** The items of the open list of a select, over the page: the chosen option is ink on paper turned round. *)
   o = popup(ui)
   if value.IsMissing(o)
-    return []
+    (* a calendar of web.DateInput, which the kit draws *)
+    return if value.IsSome(ui.Kit) and ui.Popup != 0 and value.IsSome(dict.Get("Popup", ui.Kit)) ui.Kit.Popup(ui) else [] end
   end
   t = ui.Theme
   n = ui.Boxes[o.Box].Node
@@ -254,7 +635,7 @@ defn Semantics(ui)
       the number of rows in all, and Kids, its header and the rows in sight, "row" with Index, of "cell"), "img" for a
       graph, "list" of "listitem". The boxes that only place others, stacks and rows, give their children. *)
   root = ui.Boxes[ui.Root]
-  {Id: 0, Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: semOf(ui.Root, 0, -ui.ScrollY, ui)}
+  {Id: 0, Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: list.Concat(semOf(ui.Root, 0, -ui.ScrollY, ui), heldSem(ui.Router, ui.Theme, ui.Measure, dict.Get("Say", ui), ui.Height, asksInline = dict.GetOr("Asks", 0, ui) in ui.Boxes))}
 end
 
 defn node(role, name, b, x, y, ui, kids = [], v = missing)
@@ -269,6 +650,9 @@ defn semOf(id, x0, y0, ui)
   x = x0 + b.X
   y = y0 + b.Y
   k = n.Kind
+  if k == "narrow" and b.W == 0
+    return []
+  end
   inner = list.FlatMap(c -> semOf(c, x, y, ui), b.Kids)
   if k == "text"
     if text.Trim(b.Cache.Text) == "" [] else [node(n.Role, b.Cache.Text, b, x, y, ui)] end
@@ -293,6 +677,8 @@ defn semOf(id, x0, y0, ui)
     [node("img", b.Cache.Text, b, x, y, ui)]
   else if k == "table"
     [tableSem(b, x, y, ui)]
+  else if k in ["tree", "tabs", "section", "toolbar", "nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell", "vtabs", "date"]
+    ui.Kit.Sem(b, x, y, ui, inner)
   else if k == "each"
     [node("list", "", b, x, y, ui, kids = [{Id: "$(c)i", Role: "listitem", Name: "", Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: semOf(c, x, y, ui)} for c in b.Kids])]
   else
@@ -304,12 +690,13 @@ defn tableSem(b, x, y, ui)
   (** The semantics of a table: its header and the rows in sight. *)
   c = b.Cache
   n = b.Node
-  head = {Id: "$(b.Id)h", Role: "row", Name: "", Value: missing, X: x, Y: y, W: b.W, H: c.Row, Focused: false, Index: 0,
+  hh = dict.GetOr("Head", c.Row, c)
+  head = {Id: "$(b.Id)h", Role: "row", Name: "", Value: missing, X: x, Y: y, W: b.W, H: hh, Focused: false, Index: 0,
     Kids: [{Id: "$(b.Id)h$k", Role: "columnheader", Name: n.Columns[k].Title, Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for k in 1..value.Len(n.Columns)]}
   rows = []
   for k in 1..value.Len(c.Texts)
     i = c.First + k - 1
-    rows = list.Append({Id: "$(b.Id)r$i", Role: "row", Name: "", Value: missing, X: x, Y: y + c.Row + (i - 1) * c.Row - c.Offset, W: b.W, H: c.Row, Focused: false, Index: i,
+    rows = list.Append({Id: "$(b.Id)r$i", Role: "row", Name: "", Value: missing, X: x, Y: y + hh + (i - 1) * c.Row - c.Offset, W: b.W, H: c.Row, Focused: false, Index: i,
       Kids: [{Id: "$(b.Id)r$(i)c$j", Role: "cell", Name: c.Texts[k][j], Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for j in 1..value.Len(c.Texts[k])]}, rows)
   end
   one = node("table", n.Label, b, x, y, ui, kids = list.Prepend(head, rows))

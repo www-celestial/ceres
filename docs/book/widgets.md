@@ -95,7 +95,8 @@ page = headless.Type("Ana", headless.ClickOn("Name", one(web.Input(name, label =
 web.Get(name) --> "Ana"
 ```
 
-`secret = true` makes it the field of a password: it shows a dot for each character, the tree of semantics (what a
+`unit`, a short text as `€`, stands muted at its right: the unit of the amount typed. `secret = true` makes it the field
+of a password: it shows a dot for each character, the tree of semantics (what a
 screen reader and a test read) holds the dots only, and in a browser its hidden input is of the type `password`, which
 the browser's manager of passwords fills.
 
@@ -121,6 +122,25 @@ web.Get(city) --> 2
 ```
 
 ![The select City open after a click, its list under it: Down twice chose Nice, which is shown in the field and marked in the list.](images/widgets-select.png)
+
+## DateInput
+
+A day chosen in a calendar, bound to a signal of a text `YYYY-MM-DD` (`""` for none). A click, or Enter, Space or Down
+while it has the focus, opens the month of its day under it (today's when it holds none): the days of a week from
+Monday, as ISO 8601 counts them, today ringed, the day chosen in the accent. A click on a day chooses it and closes the
+calendar; while it is open the arrows move the day (Up and Down a week), Page Up and Page Down a month, Enter and Esc
+close it; Delete clears the field. `say` gives the names of the months and days in the page's language, `show` the text
+the field shows of a day (`13/11/2026` in French). A screen reader reads it as a combobox, its days as buttons named by
+their day.
+
+```cesia
+due = web.Signal("2026-11-13")
+page = headless.ClickOn("Due", one(web.DateInput(due, label = "Due")))
+page = headless.Press("pagedown", headless.Press("right", page))
+web.Get(due) --> "2026-12-14"
+```
+
+![The field Due open after a click: the calendar of November 2026 under it, the days of the week from Mo to Su, the 14th chosen in the accent after Right.](images/widgets-date.png)
 
 ## Each
 
@@ -190,6 +210,48 @@ headless.Tree(headless.ClickOn("Invoice 42", headless.Open(app))) -->
 ```
 
 ![Before and after: the link Invoice 42, underlined; a click on it shows the route /invoices/:id, the title Invoice 42.](images/widgets-link.png)
+
+In a browser, the address holds the route shown after a `#`, as `page.html#/invoices/42`, the way a web site gives each
+page its address: each route the app goes to is a new entry of the browser's history, so Back and Forward bring the
+pages back; an address kept in a bookmark or sent to someone opens on its route; a link pressed with Ctrl (Cmd on a
+Mac) or the middle button opens in a new tab, and its element of the hidden DOM is a real `<a href="#/invoices/42">`,
+which a screen reader announces as a link. The `#` needs nothing from the server: any server of files serves the
+page, and the route never leaves the browser. In a window, Alt+Left and Alt+Right go back and forward, as in a file
+manager.
+
+A view comes back as it was left. A table shown again in its route, by Back, by a link or because a live part made the
+page again, has its order, its scroll and its row chosen of before (a table is known by its route, its label and the
+titles of its columns: two tables alike in one route share them), and the page is scrolled to where it was.
+`web.Path(page)` gives the route shown.
+
+```cesia
+app = web.App([web.Route("/", p -> web.Link("Invoice 42", "/invoices/42")), web.Route("/invoices/:id", p -> web.Title("Invoice $(p.Params.id)"))])
+page = headless.ClickOn("Invoice 42", headless.Open(app))
+web.Path(page) --> "/invoices/42"
+back = web.Handle({Kind: "key", Key: "left", Ctrl: false, Shift: false, Alt: true}, page)
+web.Path(back) --> "/"
+```
+
+### Changes not saved
+
+`web.Unsaved(p, changed, save)` says that the view of the page `p` holds changes that aren't saved while `changed()`
+is true (a function, or a signal of true or false). Going to another route then asks first, in the band at the bottom
+of the window: save and leave (Ctrl+S, which runs `save()`), leave without saving (Ctrl+D) or stay (Esc); the band is an
+alert with its three buttons for a screen reader. It asks the same for a link, for `web.Go`, for Back and Forward and
+for a new address typed in the browser, whose address then shows the view that stays; and in a browser, closing the
+tab or loading another page makes the browser ask too. A page calls it as it makes its widgets: it gives nothing to
+show.
+
+```cesia
+name = web.Signal("Ada")
+edit = p -> web.Stack([web.Unsaved(p, () -> web.Get(name) != "Ada"), web.Input(name, label = "Name"), web.Link("Home", "/")])
+app = web.App([web.Route("/", p -> web.Title("Home")), web.Route("/edit", edit)])
+page = headless.Type(" Lovelace", headless.ClickOn("Name", headless.Open(app, path = "/edit")))
+asked = headless.ClickOn("Home", page)
+web.Path(asked) --> "/edit"
+web.Guarded(asked) --> true
+web.Path(web.Handle({Kind: "key", Key: "d", Ctrl: true, Shift: false, Alt: false}, asked)) --> "/"
+```
 
 ## The band of keys
 

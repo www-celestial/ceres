@@ -57,13 +57,18 @@ defn Stack(items, gap = missing, pad = 0, fill = missing, border = missing, radi
   {Kind: "stack", Kids: kids(items), Gap: gap, Pad: pad, Fill: fill, Border: border, Radius: radius, Width: width, Height: height, Align: align, Grow: 0}
 end
 
-defn Row(items, gap = missing, pad = 0, fill = missing, border = missing, radius = 0, width = missing, height = missing, align = "center")
+defn Row(items, gap = missing, pad = 0, fill = missing, border = missing, radius = 0, width = missing, height = missing, align = "center", wrap = false)
   (** Widgets side by side, gap pixels apart. Each child is as wide as it needs, and those that web.Grow marks share
-      what is left; align places them up and down: "start", "center" or "end". The other options are those of
-      web.Stack.
+      what is left; align places them up and down: "start", "center" or "end". wrap = true puts the children that
+      don't fit on the next line, as the fields of a filter on a phone. The other options are those of web.Stack.
 
-        Row(["a", Spacer(), "b"]).Kind --> "row" *)
-  {Kind: "row", Kids: kids(items), Gap: gap, Pad: pad, Fill: fill, Border: border, Radius: radius, Width: width, Height: height, Align: align, Grow: 0}
+        Row(["a", Spacer(), "b"]).Kind --> "row"
+        Row(["a"], wrap = true).Wrap --> true *)
+  out = {Kind: "row", Kids: kids(items), Gap: gap, Pad: pad, Fill: fill, Border: border, Radius: radius, Width: width, Height: height, Align: align, Grow: 0}
+  if wrap
+    out.Wrap = true
+  end
+  out
 end
 
 defn Grow(item, share = 1)
@@ -81,25 +86,51 @@ Spacer(size = 0) = {Kind: "spacer", Size: size, Grow: 1}
 (** A thin line across, between parts. *)
 Divider() = {Kind: "divider"}
 
-defn Button(label, onClick, key = missing)
+defn Button(label, onClick, key = missing, icon = missing, style = missing)
   (** A plain button: onClick() runs when it is clicked, pressed with Enter or Space while it has the focus, or, with
       key, when that key is typed anywhere in the page: "C-s" for Ctrl and s, "M-n" for Alt and n, "f5". The button
-      shows its key beside its label, and the band of keys lists it: every action is in sight, with its key.
+      shows its key beside its label, and the band of keys lists it: every action is in sight, with its key. icon, a
+      name of web.Icons, stands before its label; in a web.Toolbar the button is flat. style, in web.Dark and
+      web.Light, is how it stands out: missing for a secondary button, "primary" for the main action of a page (one
+      at most, in the accent's color), "ghost" for a quiet one (no fill until the mouse is over it), "danger" for one
+      that deletes, "field" for one drawn as a field that opens something, as wide as its place (a search).
 
-        Button("Save", () -> missing, key = "C-s").Key --> "C-s" *)
-  {Kind: "button", Label: label, On: onClick, Key: key}
+        Button("Save", () -> missing, key = "C-s").Key --> "C-s"
+        Button("Save", () -> missing, icon = "save").Icon --> "save"
+        Button("New", () -> missing, style = "primary").Style --> "primary" *)
+  out = {Kind: "button", Label: label, On: onClick, Key: key, Icon: icon}
+  if value.IsSome(style)
+    out.Style = style
+  end
+  out
 end
 
-defn Input(v, label = "", placeholder = "", width = missing, onEnter = missing, invalid = missing, secret = false)
+defn IconButton(icon, label, onClick, key = missing)
+  (** A button that shows only its icon, a name of web.Icons, in a square as high as a field: label is what a screen
+      reader says of it and what the band of keys lists with its key. Quiet until the mouse is over it, as the tools of
+      a top bar.
+
+        IconButton("search", "Search", () -> missing, key = "C-k").Bare --> true *)
+  {Kind: "button", Label: label, On: onClick, Key: key, Icon: icon, Bare: true}
+end
+
+defn Input(v, label = "", placeholder = "", width = missing, onEnter = missing, invalid = missing, secret = false, icon = missing, hint = missing,
+  unit = missing)
   (** A field of one line of text, bound to a signal of a text, v: typing changes it, and a change of it shows. label
       names it for a screen reader, placeholder shows while it is empty; onEnter() runs on Enter. invalid is a function
       that tells whether to draw it as wrong, as a form does. secret = true makes it a field of a password: it shows a
       dot for each character, the tree of semantics holds the dots only, and the browser's input is of the type
-      password, which its manager of passwords fills.
+      password, which its manager of passwords fills. icon, a name of web.Icons, stands at its left, as "search"; hint
+      "/" makes the key / take the page to it from anywhere, as the search of a web page does, and shows the key at
+      its right while it hasn't the focus. unit, a short text as "€" or "EUR", stands muted at its right, the unit of
+      the amount typed.
 
         Input(Signal("")).Kind --> "input"
-        Input(Signal(""), secret = true).Secret --> true *)
-  {Kind: "input", Value: v, Label: label, Placeholder: placeholder, Width: width, OnEnter: onEnter, Invalid: invalid, Secret: secret}
+        Input(Signal(""), secret = true).Secret --> true
+        Input(Signal(""), icon = "search", hint = "/").Hint --> "/"
+        Input(Signal("12.50"), unit = "€").Unit --> "€" *)
+  {Kind: "input", Value: v, Label: label, Placeholder: placeholder, Width: width, OnEnter: onEnter, Invalid: invalid, Secret: secret, Icon: icon, Hint: hint,
+    Unit: unit}
 end
 
 defn Select(v, options, key, label, placeholder = "Choose", name = "", width = missing)

@@ -30,7 +30,16 @@ defn Patch(ui)
     u.SemPage = page
   end
   u = semWalk(u.Root, 0, 0, 0, -u.ScrollY, since, u)
-  kids = json.Text([0, u.Boxes[u.Root].Sem.Sids])
+  asked = heldSem(u.Router, u.Theme, u.Measure, dict.Get("Say", u), u.Height, asksInline = dict.GetOr("Asks", 0, u) in u.Boxes)
+  heldNodes = [json.Text([n.Id, n.Role, n.Name, missing, n.X, n.Y, n.W, n.H, false, missing]) for n in asked]
+  joined = text.Join(",", heldNodes)
+  if joined != u.SemHeld
+    if joined != ""
+      fiber.Send(joined, semNodes)
+    end
+    u.SemHeld = joined
+  end
+  kids = json.Text([0, list.Concat(u.Boxes[u.Root].Sem.Sids, [n.Id for n in asked])])
   if kids != u.SemKids
     fiber.Send(kids, semKids)
     u.SemKids = kids
@@ -79,6 +88,9 @@ defn semWalk(id, ax, ay, x0, y0, since, ui)
   ex = rx if b.W > 0 else x
   ey = ry if b.W > 0 else y
   f = ui.Focus == id
+  if k == "narrow" and b.W == 0
+    return kept(id, at, false, [], missing, ui)
+  end
   if k == "text"
     s = b.Cache.Text
     if text.Trim(s) == ""
@@ -87,7 +99,7 @@ defn semWalk(id, ax, ay, x0, y0, since, ui)
     e = json.Text([id, n.Role, s, missing, ex, ey, b.W, b.H, f, missing])
     sent(e, was)
     return kept(id, at, loose, [id], e, ui)
-  else if k == "button" or k == "link" or k == "input" or k == "select" or k == "plot"
+  else if k == "button" or k == "link" or k == "input" or k == "select" or k == "plot" or k == "date"
     e = if k == "button"
       json.Text([id, "button", b.Cache.Text, missing, ex, ey, b.W, b.H, f, missing])
     else if k == "link"
@@ -98,6 +110,8 @@ defn semWalk(id, ax, ay, x0, y0, since, ui)
       json.Text([id, "textbox", n.Label, b.Cache.Text, ex, ey, b.W, b.H, f, more])
     else if k == "select"
       json.Text([id, "combobox", n.Name, b.Cache.Text, ex, ey, b.W, b.H, f, {Expanded: ui.Popup == id}])
+    else if k == "date"
+      json.Text([id, "combobox", n.Label, b.Cache.Text, ex, ey, b.W, b.H, f, {Expanded: ui.Popup == id}])
     else
       json.Text([id, "img", b.Cache.Text, missing, ex, ey, b.W, b.H, f, missing])
     end
@@ -105,6 +119,8 @@ defn semWalk(id, ax, ay, x0, y0, since, ui)
     return kept(id, at, loose, [id], e, ui)
   else if k == "table"
     return tablePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
+  else if k in ["tree", "tabs", "section", "toolbar", "nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell", "vtabs"]
+    return ui.Kit.Patch(id, at, since, ui)
   else if k == "each"
     e = json.Text([id, "list", "", missing, ex, ey, b.W, b.H, f, missing])
     sent(e, was)
@@ -157,7 +173,8 @@ defn tablePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
   nax = x if b.W > 0 else ax
   nay = y if b.W > 0 else ay
   hid = "$(id)h"
-  head = json.Text([hid, "row", "", missing, x - nax, y - nay, b.W, c.Row, false, {Index: 0}])
+  hh = dict.GetOr("Head", c.Row, c)
+  head = json.Text([hid, "row", "", missing, x - nax, y - nay, b.W, hh, false, {Index: 0}])
   if not had
     names = ["$(hid)$k" for k in 1..value.Len(n.Columns)]
     for k in 1..value.Len(n.Columns)
@@ -172,7 +189,7 @@ defn tablePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
   for k in 1..value.Len(c.Texts)
     i = c.First + k - 1
     rid = "$(id)r$i"
-    re = json.Text([rid, "row", "", missing, x - nax, y + c.Row + (i - 1) * c.Row - c.Offset - nay, b.W, c.Row, false, {Index: i}])
+    re = json.Text([rid, "row", "", missing, x - nax, y + hh + (i - 1) * c.Row - c.Offset - nay, b.W, c.Row, false, {Index: i}])
     w = dict.Get(rid, before)
     texts = c.Texts[k]
     sent(re, if value.IsSome(w) w.Node else missing end)

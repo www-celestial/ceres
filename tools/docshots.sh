@@ -5,7 +5,8 @@
 #   without a window and cut to the widget (tools/docshots/shoot.ce);
 # - in a window of SDL3 under SDL's dummy driver, the page of the tutorial live from a server of its own
 #   (tools/docshots/window.ce), the line of the connection as the network drops and comes back, and a conflict
-#   (tools/docshots/connection.ce);
+#   (tools/docshots/connection.ce), and the page of examples/desk laid out as a desktop tool, dark and light, and a
+#   dock whose bottom panels have nothing yet (tools/docshots/desk.ce);
 # - the drawings of a mechanism, as SVG (tools/docshots/figures.ce).
 # ImageMagick, when here, puts the steps of a widget side by side and makes each picture a PNG of 64 colors without its
 # metadata. CHROME names the browser, a Chrome or a chrome-headless-shell (chrome by default); PROFILE the folder of
@@ -20,10 +21,12 @@ out=docs/book/images
 mkdir -p "$profile"
 cesia build --target wasm tools/docshots/page.ce
 cesia build --target wasm examples/hello/hello.ce
-CHROME="$chrome" PROFILE="$profile" OUT="$out" cesia run --allow "net=127.0.0.1,read=tools/docshots,read=examples/hello,exec,env=CHROME,env=OUT,env=PROFILE,env=ONLY,read=$profile,write=$profile,write=$out" tools/docshots/shoot.ce
+cesia build --target wasm examples/pages/pages.ce
+CHROME="$chrome" PROFILE="$profile" OUT="$out" cesia run --allow "net=127.0.0.1,read=tools/docshots,read=examples/hello,read=examples/pages,exec,env=CHROME,env=OUT,env=PROFILE,env=ONLY,read=$profile,write=$profile,write=$out" tools/docshots/shoot.ce
 sdl="ffi=SDL3,ffi=SDL3_ttf,read=src/sdl/fonts,net=127.0.0.1,env=OUT,write=$out"
 OUT="$out" cesia run --allow "$sdl" tools/docshots/window.ce
 OUT="$out" cesia run --allow "$sdl" tools/docshots/connection.ce
+OUT="$out" cesia run --allow "$sdl" tools/docshots/desk.ce
 OUT="$out" cesia run --allow "env=OUT,write=$out" tools/docshots/figures.ce
 if command -v magick > /dev/null; then
   line=#cfcfcf
@@ -43,8 +46,13 @@ if command -v magick > /dev/null; then
   magick "$out/live-live.png" \( -size "${w}x1" xc:$line \) "$out/live-offline.png" \( -size "${w}x1" xc:$line \) "$out/live-back.png" \
     -background white -gravity west -append "$out/live-connection.png"
   rm -f "$out/live-live.png" "$out/live-offline.png" "$out/live-back.png"
-  for f in "$out"/widgets-*.png "$out"/forms-*.png "$out"/guide-*.png "$out"/web-*.png "$out"/backends-*.png "$out"/live-*.png; do
+  # a phone: the list as cards, the drawer, the sheet, side by side
+  if [ -f "$out/pages-phone-list.png" ]; then
+    magick "$out/pages-phone-list.png" \( -size 16x760 xc:white \) "$out/pages-phone-drawer.png" \( -size 16x760 xc:white \) "$out/pages-phone-sheet.png" +append "$out/pages-phone.png"
+    rm -f "$out/pages-phone-list.png" "$out/pages-phone-drawer.png" "$out/pages-phone-sheet.png"
+  fi
+  for f in "$out"/widgets-*.png "$out"/forms-*.png "$out"/guide-*.png "$out"/web-*.png "$out"/backends-*.png "$out"/live-*.png "$out"/pages-*.png; do
     magick "$f" -strip -colors 64 "PNG8:$f"
   done
 fi
-du -cb "$out"/widgets-* "$out"/forms-* "$out"/guide-* "$out"/web-* "$out"/backends-* "$out"/live-* | tail -1
+du -cb "$out"/widgets-* "$out"/forms-* "$out"/guide-* "$out"/web-* "$out"/backends-* "$out"/live-* "$out"/pages-* | tail -1

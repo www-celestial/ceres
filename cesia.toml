@@ -56,3 +56,20 @@ allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts", "net=127.0.0.1", "wri
 [tasks.webshot]
 file = "tools/webshot.ce"
 allow = ["net=127.0.0.1", "read=examples/invoices", "read=tests/web", "exec", "env=CHROME", "read=/tmp/ceres-webshot", "write=/tmp/ceres-webshot", "write=shots"]
+
+# The page of examples/desk, laid out as a desktop tool, in a browser, compiled to WebAssembly first (cesia build
+# --target wasm examples/desk/desk.ce): http://127.0.0.1:8080/ (PORT for another port).
+[tasks.desk]
+file = "examples/desk/serve.ce"
+allow = ["net=127.0.0.1", "read=examples/desk", "env=PORT"]
+
+# The same page in a window of SDL3.
+[tasks.desk-window]
+file = "examples/desk/window.ce"
+allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts"]
+
+# The page of examples/pages, a web app laid out as pages (web.Shell), in a browser, compiled to WebAssembly first
+# (cesia build --target wasm examples/pages/pages.ce): http://127.0.0.1:8080/ (PORT for another port).
+[tasks.pages]
+file = "examples/pages/serve.ce"
+allow = ["net=127.0.0.1", "read=examples/pages", "env=PORT"]

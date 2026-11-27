@@ -1,0 +1,65 @@
+(* web.DateInput on the headless back-end: the calendar opens under the field at the month of its day, a click on a
+   day chooses it and closes it, the arrows move the day and Page Down the month, Delete clears it; a phone's table
+   shows its rows as cards titled by title(row), with their boxes to check. *)
+use src/web
+use src/headless
+use std/dict
+use std/list
+use std/text
+use std/value
+
+defn dayPage(v)
+  p -> web.Stack([web.Text("Due"), web.DateInput(v, label = "Due", show = d -> "day $d")], pad = 10)
+end
+
+defn isADayChosenInTheCalendar()
+  v = web.Signal("2026-11-13")
+  p = headless.Open(web.App([web.Route("/", dayPage(v))]), width = 600, height = 500)
+  shown = text.Contains("\"day 2026-11-13\"", headless.Draw(p))
+  p = headless.ClickOn("Due", p)
+  tree = headless.Tree(p)
+  open = text.Contains("combobox \"Due\" = \"day 2026-11-13\"", tree) and text.Contains("expanded", tree) and text.Contains("\"November 2026\"", headless.Draw(p))
+  p = headless.ClickOn("2026-11-20", p)
+  chosen = web.Get(v) == "2026-11-20" and not text.Contains("expanded", headless.Tree(p))
+  list.All([shown, open, chosen])
+end
+
+defn isTheDayMovedByKeys()
+  v = web.Signal("2026-01-31")
+  p = headless.Open(web.App([web.Route("/", dayPage(v))]), width = 600, height = 500)
+  p = headless.ClickOn("Due", p)
+  p = headless.Press("right", p)
+  first = web.Get(v)
+  p = headless.Press("pagedown", p)
+  second = web.Get(v)
+  p = headless.Press("down", p)
+  third = web.Get(v)
+  p = headless.Press("escape", p)
+  p = headless.Press("delete", p)
+  list.All([first == "2026-02-01", second == "2026-03-01", third == "2026-03-08", web.Get(v) == "", not text.Contains("expanded", headless.Tree(p))])
+end
+
+defn isTheMonthTurned()
+  v = web.Signal("")
+  p = headless.Open(web.App([web.Route("/", dayPage(v))]), width = 600, height = 500)
+  p = headless.ClickOn("Due", p)
+  p = headless.ClickOn("Month after", p)
+  tree = headless.Tree(p)
+  (* an empty field opens at today's month: after Month after, the days of the next month *)
+  list.Any([text.Contains("button \"$(y)-", tree) for y in [2026, 2027, 2028, 2029, 2030]]) and web.Get(v) == ""
+end
+
+defn cardsPage(checks)
+  p -> web.Shell(p, web.Table([{Id: 7, Name: "Ada", Total: 12.5}, {Id: 8, Name: "Bo", Total: 3}], [web.Column("Id", r -> r.Id, card = false),
+    web.Column("Name", r -> r.Name), web.Column("Total", r -> web.Money(r.Total), align = "right")], height = missing, checks = checks, key = r -> r.Id,
+    title = r -> "Client $(r.Name)"))
+end
+
+defn isACardTitledWithItsBox()
+  checks = web.Signal(dict.Dict())
+  p = headless.Open(web.App([web.Route("/", cardsPage(checks))], theme = web.Dark), width = 390, height = 700)
+  d = headless.Draw(p)
+  titled = text.Contains("\"Client Ada\"", d) and not text.Contains("\"7 · Ada\"", d)
+  rows = [l for l in text.Split("\n", headless.Tree(p)) if text.Contains("row", l)]
+  list.All([titled, value.Len(rows) >= 2])
+end
