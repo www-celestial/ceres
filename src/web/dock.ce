@@ -75,6 +75,9 @@ defn Dock(center, left = [], right = [], bottom = [], toolbar = missing, status 
       that is empty, which opens it. With key, the layout is kept on the machine, as the browser keeps a page's data
       (and in a window, in the folder of the app's data): the size of each area, the panels of each and the one shown,
       found again the next time. sizes gives the sizes at first, {Left: 240, Right: 320, Bottom: 200} by default.
+      The bottom area folds to its tabs while the panel it shows has nothing to show but a web.Empty, and opens when
+      something comes; Ctrl+J, Enter on its tabs or the arrow at their right folds it or opens it by hand, which the
+      layout keeps.
 
         Dock([Panel("Main", "…")], key = "admin").Kind --> "dock" *)
   all = list.Concat(list.Concat(center, left), list.Concat(right, bottom))
@@ -85,7 +88,7 @@ defn Dock(center, left = [], right = [], bottom = [], toolbar = missing, status 
   areas = {Left: [p.Key for p in left], Center: [p.Key for p in center], Right: [p.Key for p in right], Bottom: [p.Key for p in bottom]}
   state = {Id: fresh(), Key: key, Panels: panels, Areas: Signal(areas), First: areas,
     Sizes: {Left: Signal(dict.GetOr("Left", 240, sizes)), Right: Signal(dict.GetOr("Right", 320, sizes)), Bottom: Signal(dict.GetOr("Bottom", 200, sizes))},
-    Chosen: {Left: Signal(1), Center: Signal(1), Right: Signal(1), Bottom: Signal(1)}}
+    Chosen: {Left: Signal(1), Center: Signal(1), Right: Signal(1), Bottom: Signal(1)}, Fold: Signal(missing)}
   top = if value.IsMissing(toolbar) missing else kid(toolbar) end
   foot = if value.IsMissing(status) missing else kid(status) end
   {Kind: "dock", State: state, Top: value.IsSome(top), Foot: value.IsSome(foot),
@@ -184,6 +187,19 @@ end
 
 wrongText(s) = if value.IsMissing(s) or s == "" missing else Text(s, color = "Danger") end   (* The error of a property, if any. *)
 
+defn Empty(title, about, action = missing, icon = missing)
+  (** What a place with nothing in it yet shows, in its middle: icon, a name of web.Icons, in the muted color; title,
+      which says so in a few words ("No events yet"); about, what goes here and where it comes from; and action, a
+      web.Button that fills it, its key beside its label. The bottom panels of a web.Dock fold to their tabs while the
+      one shown has only this to show, its title at their right, until something comes or the person opens them.
+
+        Empty("No events yet", "Sign-ins and changes show here as they happen.").Empty --> "No events yet" *)
+  parts = [if value.IsMissing(icon) missing else Icon(icon, color = "Muted") end, Text(title, font = "strong"), Text(about, color = "Muted"), action]
+  out = Stack(parts, gap = 6, pad = 12, align = "center")
+  out.Empty = title
+  out
+end
+
 defn Inspector(sections, label = "")
   (** The properties of a thing, as a desktop tool's details panel: sections (web.Section) of rows (web.Property),
       their labels in one column, dense, each field edited in place.
@@ -200,7 +216,7 @@ end
 defn kit()
   (** The functions of the widgets of a desktop tool, as a page calls them. *)
   {Lay: layDesk, Mounted: restored, Sem: semDesk, Patch: patchDesk, Drop: dropItems, Hover: hoverDesk, Down: dockDown,
-    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk}
+    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk, Fold: foldKey}
 end
 
 defn layDesk(id, maxW, ui)
@@ -269,15 +285,20 @@ defn laySplit(id, maxW, ui)
   (** Two parts and the handle between them, each part cut to its place. *)
   b = ui.Boxes[id]
   n = b.Node
-  got = watched(id, () -> Get(n.Size), ui)
+  row = n.Along == "row"
+  bottom = value.IsSome(n.Dock) and not row and n.Last
+  got = watched(id, () -> {Size: Get(n.Size), Fold: if bottom Get(n.Dock.Fold) else missing end}, ui)
   u = got.Ui
   t = u.Theme
   gap = role("Unit", t)
-  row = n.Along == "row"
-  h0 = if value.IsSome(b.Gh) b.Gh else if row missing else 2 * got.Value + gap end
+  h0 = if value.IsSome(b.Gh) b.Gh else if row missing else 2 * got.Value.Size + gap end
   total = (maxW if row else h0) - gap
   lo = list.Min(n.Min, math.Div(total, 2))
-  s = list.Max(lo, list.Min(total - lo, got.Value))
+  folded = bottom and (if value.IsBool(got.Value.Fold) got.Value.Fold else value.IsSome(shownEmpty(b.Kids[2], u)) end)
+  s = if folded list.Min(total, role("Tab", t)) else list.Max(lo, list.Min(total - lo, got.Value.Size)) end
+  if bottom
+    u.Foldable = id
+  end
   a = total - s if n.Last else s
   c = total - a
   k1 = b.Kids[1]
@@ -293,7 +314,43 @@ defn laySplit(id, maxW, ui)
   b1 = u.Boxes[k1]
   b2 = u.Boxes[k2]
   parts = [group(0, 0, a if row else maxW, hh if row else a, true, b1.Items), group(b2.X, b2.Y, c if row else maxW, hh if row else c, true, b2.Items)]
-  boxed(id, maxW, hh, list.Concat(own, parts), {Handle: handle, Room: total, Size: s, Row: row}, u)
+  boxed(id, maxW, hh, list.Concat(own, parts), {Handle: handle, Room: total, Size: s, Row: row, Folded: folded}, u)
+end
+
+defn shownEmpty(id, u)
+  (** The web.Empty that the box id shows and nothing else, through the parts that hold one child each (the tabs of an
+      area, its panel's scroll, a live part), or missing. *)
+  b = u.Boxes[id]
+  e = dict.Get("Empty", b.Node)
+  if value.IsSome(e)
+    return e
+  end
+  k = b.Node.Kind
+  if (k == "tabs" or k == "live" or k == "scroll" or k == "stack" or k == "row") and value.Len(b.Kids) == 1
+    return shownEmpty(b.Kids[1], u)
+  end
+  missing
+end
+
+defn folding(u)
+  (** The split of the bottom area of the page's dock, its id and whether it is folded: {Id, Folded}, or missing. *)
+  id = dict.Get("Foldable", u)
+  if value.IsMissing(id) or not (id in u.Boxes) or u.Boxes[id].Node.Kind != "split"
+    return missing
+  end
+  {Id: id, Folded: dict.GetOr("Folded", false, u.Boxes[id].Cache)}
+end
+
+defn foldKey(ui)
+  (** Ctrl+J: folds the bottom area of the page's dock, or opens it, by hand: whether there was one. *)
+  f = folding(ui)
+  if value.IsMissing(f)
+    return false
+  end
+  st = ui.Boxes[f.Id].Node.Dock
+  Set(st.Fold, not f.Folded)
+  _ = keepDock(st, ui)
+  true
 end
 
 defn layScroll(id, maxW, ui)
@@ -366,8 +423,22 @@ defn layTabs(id, maxW, ui)
     titles = list.Append(title, titles)
     x += tw + 1
   end
+  fold = missing
+  if n.Area == "Bottom"
+    (* the arrow that folds the area or opens it, and while folded, what its panel would say *)
+    shut = h <= th
+    fx = maxW - ic - 8
+    fold = [fx - 4, ic + 8]
+    items = list.Append(iconItem(fx, math.Div(th - ic, 2), "chevron-up" if shut else "chevron-down", ic, t.Muted), items)
+    e = if shut shownEmpty(c, u) else missing end
+    if value.IsSome(e)
+      say = shown(e)
+      ex = list.Max(x + 12, fx - 12 - widthOf(say, t.Size, "body", u))
+      items = list.Append(group(ex, 0, fx - 12 - ex, th, true, [words(0, math.Div(th - lh, 2), say, t.Size, t.Muted)]), items)
+    end
+  end
   items = list.Append(group(0, th, maxW, h - th, true, u.Boxes[c].Items), items)
-  boxed(id, maxW, h, items, {Spans: spans, Titles: titles, Tab: th, Chosen: chosen}, u)
+  boxed(id, maxW, h, items, {Spans: spans, Titles: titles, Tab: th, Chosen: chosen, Fold: fold, Shut: h <= th}, u)
 end
 
 defn holdsFocus(id, u)
@@ -577,9 +648,17 @@ defn dockDown(h, e, ui)
     u.Drag = {Kind: "split", Box: h.Id, At: e.X if b.Cache.Row else e.Y, Size: b.Cache.Size}
     return touch(h.Id, u)
   else if k == "tabs"
+    fold = dict.Get("Fold", b.Cache)
+    if value.IsSome(fold) and h.Y < b.Cache.Tab and h.X >= fold[1] and h.X < fold[1] + fold[2]
+      Set(b.Node.Dock.Fold, not b.Cache.Shut)
+      return keepDock(b.Node.Dock, u)
+    end
     i = tabAt(h.X, h.Y, b)
     if value.IsMissing(i)
       return u
+    end
+    if value.IsSome(fold) and b.Cache.Shut
+      Set(b.Node.Dock.Fold, false)
     end
     Set(b.Node.Chosen, i)
     u = keepDock(b.Node.Dock, focus(h.Id, u))
@@ -599,6 +678,11 @@ defn dockDrag(d, e, ui)
   n = b.Node
   if d.Kind == "split"
     moved = (e.X if b.Cache.Row else e.Y) - d.At
+    if dict.GetOr("Folded", false, b.Cache) and moved != 0
+      (* the handle of a folded bottom area, dragged: the area opens by hand, from the size it had *)
+      Set(n.Dock.Fold, false)
+      return u
+    end
     Set(n.Size, list.Max(0, d.Size + (0 - moved if n.Last else moved)))
     return u
   end
@@ -844,6 +928,10 @@ defn tabsKey(e, ui)
   (** The keys of tabs in focus: Left and Right show the panel before or after, Home and End the first and the last. *)
   b = ui.Boxes[ui.Focus]
   n = b.Node
+  if (e.Key == "enter" or e.Key == "space") and value.IsSome(dict.Get("Fold", b.Cache))
+    Set(n.Dock.Fold, not b.Cache.Shut)
+    return keepDock(n.Dock, ui)
+  end
   count = value.Len(n.Panels)
   i = b.Cache.Chosen
   j = if e.Key == "left" list.Max(1, i - 1) else if e.Key == "right" list.Min(count, i + 1) else if e.Key == "home" 1 else if e.Key == "end" count else i end
@@ -897,6 +985,9 @@ defn tabsSem(b, x, y, ui, inner)
   tabs = [{Id: "$(b.Id)l$k", Role: "tab", Name: c.Titles[k], Value: missing, X: x + c.Spans[k][1], Y: y, W: c.Spans[k][2], H: c.Tab, Focused: false, Kids: [],
     Selected: k == c.Chosen} for k in 1..value.Len(c.Titles)]
   strip = {Id: "$(b.Id)l", Role: "tablist", Name: b.Node.Label, Value: missing, X: x, Y: y, W: b.W, H: c.Tab, Focused: ui.Focus == b.Id, Kids: tabs}
+  if value.IsSome(dict.Get("Fold", c))
+    strip.Expanded = not c.Shut
+  end
   panel = {Id: b.Id, Role: "tabpanel", Name: if value.IsEmpty(c.Titles) "" else c.Titles[c.Chosen] end, Value: missing, X: x, Y: y + c.Tab, W: b.W,
     H: b.H - c.Tab, Focused: false, Kids: inner}
   [strip, panel]
@@ -992,7 +1083,7 @@ defn tabsPatch(id, b, ex, ey, x, y, f, ax, ay, at, since, ui)
   old = b.Sem
   had = value.IsSome(old)
   lid = "$(id)l"
-  strip = json.Text([lid, "tablist", n.Label, missing, ex, ey, b.W, c.Tab, f, missing])
+  strip = json.Text([lid, "tablist", n.Label, missing, ex, ey, b.W, c.Tab, f, if value.IsSome(dict.Get("Fold", c)) {Expanded: not c.Shut} else missing end])
   sent(strip, if had old.Head else missing end)
   before = if had old.Rows else dict.Dict() end
   tabs = dict.Dict()
@@ -1040,7 +1131,7 @@ defn keepDock(st, ui)
   end
   areas = ["Left", "Center", "Right", "Bottom"]
   ui.Store.Put("dock $(st.Key)", json.Text({Areas: Get(st.Areas), Sizes: {Left: Get(st.Sizes.Left), Right: Get(st.Sizes.Right), Bottom: Get(st.Sizes.Bottom)},
-    Chosen: dict.Dict([{Key: a, Value: Get(st.Chosen[a])} for a in areas])}))
+    Chosen: dict.Dict([{Key: a, Value: Get(st.Chosen[a])} for a in areas]), Fold: Get(st.Fold)}))
   ui
 end
 
@@ -1091,6 +1182,10 @@ defn restored(st, ui)
         quiet(st.Sizes[a], math.Div(math.Round(s), 1))
       end
     end
+  end
+  fold = dict.Get("Fold", v)
+  if value.IsBool(fold)
+    quiet(st.Fold, fold)
   end
   chosen = dict.Get("Chosen", v)
   if value.IsDict(chosen)

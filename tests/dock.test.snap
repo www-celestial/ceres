@@ -90,7 +90,7 @@ page at 0,0 1000x640
         cell "Client 17"
         cell "178,50 €"
     text "200 rows" at 208,435 48x19
-  tablist "Bottom" at 204,462 532x28
+  tablist "Bottom" expanded at 204,462 532x28
     tab "Log" selected at 204,462 64x28
     tab "Jobs" at 269,462 70x28
   tabpanel "Log" at 204,490 532x92
@@ -108,7 +108,7 @@ page at 0,0 1000x640
   text "Live" at 4,590 24x19
   text "super@app.test" at 53,590 84x19
   text "200 invoices" at 924,590 72x19
-== isDockFillsTheWindow 2 (184 lines, no line end)
+== isDockFillsTheWindow 2 (187 lines, no line end)
 rect 0,0 1000x640 #151515
 rect 0,0 1000x613 #151515
 rect 0,0 1000x32 #1c1c1c
@@ -251,6 +251,7 @@ clip 0,36 1000x546
         text 238,466 "Log" 13 #dcdcdc
         icon 281,468 "tools" 16 #a8a8a8
         text 303,466 "Jobs" 13 #a8a8a8
+        icon 712,468 "chevron-down" 16 #a8a8a8
         clip 204,490 532x92
           clip 204,490 532x92
             text 208,494 "ready" 13 #dcdcdc
@@ -289,10 +290,12 @@ text 12,617 "Tab" 13 code #6cb4ff
 text 38,617 "first field" 13 #dcdcdc
 text 124,617 "PgUp PgDn" 13 code #6cb4ff
 text 186,617 "scroll the page" 13 #dcdcdc
-text 296,617 "C-s" 13 code #6cb4ff
-text 322,617 "Save" 13 #dcdcdc
-text 366,617 "f5" 13 code #6cb4ff
-text 386,617 "Refresh" 13 #dcdcdc
+text 296,617 "C-j" 13 code #6cb4ff
+text 322,617 "fold or open the bottom panels" 13 #dcdcdc
+text 522,617 "C-s" 13 code #6cb4ff
+text 548,617 "Save" 13 #dcdcdc
+text 592,617 "f5" 13 code #6cb4ff
+text 612,617 "Refresh" 13 #dcdcdc
 == isLayoutKept 1 (103 lines, no line end)
 page at 0,0 1000x640
   toolbar at 0,0 1000x32
@@ -385,7 +388,7 @@ page at 0,0 1000x640
         cell "Client 17"
         cell "178,50 €"
     text "200 rows" at 268,435 48x19
-  tablist "Bottom" at 264,462 472x28
+  tablist "Bottom" expanded at 264,462 472x28
     tab "Jobs" selected at 264,462 70x28
   tabpanel "Jobs" at 264,490 472x92
     text "none" at 268,494 24x19

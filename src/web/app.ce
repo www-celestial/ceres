@@ -343,6 +343,9 @@ defn Keys(ui)
   else
     [["Tab", "first field"], ["PgUp PgDn", "scroll the page"]]
   end
+  if value.IsSome(dict.Get("Foldable", ui)) and value.IsSome(ui.Kit)
+    own = list.Append(["C-j", "fold or open the bottom panels"], own)
+  end
   say = dict.Get("Say", ui)
   list.Concat(if value.IsMissing(say) own else [[say(x[1]), say(x[2])] for x in own] end, buttonKeys(ui.Root, ui))
 end

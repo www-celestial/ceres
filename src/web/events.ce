@@ -382,6 +382,9 @@ defn key(e, ui)
     if b != 0
       return clicked(b, u)
     end
+    if chord(e) == "C-j" and value.IsSome(u.Kit) and u.Kit.Fold(u)
+      return u
+    end
   end
   if e.Key == "tab"
     u = opened(0, u)

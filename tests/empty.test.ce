@@ -1,0 +1,72 @@
+(* A place with nothing in it yet, web.Empty, and the bottom panels of a dock that fold to their tabs while the one shown
+   has nothing else to show: open again when something comes, folded or opened by hand with Ctrl+J, the arrow of their
+   strip or Enter on their tabs, and that choice kept with the layout. *)
+use src/web
+use src/headless
+use std/list
+use std/test
+use std/text
+use std/value
+
+events = web.Signal([])
+
+defn console()
+  none = web.Memo(() -> value.IsEmpty(web.Get(events)))
+  () -> if web.Get(none) web.Empty("No events yet", "Sign-ins, changes and jobs show here as they happen.",
+    action = web.Button("Send a test event", () -> web.Set(events, [{At: 1, What: "test"}]), key = "C-t"), icon = "info")
+  else web.Table(events, [web.Column("At", e -> e.At, width = 60), web.Column("What", e -> e.What)], label = "Events") end
+end
+
+defn page(p)
+  web.Dock([web.Panel("Main", web.Text("The page"))], bottom = [web.Panel("Events", console())], key = "empty", sizes = {Bottom: 200})
+end
+
+app = web.App([web.Route("/", page)], theme = web.Dark)
+
+defn heightOf(tree, start)
+  (** The height of the node of the tree whose line starts so. *)
+  line = list.FindFirst(l -> text.StartsWith(start, text.Trim(l)), text.Lines(tree))
+  wh = text.Split("x", text.Split(" ", text.Split(" at ", line)[2])[2])
+  text.Number(wh[2])
+end
+
+ctrl(k, p) = web.Handle({Kind: "key", Key: k, Ctrl: true, Shift: false, Alt: false}, p)
+
+defn isEmptyShownAndFolded()
+  web.Set(events, [])
+  p = headless.Open(app, width = 800, height = 500)
+  t = headless.Tree(p)
+  drawn = headless.Draw(p)
+  list.All([text.Contains("text \"No events yet\"", t), text.Contains("button \"Send a test event", t), heightOf(t, "tabpanel \"Events\"") == 0,
+    heightOf(t, "tabpanel \"Main\"") > 350, text.Contains("No events yet", drawn), text.Contains("C-j", drawn)])
+end
+
+defn isOpenedWhenSomethingComes()
+  web.Set(events, [])
+  p = headless.Open(app, width = 800, height = 500)
+  web.Set(events, [{At: 2, What: "signin"}])
+  p = web.Update(p)
+  t = headless.Tree(p)
+  text.Contains("table \"Events\"", t) and heightOf(t, "tabpanel \"Events\"") > 100
+end
+
+defn isFoldedByHandAndKept()
+  web.Set(events, [{At: 3, What: "signin"}])
+  store = headless.Store()
+  p = headless.Open(app, width = 800, height = 500, store = store)
+  open = heightOf(headless.Tree(p), "tabpanel \"Events\"") > 100
+  p = ctrl("j", p)
+  shut = heightOf(headless.Tree(p), "tabpanel \"Events\"") == 0
+  again = headless.Open(app, width = 800, height = 500, store = store)
+  kept = heightOf(headless.Tree(again), "tabpanel \"Events\"") == 0 and text.Contains("\"Fold\":true", store.Get("dock empty"))
+  p = ctrl("j", again)
+  list.All([open, shut, kept, heightOf(headless.Tree(p), "tabpanel \"Events\"") > 100])
+end
+
+defn isOpenedByItsTab()
+  web.Set(events, [])
+  p = headless.Open(app, width = 800, height = 500)
+  p = headless.ClickOn("Events", p)
+  t = headless.Tree(p)
+  list.All([heightOf(t, "tabpanel \"Events\"") > 100, text.Contains("tablist \"Bottom\" focused expanded", t), text.Contains("text \"No events yet\"", t)])
+end
