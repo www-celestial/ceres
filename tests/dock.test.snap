@@ -1,404 +1,332 @@
-== isDockFillsTheWindow 1 (109 lines, no line end)
+== isDockFillsTheWindow 1 (89 lines, no line end)
 page at 0,0 1000x640
-  toolbar at 0,0 1000x32
-    button "Save" at 4,4 88x24
-    button "Refresh" at 101,4 100x24
-    text "Invoices" at 948,6 48x19
-  tablist "Left" at 0,36 200x28
-    tab "Outliner" selected at 0,36 94x28
-  tabpanel "Outliner" at 0,64 200x518
-    tree "Sections" at 4,68 192x88
-      treeitem "Dashboard" level 1 at 4,68 192x22
-      treeitem "Data" expanded level 1 at 4,90 192x22
-      treeitem "Invoices" = "200" level 2 selected at 4,112 192x22
-      treeitem "Clients" = "12" level 2 at 4,134 192x22
-  tablist "Center" at 204,36 532x28
-    tab "Invoices" selected at 204,36 94x28
-    tab "Notes" at 299,36 76x28
-  tabpanel "Invoices" at 204,64 532x394
-    table "Invoices" of 200 rows at 208,68 524x359
-      row at 208,68 524x22
+  toolbar at 0,0 1000x36
+    button "Save" at 4,4 66x28
+    button "Refresh" at 79,4 84x28
+    text "Invoices" at 948,8 48x19
+  tablist "Left" at 0,40 200x26
+    tab "Outliner" selected at 0,40 94x26
+  tabpanel "Outliner" at 0,66 200x516
+    tree "Sections" at 4,70 192x120
+      treeitem "Dashboard" level 1 at 4,70 192x30
+      treeitem "Data" expanded level 1 at 4,100 192x30
+      treeitem "Invoices" = "200" level 2 selected at 4,130 192x30
+      treeitem "Clients" = "12" level 2 at 4,160 192x30
+  tablist "Center" at 204,40 532x26
+    tab "Invoices" selected at 204,40 94x26
+    tab "Notes" at 299,40 76x26
+  tabpanel "Invoices" at 204,66 532x392
+    table "Invoices" of 200 rows at 208,70 524x357
+      row at 208,70 524x30
         columnheader "Number"
         columnheader "Client"
         columnheader "Total"
-      row #1 at 208,90 524x22
+      row #1 at 208,100 524x30
         cell "F-1"
         cell "Client 1"
         cell "10,50 €"
-      row #2 at 208,112 524x22
+      row #2 at 208,130 524x30
         cell "F-2"
         cell "Client 2"
         cell "21,00 €"
-      row #3 at 208,134 524x22
+      row #3 at 208,160 524x30
         cell "F-3"
         cell "Client 3"
         cell "31,50 €"
-      row #4 at 208,156 524x22
+      row #4 at 208,190 524x30
         cell "F-4"
         cell "Client 4"
         cell "42,00 €"
-      row #5 at 208,178 524x22
+      row #5 at 208,220 524x30
         cell "F-5"
         cell "Client 5"
         cell "52,50 €"
-      row #6 at 208,200 524x22
+      row #6 at 208,250 524x30
         cell "F-6"
         cell "Client 6"
         cell "63,00 €"
-      row #7 at 208,222 524x22
+      row #7 at 208,280 524x30
         cell "F-7"
         cell "Client 7"
         cell "73,50 €"
-      row #8 at 208,244 524x22
+      row #8 at 208,310 524x30
         cell "F-8"
         cell "Client 8"
         cell "84,00 €"
-      row #9 at 208,266 524x22
+      row #9 at 208,340 524x30
         cell "F-9"
         cell "Client 9"
         cell "94,50 €"
-      row #10 at 208,288 524x22
+      row #10 at 208,370 524x30
         cell "F-10"
         cell "Client 10"
         cell "105,00 €"
-      row #11 at 208,310 524x22
+      row #11 at 208,400 524x30
         cell "F-11"
         cell "Client 11"
         cell "115,50 €"
-      row #12 at 208,332 524x22
+      row #12 at 208,430 524x30
         cell "F-12"
         cell "Client 12"
         cell "126,00 €"
-      row #13 at 208,354 524x22
-        cell "F-13"
-        cell "Client 13"
-        cell "136,50 €"
-      row #14 at 208,376 524x22
-        cell "F-14"
-        cell "Client 14"
-        cell "147,00 €"
-      row #15 at 208,398 524x22
-        cell "F-15"
-        cell "Client 15"
-        cell "157,50 €"
-      row #16 at 208,420 524x22
-        cell "F-16"
-        cell "Client 16"
-        cell "168,00 €"
-      row #17 at 208,442 524x22
-        cell "F-17"
-        cell "Client 17"
-        cell "178,50 €"
     text "200 rows" at 208,435 48x19
-  tablist "Bottom" expanded at 204,462 532x28
-    tab "Log" selected at 204,462 64x28
-    tab "Jobs" at 269,462 70x28
-  tabpanel "Log" at 204,490 532x92
-    text "ready" at 208,494 30x19
-  tablist "Right" at 740,36 260x28
-    tab "Details" selected at 740,36 88x28
-  tabpanel "Details" at 740,64 260x518
-    button "Invoice" expanded at 744,68 252x24
-    text "Client" at 748,98 36x19
-    textbox "Client" = "Martin & Co" at 868,96 60x24
-    text "text" at 936,98 24x19
-    text "Total" at 748,124 30x19
-    textbox "Total" = "10.5" at 868,122 60x24
-    text "money" at 936,124 30x19
+  tablist "Bottom" expanded at 204,462 532x26
+    tab "Log" selected at 204,462 64x26
+    tab "Jobs" at 269,462 70x26
+  tabpanel "Log" at 204,488 532x94
+    text "ready" at 208,492 30x19
+  tablist "Right" at 740,40 260x26
+    tab "Details" selected at 740,40 88x26
+  tabpanel "Details" at 740,66 260x516
+    button "Invoice" expanded at 744,70 252x32
+    text "Client" at 748,110 36x19
+    textbox "Client" = "Martin & Co" at 868,106 60x28
+    text "text" at 936,110 24x19
+    text "Total" at 748,140 30x19
+    textbox "Total" = "10.5" at 868,136 60x28
+    text "money" at 936,140 30x19
   text "Live" at 4,590 24x19
   text "super@app.test" at 53,590 84x19
   text "200 invoices" at 924,590 72x19
-== isDockFillsTheWindow 2 (189 lines, no line end)
+== isDockFillsTheWindow 2 (157 lines, no line end)
 rect 0,0 1000x640 #151515
 rect 0,0 1000x613 #151515
-rect 0,0 1000x32 #1c1c1c
-icon 12,8 "save" 16 #dcdcdc
-text 34,6 "Save" 13 #dcdcdc
-text 66,6 "C-s" 13 code #a8a8a8
-rect 96,8 1x16 #383838
-icon 109,8 "refresh-cw" 16 #dcdcdc
-text 131,6 "Refresh" 13 #dcdcdc
-text 181,6 "f5" 13 code #a8a8a8
-text 948,6 "Invoices" 13 #a8a8a8
-clip 0,36 1000x546
-  clip 0,36 200x546
-    rect 0,36 200x28 #1c1c1c
-    rect 0,64 200x518 #242424
-    rect 0,36 94x28 #242424
-    rect 0,36 94x2 #383838
-    icon 12,42 "list-tree" 16 #dcdcdc
-    text 34,40 "Outliner" 13 #dcdcdc
-    clip 0,64 200x518
-      clip 0,64 200x518
-        icon 26,71 "layout-dashboard" 16 #a8a8a8
-        text 48,69 "Dashboard" 13 #dcdcdc
-        icon 8,93 "chevron-down" 16 #a8a8a8
-        icon 26,93 "database" 16 #a8a8a8
-        text 48,91 "Data" 13 #dcdcdc
-        rect 4,112 192x22 #1f5fb0
-        icon 40,115 "table" 16 #ffffff
-        text 62,113 "Invoices" 13 #ffffff
-        text 170,113 "200" 13 code #ffffff
-        icon 40,137 "user" 16 #a8a8a8
-        text 62,135 "Clients" 13 #dcdcdc
-        text 176,135 "12" 13 code #a8a8a8
-  clip 204,36 796x546
-    clip 204,36 532x546
-      clip 204,36 532x422
-        rect 204,36 532x28 #1c1c1c
-        rect 204,64 532x394 #242424
-        rect 204,36 94x28 #242424
-        rect 204,36 94x2 #383838
-        icon 216,42 "table" 16 #dcdcdc
-        text 238,40 "Invoices" 13 #dcdcdc
-        icon 311,42 "sticky-note" 16 #a8a8a8
-        text 333,40 "Notes" 13 #a8a8a8
-        clip 204,64 532x394
-          clip 204,64 532x394
-            rect 208,68 524x359 #161616
-            rect 208,68 524x22 #1c1c1c
-            clip 208,68 90x22
-              text 214,69 "Number" 13 strong #dcdcdc
-            clip 298,68 316x22
-              text 304,69 "Client" 13 strong #dcdcdc
-            rect 298,68 1x359 #2e2e2e
-            clip 614,68 110x22
-              text 688,69 "Total" 13 strong #dcdcdc
-            rect 614,68 1x359 #2e2e2e
-            clip 208,90 516x337
-              rect 208,111 516x1 #2e2e2e
-              rect 208,133 516x1 #2e2e2e
-              rect 208,155 516x1 #2e2e2e
-              rect 208,177 516x1 #2e2e2e
-              rect 208,199 516x1 #2e2e2e
-              rect 208,221 516x1 #2e2e2e
-              rect 208,243 516x1 #2e2e2e
-              rect 208,265 516x1 #2e2e2e
-              rect 208,287 516x1 #2e2e2e
-              rect 208,309 516x1 #2e2e2e
-              rect 208,331 516x1 #2e2e2e
-              rect 208,353 516x1 #2e2e2e
-              rect 208,375 516x1 #2e2e2e
-              rect 208,397 516x1 #2e2e2e
-              rect 208,419 516x1 #2e2e2e
-              rect 208,441 516x1 #2e2e2e
-              rect 208,463 516x1 #2e2e2e
-              clip 208,90 90x337
-                text 214,91 "F-1" 13 #dcdcdc
-                text 214,113 "F-2" 13 #dcdcdc
-                text 214,135 "F-3" 13 #dcdcdc
-                text 214,157 "F-4" 13 #dcdcdc
-                text 214,179 "F-5" 13 #dcdcdc
-                text 214,201 "F-6" 13 #dcdcdc
-                text 214,223 "F-7" 13 #dcdcdc
-                text 214,245 "F-8" 13 #dcdcdc
-                text 214,267 "F-9" 13 #dcdcdc
-                text 214,289 "F-10" 13 #dcdcdc
-                text 214,311 "F-11" 13 #dcdcdc
-                text 214,333 "F-12" 13 #dcdcdc
-                text 214,355 "F-13" 13 #dcdcdc
-                text 214,377 "F-14" 13 #dcdcdc
-                text 214,399 "F-15" 13 #dcdcdc
-                text 214,421 "F-16" 13 #dcdcdc
-                text 214,443 "F-17" 13 #dcdcdc
-              clip 298,90 316x337
-                text 304,91 "Client 1" 13 #dcdcdc
-                text 304,113 "Client 2" 13 #dcdcdc
-                text 304,135 "Client 3" 13 #dcdcdc
-                text 304,157 "Client 4" 13 #dcdcdc
-                text 304,179 "Client 5" 13 #dcdcdc
-                text 304,201 "Client 6" 13 #dcdcdc
-                text 304,223 "Client 7" 13 #dcdcdc
-                text 304,245 "Client 8" 13 #dcdcdc
-                text 304,267 "Client 9" 13 #dcdcdc
-                text 304,289 "Client 10" 13 #dcdcdc
-                text 304,311 "Client 11" 13 #dcdcdc
-                text 304,333 "Client 12" 13 #dcdcdc
-                text 304,355 "Client 13" 13 #dcdcdc
-                text 304,377 "Client 14" 13 #dcdcdc
-                text 304,399 "Client 15" 13 #dcdcdc
-                text 304,421 "Client 16" 13 #dcdcdc
-                text 304,443 "Client 17" 13 #dcdcdc
-              clip 614,90 110x337
-                text 676,91 "10,50 €" 13 code #dcdcdc
-                text 676,113 "21,00 €" 13 code #dcdcdc
-                text 676,135 "31,50 €" 13 code #dcdcdc
-                text 676,157 "42,00 €" 13 code #dcdcdc
-                text 676,179 "52,50 €" 13 code #dcdcdc
-                text 676,201 "63,00 €" 13 code #dcdcdc
-                text 676,223 "73,50 €" 13 code #dcdcdc
-                text 676,245 "84,00 €" 13 code #dcdcdc
-                text 676,267 "94,50 €" 13 code #dcdcdc
-                text 670,289 "105,00 €" 13 code #dcdcdc
-                text 670,311 "115,50 €" 13 code #dcdcdc
-                text 670,333 "126,00 €" 13 code #dcdcdc
-                text 670,355 "136,50 €" 13 code #dcdcdc
-                text 670,377 "147,00 €" 13 code #dcdcdc
-                text 670,399 "157,50 €" 13 code #dcdcdc
-                text 670,421 "168,00 €" 13 code #dcdcdc
-                text 670,443 "178,50 €" 13 code #dcdcdc
-            rect 208,89 524x1 #383838
-            rect 724,68 1x359 #2e2e2e
-            rect 726,90 4x25 #a8a8a8
-            frame 208,68 524x359 #383838
-            text 208,435 "200 rows" 13 #a8a8a8
+rect 0,0 1000x36 #242424
+icon 14,10 "save" 16 #a6a6a6
+text 36,8 "Save" 13 #a6a6a6
+rect 74,10 1x16 #383838
+icon 89,10 "refresh-cw" 16 #a6a6a6
+text 111,8 "Refresh" 13 #a6a6a6
+text 948,8 "Invoices" 13 #9a9a9a
+clip 0,40 1000x542
+  clip 0,40 200x542
+    rect 0,40 200x26 #151515
+    rect 0,66 200x516 #242424
+    rect 0,40 94x26 #242424
+    rect 0,40 94x2 #383838
+    icon 12,45 "list-tree" 16 #c0c0c0
+    text 34,43 "Outliner" 13 #c0c0c0
+    clip 0,66 200x516
+      clip 0,66 200x516
+        icon 26,77 "layout-dashboard" 16 #9a9a9a
+        text 48,75 "Dashboard" 13 #c0c0c0
+        icon 8,107 "chevron-down" 16 #9a9a9a
+        icon 26,107 "database" 16 #9a9a9a
+        text 48,105 "Data" 13 #c0c0c0
+        rect 4,130 192x30 #0070e0
+        icon 40,137 "table" 16 #ffffff
+        text 62,135 "Invoices" 13 #ffffff
+        text 170,135 "200" 13 code #ffffff
+        icon 40,167 "user" 16 #9a9a9a
+        text 62,165 "Clients" 13 #c0c0c0
+        text 176,165 "12" 13 code #9a9a9a
+  clip 204,40 796x542
+    clip 204,40 532x542
+      clip 204,40 532x418
+        rect 204,40 532x26 #151515
+        rect 204,66 532x392 #242424
+        rect 204,40 94x26 #242424
+        rect 204,40 94x2 #383838
+        icon 216,45 "table" 16 #c0c0c0
+        text 238,43 "Invoices" 13 #c0c0c0
+        icon 311,45 "sticky-note" 16 #9a9a9a
+        text 333,43 "Notes" 13 #9a9a9a
+        clip 204,66 532x392
+          clip 204,66 532x392
+            rect 208,70 524x357 #242424 r4
+            rect 209,71 522x29 #2f2f2f r3
+            clip 208,70 90x30
+              text 218,76 "Number" 11.5 #a6a6a6
+            clip 298,70 322x30
+              text 308,76 "Client" 11.5 #a6a6a6
+            clip 620,70 110x30
+              text 690,76 "Total" 11.5 #a6a6a6
+            clip 209,100 522x326
+              rect 209,130 522x30 #ffffff a5
+              rect 209,190 522x30 #ffffff a5
+              rect 209,250 522x30 #ffffff a5
+              rect 209,310 522x30 #ffffff a5
+              rect 209,370 522x30 #ffffff a5
+              rect 209,430 522x30 #ffffff a5
+              clip 209,100 90x327
+                text 219,105 "F-1" 13 #c0c0c0
+                text 219,135 "F-2" 13 #c0c0c0
+                text 219,165 "F-3" 13 #c0c0c0
+                text 219,195 "F-4" 13 #c0c0c0
+                text 219,225 "F-5" 13 #c0c0c0
+                text 219,255 "F-6" 13 #c0c0c0
+                text 219,285 "F-7" 13 #c0c0c0
+                text 219,315 "F-8" 13 #c0c0c0
+                text 219,345 "F-9" 13 #c0c0c0
+                text 219,375 "F-10" 13 #c0c0c0
+                text 219,405 "F-11" 13 #c0c0c0
+                text 219,435 "F-12" 13 #c0c0c0
+              clip 299,100 322x327
+                text 309,105 "Client 1" 13 #c0c0c0
+                text 309,135 "Client 2" 13 #c0c0c0
+                text 309,165 "Client 3" 13 #c0c0c0
+                text 309,195 "Client 4" 13 #c0c0c0
+                text 309,225 "Client 5" 13 #c0c0c0
+                text 309,255 "Client 6" 13 #c0c0c0
+                text 309,285 "Client 7" 13 #c0c0c0
+                text 309,315 "Client 8" 13 #c0c0c0
+                text 309,345 "Client 9" 13 #c0c0c0
+                text 309,375 "Client 10" 13 #c0c0c0
+                text 309,405 "Client 11" 13 #c0c0c0
+                text 309,435 "Client 12" 13 #c0c0c0
+              clip 621,100 110x327
+                text 679,105 "10,50 €" 13 #c0c0c0
+                text 679,135 "21,00 €" 13 #c0c0c0
+                text 679,165 "31,50 €" 13 #c0c0c0
+                text 679,195 "42,00 €" 13 #c0c0c0
+                text 679,225 "52,50 €" 13 #c0c0c0
+                text 679,255 "63,00 €" 13 #c0c0c0
+                text 679,285 "73,50 €" 13 #c0c0c0
+                text 679,315 "84,00 €" 13 #c0c0c0
+                text 679,345 "94,50 €" 13 #c0c0c0
+                text 673,375 "105,00 €" 13 #c0c0c0
+                text 673,405 "115,50 €" 13 #c0c0c0
+                text 673,435 "126,00 €" 13 #c0c0c0
+            rect 724,102 6x16 #575757 r3
+            frame 208,70 524x357 #151515 r4
+            text 208,435 "200 rows" 13 #9a9a9a
       clip 204,462 532x120
-        rect 204,462 532x28 #1c1c1c
-        rect 204,490 532x92 #242424
-        rect 204,462 64x28 #242424
+        rect 204,462 532x26 #151515
+        rect 204,488 532x94 #242424
+        rect 204,462 64x26 #242424
         rect 204,462 64x2 #383838
-        icon 216,468 "logs" 16 #dcdcdc
-        text 238,466 "Log" 13 #dcdcdc
-        icon 281,468 "wrench" 16 #a8a8a8
-        text 303,466 "Jobs" 13 #a8a8a8
-        icon 712,468 "chevron-down" 16 #a8a8a8
-        clip 204,490 532x92
-          clip 204,490 532x92
-            text 208,494 "ready" 13 #dcdcdc
-    clip 740,36 260x546
-      rect 740,36 260x28 #1c1c1c
-      rect 740,64 260x518 #242424
-      rect 740,36 88x28 #242424
-      rect 740,36 88x2 #383838
-      icon 752,42 "settings" 16 #dcdcdc
-      text 774,40 "Details" 13 #dcdcdc
-      clip 740,64 260x518
-        clip 740,64 260x518
-          rect 744,68 252x24 #1c1c1c
-          icon 748,72 "chevron-down" 16 #a8a8a8
-          text 768,70 "Invoice" 13 strong #dcdcdc
-          text 748,98 "Client" 13 #a8a8a8
-          rect 868,96 60x24 #161616 r2
-          frame 868,96 60x24 #737373 r2
-          clip 874,96 48x24
-            text 874,98 "Martin & Co" 13 code #dcdcdc
-          text 936,98 "text" 13 #a8a8a8
-          text 748,124 "Total" 13 #a8a8a8
-          rect 868,122 60x24 #161616 r2
-          frame 868,122 60x24 #737373 r2
-          clip 874,122 48x24
-            text 874,124 "10.5" 13 code #dcdcdc
-          text 936,124 "money" 13 #a8a8a8
-rect 0,586 1000x27 #1c1c1c
-text 4,590 "Live" 13 #5fcf75
+        icon 216,467 "logs" 16 #c0c0c0
+        text 238,465 "Log" 13 #c0c0c0
+        icon 281,467 "wrench" 16 #9a9a9a
+        text 303,465 "Jobs" 13 #9a9a9a
+        icon 712,467 "chevron-down" 16 #9a9a9a
+        clip 204,488 532x94
+          clip 204,488 532x94
+            text 208,492 "ready" 13 #c0c0c0
+    clip 740,40 260x542
+      rect 740,40 260x26 #151515
+      rect 740,66 260x516 #242424
+      rect 740,40 88x26 #242424
+      rect 740,40 88x2 #383838
+      icon 752,45 "settings" 16 #c0c0c0
+      text 774,43 "Details" 13 #c0c0c0
+      clip 740,66 260x516
+        clip 740,66 260x516
+          rect 744,70 252x32 #2f2f2f
+          icon 748,78 "chevron-down" 16 #9a9a9a
+          text 768,76 "Invoice" 13 strong #c0c0c0
+          text 748,110 "Client" 13 #9a9a9a
+          rect 868,106 60x28 #0f0f0f r4
+          frame 868,106 60x28 #383838 r4
+          clip 874,106 48x28
+            text 874,110 "Martin & Co" 13 #c0c0c0
+          text 936,110 "text" 13 #9a9a9a
+          text 748,140 "Total" 13 #9a9a9a
+          rect 868,136 60x28 #0f0f0f r4
+          frame 868,136 60x28 #383838 r4
+          clip 874,136 48x28
+            text 874,140 "10.5" 13 #c0c0c0
+          text 936,140 "money" 13 #9a9a9a
+rect 0,586 1000x27 #242424
+text 4,590 "Live" 13 #8bc24a
 rect 40,591 1x16 #383838
-text 53,590 "super@app.test" 13 #dcdcdc
-text 924,590 "200 invoices" 13 #a8a8a8
-rect 0,613 1000x27 #1c1c1c
-rect 0,613 1000x1 #2e2e2e
-text 12,617 "Tab" 13 code #6cb4ff
-text 38,617 "first field" 13 #dcdcdc
-text 124,617 "PgUp PgDn" 13 code #6cb4ff
-text 186,617 "scroll the page" 13 #dcdcdc
-text 296,617 "f6 S-f6" 13 code #6cb4ff
-text 346,617 "next panel, previous" 13 #dcdcdc
-text 486,617 "C-j" 13 code #6cb4ff
-text 512,617 "fold or open the bottom panels" 13 #dcdcdc
-text 712,617 "C-s" 13 code #6cb4ff
-text 738,617 "Save" 13 #dcdcdc
-text 782,617 "f5" 13 code #6cb4ff
-text 802,617 "Refresh" 13 #dcdcdc
-== isLayoutKept 1 (103 lines, no line end)
+text 53,590 "super@app.test" 13 #c0c0c0
+text 924,590 "200 invoices" 13 #9a9a9a
+rect 0,613 1000x27 #242424
+rect 0,613 1000x1 #303030
+text 12,617 "Tab" 13 code #4da3ff
+text 38,617 "first field" 13 #c0c0c0
+text 124,617 "PgUp PgDn" 13 code #4da3ff
+text 186,617 "scroll the page" 13 #c0c0c0
+text 296,617 "f6 S-f6" 13 code #4da3ff
+text 346,617 "next panel, previous" 13 #c0c0c0
+text 486,617 "C-j" 13 code #4da3ff
+text 512,617 "fold or open the bottom panels" 13 #c0c0c0
+text 712,617 "C-s" 13 code #4da3ff
+text 738,617 "Save" 13 #c0c0c0
+text 782,617 "f5" 13 code #4da3ff
+text 802,617 "Refresh" 13 #c0c0c0
+== isLayoutKept 1 (83 lines, no line end)
 page at 0,0 1000x640
-  toolbar at 0,0 1000x32
-    button "Save" at 4,4 88x24
-    button "Refresh" at 101,4 100x24
-    text "Invoices" at 948,6 48x19
-  tablist "Left" at 0,36 260x28
-    tab "Outliner" selected at 0,36 94x28
-  tabpanel "Outliner" at 0,64 260x518
-    tree "Sections" at 4,68 252x88
-      treeitem "Dashboard" level 1 at 4,68 252x22
-      treeitem "Data" expanded level 1 at 4,90 252x22
-      treeitem "Invoices" = "200" level 2 selected at 4,112 252x22
-      treeitem "Clients" = "12" level 2 at 4,134 252x22
-  tablist "Center" at 264,36 472x28
-    tab "Invoices" selected at 264,36 94x28
-    tab "Notes" at 359,36 76x28
-  tabpanel "Invoices" at 264,64 472x394
-    table "Invoices" of 200 rows at 268,68 464x359
-      row at 268,68 464x22
+  toolbar at 0,0 1000x36
+    button "Save" at 4,4 66x28
+    button "Refresh" at 79,4 84x28
+    text "Invoices" at 948,8 48x19
+  tablist "Left" at 0,40 260x26
+    tab "Outliner" selected at 0,40 94x26
+  tabpanel "Outliner" at 0,66 260x516
+    tree "Sections" at 4,70 252x120
+      treeitem "Dashboard" level 1 at 4,70 252x30
+      treeitem "Data" expanded level 1 at 4,100 252x30
+      treeitem "Invoices" = "200" level 2 selected at 4,130 252x30
+      treeitem "Clients" = "12" level 2 at 4,160 252x30
+  tablist "Center" at 264,40 472x26
+    tab "Invoices" selected at 264,40 94x26
+    tab "Notes" at 359,40 76x26
+  tabpanel "Invoices" at 264,66 472x392
+    table "Invoices" of 200 rows at 268,70 464x357
+      row at 268,70 464x30
         columnheader "Number"
         columnheader "Client"
         columnheader "Total"
-      row #1 at 268,90 464x22
+      row #1 at 268,100 464x30
         cell "F-1"
         cell "Client 1"
         cell "10,50 €"
-      row #2 at 268,112 464x22
+      row #2 at 268,130 464x30
         cell "F-2"
         cell "Client 2"
         cell "21,00 €"
-      row #3 at 268,134 464x22
+      row #3 at 268,160 464x30
         cell "F-3"
         cell "Client 3"
         cell "31,50 €"
-      row #4 at 268,156 464x22
+      row #4 at 268,190 464x30
         cell "F-4"
         cell "Client 4"
         cell "42,00 €"
-      row #5 at 268,178 464x22
+      row #5 at 268,220 464x30
         cell "F-5"
         cell "Client 5"
         cell "52,50 €"
-      row #6 at 268,200 464x22
+      row #6 at 268,250 464x30
         cell "F-6"
         cell "Client 6"
         cell "63,00 €"
-      row #7 at 268,222 464x22
+      row #7 at 268,280 464x30
         cell "F-7"
         cell "Client 7"
         cell "73,50 €"
-      row #8 at 268,244 464x22
+      row #8 at 268,310 464x30
         cell "F-8"
         cell "Client 8"
         cell "84,00 €"
-      row #9 at 268,266 464x22
+      row #9 at 268,340 464x30
         cell "F-9"
         cell "Client 9"
         cell "94,50 €"
-      row #10 at 268,288 464x22
+      row #10 at 268,370 464x30
         cell "F-10"
         cell "Client 10"
         cell "105,00 €"
-      row #11 at 268,310 464x22
+      row #11 at 268,400 464x30
         cell "F-11"
         cell "Client 11"
         cell "115,50 €"
-      row #12 at 268,332 464x22
+      row #12 at 268,430 464x30
         cell "F-12"
         cell "Client 12"
         cell "126,00 €"
-      row #13 at 268,354 464x22
-        cell "F-13"
-        cell "Client 13"
-        cell "136,50 €"
-      row #14 at 268,376 464x22
-        cell "F-14"
-        cell "Client 14"
-        cell "147,00 €"
-      row #15 at 268,398 464x22
-        cell "F-15"
-        cell "Client 15"
-        cell "157,50 €"
-      row #16 at 268,420 464x22
-        cell "F-16"
-        cell "Client 16"
-        cell "168,00 €"
-      row #17 at 268,442 464x22
-        cell "F-17"
-        cell "Client 17"
-        cell "178,50 €"
     text "200 rows" at 268,435 48x19
-  tablist "Bottom" expanded at 264,462 472x28
-    tab "Jobs" selected at 264,462 70x28
-  tabpanel "Jobs" at 264,490 472x92
-    text "none" at 268,494 24x19
-  tablist "Right" at 740,36 260x28
-    tab "Details" at 740,36 88x28
-    tab "Log" selected at 829,36 64x28
-  tabpanel "Log" at 740,64 260x518
-    text "ready" at 744,68 30x19
+  tablist "Bottom" expanded at 264,462 472x26
+    tab "Jobs" selected at 264,462 70x26
+  tabpanel "Jobs" at 264,488 472x94
+    text "none" at 268,492 24x19
+  tablist "Right" at 740,40 260x26
+    tab "Details" at 740,40 88x26
+    tab "Log" selected at 829,40 64x26
+  tabpanel "Log" at 740,66 260x516
+    text "ready" at 744,70 30x19
   text "Live" at 4,590 24x19
   text "super@app.test" at 53,590 84x19
   text "200 invoices" at 924,590 72x19

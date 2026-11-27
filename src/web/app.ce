@@ -3,6 +3,7 @@
    nothing changes costs nothing. *)
 use std/bug
 use std/dict
+use std/fiber
 use std/list
 use std/math
 use std/text
@@ -13,11 +14,16 @@ use std/value
     texts, those of the band of keys and of the page of no route, already filled in ("No page of this app is at /x."):
     a page in another language passes its translation, as t -> i18n.Say(words, "fr", t); missing shows the English.
     theme is its look: web.Dark, web.Light, web.System() which follows the system, a theme made from one of them with
-    a field changed, or missing for web.Theme, the plain look of ink on paper.
+    a field changed, or missing for web.Theme, the plain look of ink on paper. density is the size of its rows, fields
+    and texts in web.Dark and web.Light: "dense", "compact" (the default) or "comfortable" (web.Densities). A person
+    may choose another theme and density on his machine (web.SetLook), which then win. frame(p, page) gives what
+    stands around every page, made once and kept from route to route, as a web.Shell or a web.Dock: p is the page of
+    the first route (its Nav, its Router, its Screen), page the live part that shows the page of the route shown.
 
       App([], say = t -> if t == "Nothing here" "Rien ici" else t end).Say("Nothing here") --> "Rien ici"
-      App([], theme = Dark).Theme.Name --> "dark" *)
-App(routes, live = missing, title = "Ceres", say = missing, theme = missing) = {Routes: routes, Live: live, Title: title, Say: say, Theme: theme}
+      App([], theme = Dark).Theme.Name --> "dark"
+      App([], density = "dense").Density --> "dense" *)
+App(routes, live = missing, title = "Ceres", say = missing, theme = missing, density = missing, frame = missing) = {Routes: routes, Live: live, Title: title, Say: say, Theme: theme, Density: density, Frame: frame}
 
 said(say, t) = if value.IsMissing(say) t else say(t) end   (* One of Ceres's own texts, in the app's language. *)
 
@@ -190,6 +196,101 @@ defn Guarded(ui)
   value.IsSome(ui.Router) and value.IsSome(guardOf(ui.Router))
 end
 
+(* ---- The look a person chooses on his machine: the theme and the density, kept by the back-end's store. *)
+
+defn named(x)
+  (** A theme from its name, "dark", "light" or "system", or the theme itself. *)
+  if x == "dark" Dark else if x == "light" Light else if x == "system" System() else x end
+end
+
+defn nameOf(theme)
+  (** The name of a theme as web.LookOf gives it: "system", "dark", "light", or "own" for one made by the app. *)
+  if isSystem(theme) "system" else if value.IsDict(theme) and value.IsSome(dict.Get("Tokens", theme)) and dict.Get("Name", theme) in ["dark", "light"] theme.Name else "own" end
+end
+
+defn keptLook(store)
+  (** The theme and the density kept on the machine: {Theme, Density}, each a name or missing. *)
+  if value.IsMissing(store)
+    return {Theme: missing, Density: missing}
+  end
+  th = store.Get("look theme")
+  de = store.Get("look density")
+  {Theme: if th in ["dark", "light", "system"] th else missing end, Density: if value.IsText(de) and de in Densities de else missing end}
+end
+
+defn SetLook(p, theme = missing, density = missing)
+  (** Changes the look of the page p while it runs: theme web.Dark, web.Light or web.System() (or their names "dark",
+      "light", "system"), density "dense", "compact" or "comfortable"; missing keeps each as it is. The page is drawn
+      again in it at once, and the browser keeps the choice on this machine, found again at the next start: a
+      person's own look over the app's.
+
+        SetLook({Path: "/"}, density = "dense") --> missing *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r)
+    return missing
+  end
+  now = nowOf(r.Look)
+  next = {Theme: if value.IsMissing(theme) now.Theme else named(theme) end, Density: if value.IsText(density) and density in Densities density else now.Density end}
+  if nameOf(next.Theme) != nameOf(now.Theme) or next.Density != now.Density or value.IsSome(theme) and nameOf(next.Theme) == "own"
+    Set(r.Look, next)
+  end
+  missing
+end
+
+defn LookOf(p)
+  (** The look of the page p: {Theme, Density}, Theme "dark", "light", "system" or "own" (a theme of the app's own),
+      Density "dense", "compact" or "comfortable". A live part that reads it runs again when it changes.
+
+        LookOf({Path: "/"}).Density --> "compact" *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r)
+    return {Theme: "own", Density: "compact"}
+  end
+  l = Get(r.Look)
+  {Theme: nameOf(l.Theme), Density: l.Density}
+end
+
+defn relooked(ui)
+  (** The page in the look its router holds now: drawn again in it, and the look kept on the machine. *)
+  u = ui
+  l = nowOf(u.Router.Look)
+  u.LookSeen = version(u.Router.Look)
+  u.Choice = l.Theme
+  u.Theme = atDensity(themeFor(l.Theme, u.Dark), l.Density)
+  if value.IsSome(u.Store)
+    name = nameOf(l.Theme)
+    if name != "own"
+      u.Store.Put("look theme", name)
+    end
+    u.Store.Put("look density", l.Density)
+  end
+  restyled(u)
+end
+
+defn Toast(p, words)
+  (** A short word of what just happened ("Invoice 1027 saved"), at the bottom of the page for four seconds, as a
+      web.Shell shows it, read aloud by a screen reader (a status).
+
+        Toast({Path: "/"}, "Saved") --> missing *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r)
+    return missing
+  end
+  seq = fresh()
+  Set(r.Toast, {Text: words, Seq: seq})
+  fiber.Spawn(defn ()
+    _ = fiber.Receive(fiber.Channel(), timeout = 4)
+    t = nowOf(r.Toast)
+    if value.IsSome(t) and t.Seq == seq
+      Set(r.Toast, missing)
+      if value.IsSome(r.Wake)
+        fiber.Send("toast", r.Wake)
+      end
+    end
+  end)
+  missing
+end
+
 (* ---- The question of a view left with its changes not saved, in the band at the bottom of the window. *)
 
 defn held(ui)
@@ -241,8 +342,11 @@ defn Start(app, width, height, measure, origin = missing, path = "/", theme = mi
       app's (App's theme) unless given here; dark tells whether the system is dark, for web.System, missing when the
       back-end can't tell; store is where a web.Dock keeps its layout, {Get: name -> text or missing, Put: (name, text)
       -> missing}, as the browser's local storage, or missing for nowhere. *)
-  choice = if value.IsSome(theme) theme else if value.IsSome(dict.Get("Theme", app)) app.Theme else Theme end
-  ui = newUi(width, height, measure, themeFor(choice, dark))
+  given = if value.IsSome(theme) theme else if value.IsSome(dict.Get("Theme", app)) app.Theme else Theme end
+  mine = keptLook(store)
+  choice = if value.IsSome(mine.Theme) and value.IsSome(dict.Get("Tokens", themeFor(given, dark))) named(mine.Theme) else given end
+  density = if value.IsSome(mine.Density) mine.Density else if value.IsText(dict.Get("Density", app)) app.Density else "compact" end
+  ui = newUi(width, height, measure, atDensity(themeFor(choice, dark), density))
   ui.Choice = choice
   ui.Dark = dark
   ui.Store = store
@@ -250,11 +354,15 @@ defn Start(app, width, height, measure, origin = missing, path = "/", theme = mi
   screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net) else missing end
   nav = Signal(path)
   router = {Nav: nav, Guard: cell(missing), Held: Signal(missing), Hist: cell({Shown: path, Back: [], Forward: [], Going: false}),
-    Views: cell(dict.Dict()), Scrolls: cell(dict.Dict())}
+    Views: cell(dict.Dict()), Scrolls: cell(dict.Dict()), Look: Signal({Theme: choice, Density: density}), Toast: Signal(missing), Wake: wake}
+  ui.LookSeen = version(router.Look)
   ui.Nav = nav
   ui.Router = router
   ui.Screens = if value.IsSome(screen) [screen] else [] end
-  made = mount(Stack([routed(app, router, screen)], pad = ui.Theme.Page), 0, ui)
+  page = routed(app, router, screen)
+  framer = dict.Get("Frame", app)
+  top = if value.IsFunction(framer) framer({Path: path, Params: {}, Screen: screen, Nav: nav, Router: router}, page) else page end
+  made = mount(Stack([top], pad = ui.Theme.Page), 0, ui)
   u = made.Ui
   u.Root = made.Id
   Update(u)
@@ -269,6 +377,9 @@ defn Update(ui)
   u = flush(ui)
   if value.IsSome(u.Router)
     u = routeMoved(u)
+    if version(u.Router.Look) != dict.GetOr("LookSeen", 0, u)
+      u = relooked(u)
+    end
   end
   if u.Boxes[u.Root].Dirty
     u = layout(u.Root, u.Width, false, u)
@@ -314,7 +425,10 @@ defn Frame(ui)
   list.Concat(list.Concat(list.Concat(page, popupItems(ui)), dropped(ui)), bandItems(ui))
 end
 
-bandHeight(ui) = lineOf(ui.Theme.Size, ui) + 8 if ui.Theme.Keys or value.IsSome(held(ui)) else 0   (* The height of the band of keys. *)
+(* The height of the band of keys: none in a web.Shell, which shows each action's key beside it, unless a question of
+   changes not saved waits that no part of the page asks inline (web.Asked). *)
+bandHeight(ui) = lineOf(ui.Theme.Size, ui) + 8 if ui.Theme.Keys and not shelled(ui) or value.IsSome(held(ui)) and not (dict.GetOr("Asks", 0, ui) in ui.Boxes) else 0
+shelled(ui) = dict.GetOr("Shell", 0, ui) in ui.Boxes   (* Is the page a web.Shell? *)
 seenHeight(ui) = ui.Height - bandHeight(ui)   (* The height of the window that shows the page. *)
 
 defn buttonKeys(id, ui)
@@ -415,11 +529,11 @@ defn bandItems(ui)
   out
 end
 
-defn heldSem(r, t, m, say, height)
+defn heldSem(r, t, m, say, height, asksInline = false)
   (** The question of a view left with changes not saved, as the semantics tree holds it: an alert and a button for
       each answer, in the band at the bottom of a window height pixels high. *)
   spots = heldSpots(r, t, m, say)
-  if value.IsMissing(spots)
+  if value.IsMissing(spots) or asksInline
     return []
   end
   h = m.Line(t.Size) + 8
@@ -487,7 +601,7 @@ defn Semantics(ui)
       the number of rows in all, and Kids, its header and the rows in sight, "row" with Index, of "cell"), "img" for a
       graph, "list" of "listitem". The boxes that only place others, stacks and rows, give their children. *)
   root = ui.Boxes[ui.Root]
-  {Id: 0, Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: list.Concat(semOf(ui.Root, 0, -ui.ScrollY, ui), heldSem(ui.Router, ui.Theme, ui.Measure, dict.Get("Say", ui), ui.Height))}
+  {Id: 0, Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: list.Concat(semOf(ui.Root, 0, -ui.ScrollY, ui), heldSem(ui.Router, ui.Theme, ui.Measure, dict.Get("Say", ui), ui.Height, asksInline = dict.GetOr("Asks", 0, ui) in ui.Boxes))}
 end
 
 defn node(role, name, b, x, y, ui, kids = [], v = missing)
@@ -502,6 +616,9 @@ defn semOf(id, x0, y0, ui)
   x = x0 + b.X
   y = y0 + b.Y
   k = n.Kind
+  if k == "narrow" and b.W == 0
+    return []
+  end
   inner = list.FlatMap(c -> semOf(c, x, y, ui), b.Kids)
   if k == "text"
     if text.Trim(b.Cache.Text) == "" [] else [node(n.Role, b.Cache.Text, b, x, y, ui)] end
@@ -526,7 +643,7 @@ defn semOf(id, x0, y0, ui)
     [node("img", b.Cache.Text, b, x, y, ui)]
   else if k == "table"
     [tableSem(b, x, y, ui)]
-  else if k == "tree" or k == "tabs" or k == "section" or k == "toolbar"
+  else if k in ["tree", "tabs", "section", "toolbar", "nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell"]
     ui.Kit.Sem(b, x, y, ui, inner)
   else if k == "each"
     [node("list", "", b, x, y, ui, kids = [{Id: "$(c)i", Role: "listitem", Name: "", Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: semOf(c, x, y, ui)} for c in b.Kids])]
@@ -539,12 +656,13 @@ defn tableSem(b, x, y, ui)
   (** The semantics of a table: its header and the rows in sight. *)
   c = b.Cache
   n = b.Node
-  head = {Id: "$(b.Id)h", Role: "row", Name: "", Value: missing, X: x, Y: y, W: b.W, H: c.Row, Focused: false, Index: 0,
+  hh = dict.GetOr("Head", c.Row, c)
+  head = {Id: "$(b.Id)h", Role: "row", Name: "", Value: missing, X: x, Y: y, W: b.W, H: hh, Focused: false, Index: 0,
     Kids: [{Id: "$(b.Id)h$k", Role: "columnheader", Name: n.Columns[k].Title, Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for k in 1..value.Len(n.Columns)]}
   rows = []
   for k in 1..value.Len(c.Texts)
     i = c.First + k - 1
-    rows = list.Append({Id: "$(b.Id)r$i", Role: "row", Name: "", Value: missing, X: x, Y: y + c.Row + (i - 1) * c.Row - c.Offset, W: b.W, H: c.Row, Focused: false, Index: i,
+    rows = list.Append({Id: "$(b.Id)r$i", Role: "row", Name: "", Value: missing, X: x, Y: y + hh + (i - 1) * c.Row - c.Offset, W: b.W, H: c.Row, Focused: false, Index: i,
       Kids: [{Id: "$(b.Id)r$(i)c$j", Role: "cell", Name: c.Texts[k][j], Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: []} for j in 1..value.Len(c.Texts[k])]}, rows)
   end
   one = node("table", n.Label, b, x, y, ui, kids = list.Prepend(head, rows))

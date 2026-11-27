@@ -77,20 +77,22 @@ defn isSystemTheme()
   dark = headless.Draw(headless.Open(sys, width = 1000, height = 640, dark = true))
   light = headless.Open(sys, width = 1000, height = 640, dark = false)
   back = headless.Draw(headless.Scheme(true, light))
-  list.All([text.Contains("#151515", dark), not text.Contains("#151515", headless.Draw(light)), text.Contains("#d4d4d4", headless.Draw(light)), back == dark])
+  list.All([text.Contains("#151515", dark), not text.Contains("#151515", headless.Draw(light)), text.Contains("#bec2c9", headless.Draw(light)), back == dark])
 end
 
 defn isContrastAA()
-  (* each text on each background it sits on, 4.5:1; the edge of a field and the focus, 3:1 *)
+  (* each text on each background the look draws it on, 4.5:1 (tests/contrast.test.ce measures every text a page
+     draws); the edge of a field of high contrast and the focus, 3:1 *)
   ok = true
   for t in [web.Dark, web.Light]
     for fg in ["Ink", "Muted", "Link", "Danger", "Warn", "Ok"]
-      for bg in ["Panel", "Header", "Paper", "Raised"]
+      for bg in ["Panel", "Paper"]
         ok = ok and web.Contrast(t[fg], t[bg]) >= 4.5
       end
     end
+    ok = ok and web.Contrast(t.Ink, t.Header) >= 4.5 and web.Contrast(t.Muted, t.Header) >= 4.5 and web.Contrast(t.Ink, t.Raised) >= 4.5
     ok = ok and web.Contrast(t.ChosenInk, t.Chosen) >= 4.5 and web.Contrast(t.Ink, t.Hover) >= 4.5
-    for bg in ["Panel", "Paper", "Header"]
+    for bg in ["Panel", "Paper"]
       ok = ok and web.Contrast(t.Line, t[bg]) >= 3 and web.Contrast(t.Accent, t[bg]) >= 3
     end
   end

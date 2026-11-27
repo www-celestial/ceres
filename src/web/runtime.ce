@@ -51,7 +51,7 @@ defn mount(node, parent, ui)
   {Id: id, Ui: u}
 end
 
-holders = ["stack", "row", "split", "scroll", "tabs", "dock", "toolbar", "statusbar"]   (* The kinds whose Kids are widgets. *)
+holders = ["stack", "row", "split", "scroll", "tabs", "dock", "toolbar", "statusbar", "shell", "side", "inset", "narrow", "sheet", "pop", "header", "strip"]   (* The kinds whose Kids are widgets. *)
 
 defn partNode(v)
   (** What a live part gave, as one widget: a list is stacked, missing is an empty stack. *)
@@ -68,10 +68,10 @@ defn remount(id, ui)
   (** Runs the live part of box id again, and mounts what it gives in place of what it gave before; the same web.Dock
       as before, as each route of an app may give, stays mounted as it is. *)
   b = ui.Boxes[id]
-  if value.Len(b.Kids) == 1 and ui.Boxes[b.Kids[1]].Node.Kind == "dock"
+  if value.Len(b.Kids) == 1 and ui.Boxes[b.Kids[1]].Node.Kind in ["dock", "shell"]
     again = track(b.Node.Fn)
     n = partNode(again.Value)
-    if n.Kind == "dock" and n.State.Id == ui.Boxes[b.Kids[1]].Node.State.Id
+    if n.Kind == ui.Boxes[b.Kids[1]].Node.Kind and n.State.Id == ui.Boxes[b.Kids[1]].Node.State.Id
       return follow(id, "part", again.Reads, ui)
     end
     return mounted(id, again, dropKids(id, ui))

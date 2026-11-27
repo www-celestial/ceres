@@ -44,31 +44,68 @@ Tokens = {
     Type: {Font: "Inter", Code: "JetBrains Mono", Body: 12, Small: 11, Title: 13, Figure: 20, Line: 16, Weights: [400, 500, 600]}},
   Web: missing}
 
-(** The dark theme of a desktop tool, as an editor of games or of code draws one: grey panels on a darker window,
-    fields and tables a step darker still, one blue for the choice and the focus, the text light grey; sizes on a grid
-    of 4 pixels, dense rows. Each pair of a text and its background reaches the contrast of WCAG 2.2 AA (4.5:1), and
-    the edge of a field and the ring of the focus 3:1 (web.Contrast measures them; tests/dock.test.ce checks it).
-    Its fields are those of web.Theme and these: Panel, the body of a panel; Header, the strip of its tabs, a toolbar
-    and the status bar; Raised, a button; Hover and Pressed, a widget under the mouse and held down; Disabled; Edge,
-    the edge of a table or a panel; Link; Warn and Ok, the colors of a warning and of a success; Rule, the grid of a
+(** The sizes of each density, the same in both looks (the desktop's dock and the web's pages): Size the text, Row a
+    row of a table or a list, Field a field or a button, Title the title of a page, Gap and Pad the space between and
+    around parts, Side the side bar of web.Shell, Top its top bar, Sheet the details at its right, Nav a row of its
+    side bar, Px and Py the margins of its page, Figure a number of web.Metric. "compact" is the default; "dense" fits
+    more rows, "comfortable" is easier to touch.
+
+      Densities.dense.Row --> 24 *)
+Densities = {
+  dense: {Size: 12.5, Row: 24, Field: 24, Title: 16, Gap: 6, Pad: 10, Side: 200, Top: 38, Sheet: 380, Nav: 24, Px: 12, Py: 10, Figure: 17},
+  compact: {Size: 13, Row: 30, Field: 28, Title: 17, Gap: 8, Pad: 12, Side: 212, Top: 42, Sheet: 400, Nav: 26, Px: 16, Py: 12, Figure: 19},
+  comfortable: {Size: 14, Row: 44, Field: 34, Title: 22, Gap: 12, Pad: 16, Side: 252, Top: 52, Sheet: 460, Nav: 32, Px: 28, Py: 24, Figure: 24}}
+
+defn look(k, name, link)
+  (** A theme from the tokens k of a look, at the density "compact": each role of web.Theme and of a desktop tool
+      taken from them. *)
+  d = Densities.compact
+  {Name: name, Size: d.Size, Title: d.Title, Unit: 4, Icon: 16, Tab: 26, Bar: 34,
+    Back: k.Desk, Panel: k.Panel, Header: k.Header, Paper: k.Recessed, Raised: k.Dropdown, Hover: k.GhostHover, Pressed: k.GhostPress,
+    Ink: k.Fg, Strong: k.FgStrong, Muted: k.FgMuted, Disabled: k.FgDisabled, Line: k.InputLineHigh, Edge: k.InputLine, Grid: k.Grid,
+    Rule: k.Grid, Soft: k.SelectInactive, Accent: k.Primary, Chosen: k.Select, ChosenInk: k.SelectInk, Link: link, Danger: k.Err, Warn: k.Warn, Ok: k.Ok,
+    Band: k.Panel, Gap: d.Gap, Pad: 4, Radius: 4, Field: d.Field, Row: d.Row, Page: 12, Keys: true, Tokens: k, Density: "compact", Sizes: d}
+end
+
+(** The dark theme, the look of Unreal Engine 5's editor (web.Tokens.Desktop.Dark), on every platform: grey panels on
+    a darker desk, wells darker still, one blue for the choice and the focus, the text light grey; sizes on a grid of
+    4 pixels, at a density of web.Densities. Each pair of a text and its background reaches the contrast of WCAG 2.2 AA
+    (4.5:1), the ring of the focus 3:1 (web.Contrast measures them; tests/contrast.test.ce checks it). Its fields are
+    those of web.Theme and these: Panel, the body of a panel; Header, a column's title and a section's band; Raised,
+    a button; Hover and Pressed, a widget under the mouse and held down; Strong, a title's text; Disabled; Edge, the
+    quiet edge of a field or a table; Link; Warn and Ok, the colors of a warning and of a success; Rule, the grid of a
     graph; Unit, the step of the grid of sizes; Icon, the size of an icon; Tab, the height of a strip of tabs; Bar,
-    that of a toolbar; Tokens, the values of the design of its look (web.Tokens).
+    that of a toolbar; Tokens, the values of its design (web.Tokens); Density, its name, and Sizes, its sizes.
 
-      Dark.Name --> "dark" *)
-Dark = {Name: "dark", Size: 13, Title: 16, Unit: 4, Icon: 16, Tab: 28, Bar: 34,
-  Back: 0x151515, Panel: 0x242424, Header: 0x1c1c1c, Paper: 0x161616, Raised: 0x333333, Hover: 0x383838, Pressed: 0x111111,
-  Ink: 0xdcdcdc, Muted: 0xa8a8a8, Disabled: 0x6e6e6e, Line: 0x737373, Edge: 0x383838, Grid: 0x2e2e2e, Rule: 0x333333,
-  Accent: 0x3b82f0, Chosen: 0x1f5fb0, ChosenInk: 0xffffff, Link: 0x6cb4ff, Danger: 0xff7b7b, Warn: 0xe8a838, Ok: 0x5fcf75,
-  Band: 0x1c1c1c, Gap: 8, Pad: 4, Radius: 2, Field: 24, Row: 22, Page: 12, Keys: true}
+      Dark.Name --> "dark"
+      Dark.Panel --> 0x242424 *)
+Dark = look(Tokens.Desktop.Dark, "dark", 0x4da3ff)
 
-(** The light theme of the same tool: the same roles and sizes, grey panels around white fields and tables.
+(** The light theme of the same look: the same roles and sizes, a grey frame around wells near white.
 
-      Light.Paper --> 0xffffff *)
-Light = {Name: "light", Size: 13, Title: 16, Unit: 4, Icon: 16, Tab: 28, Bar: 34,
-  Back: 0xd4d4d4, Panel: 0xf3f3f3, Header: 0xe4e4e4, Paper: 0xffffff, Raised: 0xfbfbfb, Hover: 0xd8d8d8, Pressed: 0xc4c4c4,
-  Ink: 0x1c1c1c, Muted: 0x595959, Disabled: 0x9a9a9a, Line: 0x7a7a7a, Edge: 0xc8c8c8, Grid: 0xe2e2e2, Rule: 0xe0e0e0,
-  Accent: 0x0a64d2, Chosen: 0x1a62c4, ChosenInk: 0xffffff, Link: 0x0055b3, Danger: 0xb82518, Warn: 0x7d5000, Ok: 0x1a6e2e,
-  Band: 0xe4e4e4, Gap: 8, Pad: 4, Radius: 2, Field: 24, Row: 22, Page: 12, Keys: true, Tokens: Tokens.Desktop.Light}
+      Light.Paper --> 0xf9fafb *)
+Light = look(Tokens.Desktop.Light, "light", 0x0062c4)
+
+defn atDensity(t, name)
+  (** The theme t at the density name, "dense", "compact" or "comfortable" (web.Densities): a theme without Tokens
+      (web.Theme, or one made by hand) and a name that isn't one stay as they are.
+
+        atDensity(Dark, "dense").Row --> 24
+        atDensity(Theme, "dense").Row --> 22 *)
+  if not value.IsDict(t) or value.IsMissing(dict.Get("Tokens", t)) or not value.IsText(name) or not (name in Densities)
+    return t
+  end
+  d = Densities[name]
+  out = t
+  out.Size = d.Size
+  out.Title = d.Title
+  out.Row = d.Row
+  out.Field = d.Field
+  out.Gap = d.Gap
+  out.Density = name
+  out.Sizes = d
+  out
+end
 
 (** The theme that follows the system: dark while the system says dark (the browser's prefers-color-scheme, SDL's
     theme of the system), light while it says light, dark when it says nothing; it changes with it. web.App takes it

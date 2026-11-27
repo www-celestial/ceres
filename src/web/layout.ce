@@ -21,7 +21,10 @@ frame(x, y, w, h, color, radius = 0) = {Kind: "frame", X: x, Y: y, W: w, H: h, C
 words(x, y, s, size, color, font = "body") = {Kind: "text", X: x, Y: y, Text: s, Size: size, Color: color, Font: font}
 group(x, y, w, h, clip, items) = {Kind: "group", X: x, Y: y, W: w, H: h, Clip: clip, Items: items}
 
-sizeOf(n, t) = t.Size if value.IsMissing(n.Size) else t.Title if n.Size == "title" else n.Size   (* The size of a text widget. *)
+(* The size of a text widget: its own in pixels, or the theme's for "title", "small" (tags, counts, notes) and
+   "figure" (a number that stands out, as a count of a dashboard). *)
+sizeOf(n, t) = t.Size if value.IsMissing(n.Size) else t.Title if n.Size == "title" else t.Size - 1.5 if n.Size == "small" else figureOf(t) if n.Size == "figure" else n.Size
+figureOf(t) = if value.IsDict(dict.Get("Sizes", t)) t.Sizes.Figure else 20 end   (* The size of a figure. *)
 widthOf(s, size, font, u) = u.Measure.Width(s, size, font)   (* The width of a text in pixels, in a font: "body", "strong" or "code". *)
 lineOf(size, u) = u.Measure.Line(size)   (* The height of a line of text. *)
 
@@ -43,7 +46,7 @@ defn fontOf(x)
   if value.IsNumber(x)
     "code"
   else if value.IsDict(x) and dict.Get("Kind", x) == "text"
-    dict.GetOr("Font", "body", x)
+    if value.IsSome(dict.Get("Font", x)) x.Font else "body" end
   else
     "body"
   end
@@ -91,7 +94,7 @@ defn layout(id, maxW, fit, ui, h = missing)
   else if k == "row" layRow(id, maxW, fit, u)
   else if k == "live" layLive(id, maxW, fit, u)
   else if k == "text" layText(id, maxW, u)
-  else if k == "button" layButton(id, u)
+  else if k == "button" layButton(id, maxW, u)
   else if k == "input" layInput(id, maxW, u)
   else if k == "select" laySelect(id, maxW, u)
   else if k == "link" layLink(id, u)
@@ -99,7 +102,7 @@ defn layout(id, maxW, fit, ui, h = missing)
   else if k == "plot" layPlot(id, maxW, u)
   else if k == "toolbar" or k == "statusbar" layRow(id, maxW, fit, u)
   else if k == "spacer" sized(id, 0 if fit else maxW, b.Node.Size, [], u)
-  else if k == "divider" sized(id, maxW, 1, [rect(0, 0, maxW, 1, u.Theme.Line)], u)
+  else if k == "divider" sized(id, maxW, 1, [rect(0, 0, maxW, 1, tok("Divider", u.Theme, "Line"))], u)
   else if value.IsSome(u.Kit) u.Kit.Lay(id, maxW, u)
   else bug.Panic("No layout for the widget kind $k.") end
   done = u.Boxes[id]
@@ -289,13 +292,17 @@ defn layText(id, maxW, ui)
   cached(id, list.Min(widest, maxW), lh * value.Len(lines), [words(0, k * lh - lh, lines[k], size, color, font) for k in 1..value.Len(lines) if text.Trim(lines[k]) != ""], {Text: s}, u)
 end
 
-defn layButton(id, ui)
+defn layButton(id, maxW, ui)
   (** A plain button: its label in an edge of one pixel, and its key beside, as "Enter"; pressed, ink and paper swap.
       In a theme of a desktop tool (one that has Raised), a button is raised from its panel, an icon may stand before
-      its label, and it is lighter under the mouse; in a toolbar, it is flat until then. *)
+      its label, and it is lighter under the mouse; in a toolbar, it is flat until then. In a theme of tokens
+      (web.Dark, web.Light), a button is drawn as the look's design says (layKey). *)
   u = ui
   n = u.Boxes[id].Node
   t = u.Theme
+  if value.IsSome(dict.Get("Tokens", t))
+    return layKey(id, maxW, u)
+  end
   if tooled(n, t)
     return layTool(id, u)
   end
@@ -356,6 +363,95 @@ defn layTool(id, ui)
   cached(id, w, h, out, {Text: label}, u)
 end
 
+(* ---- The widgets in a theme of tokens (web.Dark, web.Light): tokens.md's design, on every platform. *)
+
+defn keyName(k)
+  (** A key as a button shows it: "C-s" is Ctrl S, "M-n" Alt N, "f5" F5, "escape" Esc, "/" itself. *)
+  parts = []
+  rest = k
+  while text.StartsWith("C-", rest) or text.StartsWith("M-", rest) or text.StartsWith("S-", rest)
+    parts = list.Append(if text.StartsWith("C-", rest) "Ctrl" else if text.StartsWith("M-", rest) "Alt" else "Shift" end, parts)
+    rest = text.Slice(3, value.Len(rest), rest) if value.Len(rest) > 2 else ""
+  end
+  named = {escape: "Esc", enter: "Enter", space: "Space", tab: "Tab", up: "↑", down: "↓", left: "←", right: "→", pageup: "PgUp", pagedown: "PgDn", delete: "Del", backspace: "⌫"}
+  last = if rest in named named[rest] else text.Upper(rest) end
+  text.Join(" ", list.Append(last, parts))
+end
+
+defn keycap(x, y, k, t, u, on = missing)
+  (** A key drawn as a key of the keyboard: its name in small letters on a tile 18 pixels high, at x, y, filled with
+      on (a color) or edged in the text's color when on is missing: {Items, W}. *)
+  s = keyName(k)
+  size = t.Size - 2
+  w = widthOf(s, size, "body", u) + 10
+  h = 18 if t.Field >= 26 else 16
+  back = if value.IsSome(on) [rect(x, y, w, h, on, 3)] else [{Kind: "frame", X: x, Y: y, W: w, H: h, Color: t.ChosenInk, Radius: 3, Alpha: 102}] end
+  ink = if value.IsSome(on) tok("Icon", t, "Muted") else t.ChosenInk end
+  {Items: list.Append(words(x + 5, y + math.Div(h - lineOf(size, u), 2), s, size, ink), back), W: w}
+end
+
+tok(name, t, fallback) = if value.IsDict(dict.Get("Tokens", t)) and value.IsSome(dict.Get(name, t.Tokens)) t.Tokens[name] else role(fallback, t) end   (* A token of the theme's look, or a role in a theme without. *)
+
+defn ringItems(w, h, t, r = 4)
+  (** The ring of the focus around a box w by h: one pixel of Focus, and one of its halo outside. *)
+  halo = tok("FocusHalo", t, "Accent")
+  hc = if value.IsArray(halo) halo[1] else halo end
+  ha = if value.IsArray(halo) halo[2] else 102 end
+  [frame(0, 0, w, h, tok("Focus", t, "Accent"), r), {Kind: "frame", X: -1, Y: -1, W: w + 2, H: h + 2, Color: hc, Radius: r + 1, Alpha: ha}]
+end
+
+defn layKey(id, maxW, ui)
+  (** A button in a theme of tokens: its style (web.Button's style) gives its fill, under the mouse and held down:
+      "primary" the accent, "ghost" none until the mouse is over it, "field" a field that opens something (a search),
+      as wide as it is given, "danger" the color of errors on a secondary fill; a button of web.IconButton is a square
+      of its icon. Its icon, its label and its key, as a key of the keyboard. *)
+  u = ui
+  n = u.Boxes[id].Node
+  t = u.Theme
+  k = t.Tokens
+  style = dict.GetOr("Style", if dict.GetOr("Flat", false, n) "ghost" else "secondary" end, n)
+  bare = dict.GetOr("Bare", false, n)
+  label = shown(n.Label)
+  icon = dict.Get("Icon", n)
+  h = t.Field
+  ic = 16
+  hover = u.Hover == id
+  down = u.Pressed == id
+  pad = 10 if t.Field >= 28 else 8
+  kc = if value.IsSome(n.Key) and not bare and style != "ghost" keycap(0, 0, n.Key, t, u, on = if style == "primary" missing else if style == "field" k.Dropdown else k.Header end) else missing end
+  iw = if value.IsMissing(icon) 0 else ic + (6 if label != "" and not bare else 0) end
+  lw = if bare 0 else widthOf(label, t.Size, "body", u) end
+  kw = if value.IsSome(kc) kc.W + 8 else 0 end
+  w = if bare h else if style == "field" maxW else pad + iw + lw + kw + pad end
+  back = if style == "primary" (k.PrimaryPress if down else k.PrimaryHover if hover else k.Primary)
+    else if style == "ghost" or bare (k.GhostPress if down else k.GhostHover if hover else missing)
+    else if style == "field" k.Input
+    else if style == "danger" (k.Dropdown if down else k.GhostHover if hover else missing)
+    else (k.Header if down else k.Hover if hover else k.Dropdown) end
+  ink = if style == "primary" k.SelectInk else if style == "field" k.FgMuted else if style == "danger" k.Err else if style == "ghost" or bare (k.FgStrong if hover else k.Icon) else k.FgStrong end
+  out = if value.IsMissing(back) [] else [rect(0, 0, w, h, back, 4)] end
+  if style == "field"
+    out = list.Append(frame(0, 0, w, h, k.InputLineHover if hover else k.InputLine, 4), out)
+  end
+  x = if bare math.Div(h - ic, 2) else pad end
+  if value.IsSome(icon)
+    out = list.Append(iconItem(x, math.Div(h - ic, 2), icon, ic, ink if style == "primary" or style == "danger" or hover and style != "field" else k.Icon), out)
+  end
+  if not bare
+    out = list.Append(words(x + iw, math.Div(h - lineOf(t.Size, u), 2), label, t.Size, ink), out)
+  end
+  if value.IsSome(kc)
+    kx = if style == "field" w - pad - kc.W + 4 else x + iw + lw + 8 end
+    out = list.Concat(out, [moved1(one, kx, math.Div(h - (18 if t.Field >= 26 else 16), 2)) for one in kc.Items])
+  end
+  if u.Focus == id and u.Ring
+    out = list.Concat(out, ringItems(w, h, t))
+  end
+  cached(id, w, h, out, {Text: label}, u)
+end
+
+moved1(one, dx, dy) = dict.Put("Y", one.Y + dy, dict.Put("X", one.X + dx, one))   (* A draw item moved by dx, dy. *)
+
 defn layLink(id, ui)
   u = ui
   n = u.Boxes[id].Node
@@ -367,10 +463,23 @@ defn layLink(id, ui)
 end
 
 defn fieldEdge(id, bad, w, h, u)
-  (** The paper and the edge of a field: the accent when it has the focus, the color of danger when it is wrong. *)
+  (** The paper and the edge of a field: the accent when it has the focus, the color of danger when it is wrong. In a
+      theme of tokens: the field's fill, its quiet edge, lighter under the mouse, the focus's with its halo. *)
   t = u.Theme
+  k = dict.Get("Tokens", t)
+  if value.IsDict(k)
+    edge = if bad k.Err else if u.Focus == id k.Focus else if u.Hover == id k.InputLineHover else k.InputLine end
+    out = [rect(0, 0, w, h, k.Input, 4), frame(0, 0, w, h, edge, 4)]
+    if u.Focus == id or bad
+      halo = if bad [k.Err, 89] else k.FocusHalo end
+      out = list.Append({Kind: "frame", X: -1, Y: -1, W: w + 2, H: h + 2, Color: halo[1], Radius: 5, Alpha: halo[2]}, out)
+    end
+    return out
+  end
   [rect(0, 0, w, h, t.Paper, t.Radius), frame(0, 0, w, h, t.Danger if bad else t.Accent if u.Focus == id else t.Line, t.Radius)]
 end
+
+fieldFont(t) = if value.IsSome(dict.Get("Tokens", t)) "body" else "code" end   (* The font of a field's text: the code font in web.Theme. *)
 
 defn layInput(id, maxW, ui)
   n = ui.Boxes[id].Node
@@ -387,15 +496,29 @@ defn layInput(id, maxW, ui)
   s = got.Value.Text
   lh = lineOf(t.Size, u)
   ty = math.Div(h - lh, 2)
+  font = fieldFont(t)
+  icon = dict.Get("Icon", n)
+  hint = dict.Get("Hint", n)
+  left = if value.IsSome(icon) 28 else 6 end
+  kc = if value.IsSome(hint) and value.IsSome(dict.Get("Tokens", t)) and u.Focus != id keycap(0, 0, hint, t, u, on = t.Tokens.Dropdown) else missing end
+  right = if value.IsSome(kc) kc.W + 10 else 6 end
   inside = []
   shift = 0
   if u.Focus == id
-    cx = widthOf(head(s, u.Caret), t.Size, "code", u)
-    shift = list.Max(0, cx - (w - 16))
-    inside = [rect(cx - shift, ty, 1, lh, t.Ink)]
+    cx = widthOf(head(s, u.Caret), t.Size, font, u)
+    shift = list.Max(0, cx - (w - left - right - 4))
+    inside = [rect(cx - shift, ty, 1, lh, role("Strong", t) if value.IsSome(dict.Get("Tokens", t)) else t.Ink)]
   end
-  shownText = if s == "" and n.Placeholder == "" [] else if s == "" [words(0, ty, n.Placeholder, t.Size, t.Muted, "code")] else [words(-shift, ty, s, t.Size, t.Ink, "code")] end
-  cached(id, w, h, list.Append(group(6, 0, w - 12, h, true, list.Concat(shownText, inside)), fieldEdge(id, got.Value.Bad, w, h, u)), {Text: s, Shift: shift}, u)
+  ink = role("Strong", t) if value.IsSome(dict.Get("Tokens", t)) and u.Focus == id else t.Ink
+  shownText = if s == "" and n.Placeholder == "" [] else if s == "" [words(0, ty, n.Placeholder, t.Size, t.Muted, font)] else [words(-shift, ty, s, t.Size, ink, font)] end
+  out = list.Append(group(left, 0, w - left - right, h, true, list.Concat(shownText, inside)), fieldEdge(id, got.Value.Bad, w, h, u))
+  if value.IsSome(icon)
+    out = list.Append(iconItem(8, math.Div(h - 16, 2), icon, 16, t.Muted), out)
+  end
+  if value.IsSome(kc)
+    out = list.Concat(out, [moved1(one, w - kc.W - 6, math.Div(h - (18 if t.Field >= 26 else 16), 2)) for one in kc.Items])
+  end
+  cached(id, w, h, out, {Text: s, Shift: shift, Left: left}, u)
 end
 
 defn optionsOf(n)
@@ -423,7 +546,14 @@ defn laySelect(id, maxW, ui)
   h = t.Field
   ty = math.Div(h - lineOf(t.Size, u), 2)
   label = got.Value.Label
-  shownText = if value.IsMissing(label) words(6, ty, n.Placeholder, t.Size, t.Muted, "code") else words(6, ty, label, t.Size, t.Ink, "code") end
+  font = fieldFont(t)
+  lx = if value.IsSome(dict.Get("Tokens", t)) 8 else 6 end
+  shownText = if value.IsMissing(label) words(lx, ty, n.Placeholder, t.Size, t.Muted, font) else words(lx, ty, label, t.Size, t.Ink, font) end
+  if value.IsSome(dict.Get("Tokens", t))
+    (* the chevron of the look's icons at the right *)
+    return cached(id, w, h, list.Concat(fieldEdge(id, false, w, h, u), [group(0, 0, w - 30, h, true, [shownText]), iconItem(w - 22, math.Div(h - 14, 2), "chevron-down", 14, t.Tokens.Icon)]),
+      {Text: "" if value.IsMissing(label) else label}, u)
+  end
   vw = widthOf("v", t.Size, "code", u)
   cached(id, w, h, list.Concat(fieldEdge(id, false, w, h, u), [group(0, 0, w - vw - 10, h, true, [shownText]), words(w - vw - 6, ty, "v", t.Size, t.Ink, "code")]), {Text: "" if value.IsMissing(label) else label}, u)
 end

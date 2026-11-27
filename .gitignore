@@ -36,3 +36,8 @@ tests/web/icons.js
 tests/web/route.js
 tests/web/route.wasm
 tests/web/route.sites
+examples/pages/pages.js
+examples/pages/pages.wasm
+examples/pages/pages.sites
+examples/pages/ceres.js
+examples/pages/icons.js

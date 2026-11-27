@@ -1,0 +1,187 @@
+(** A web app laid out as pages (web.Shell): the invoices of a small office, its pages in a side bar with their counts,
+    each page at its own address, the invoices in a table with the chips of their states, a search that / reaches,
+    sorting by a column, boxes to check rows and act on them, and the invoice opened in a sheet at the right, at its
+    own address too (#/invoices/1027), its fields changed and checked, a change not saved asked before leaving; a
+    dashboard of graphs that share a crosshair; the palette of Ctrl+K; the density and the theme in the top bar. The
+    data lives in the page. examples/pages/pages.ce shows it in a browser. *)
+use src/web
+use std/dict
+use std/list
+use std/math
+use std/text
+use std/value
+
+clients = ["Atelier Morel", "Brunel & Fils", "Lumen Studio", "Nordwind GmbH", "Okapi Logistics", "Verdier Conseil"]
+states = ["draft", "unpaid", "overdue", "paid"]
+seed = [{Id: 65610 + 3 * k, Number: 1000 + k, Client: clients[math.Mod(k * 5, 6) + 1], Total: math.Mod(k * 37, 400) * 9.5 + 85,
+  Status: if k > 28 "draft" else if k > 19 "unpaid" else if k > 13 "overdue" else "paid" end, Day: 30 - math.Mod(k * 7, 28)} for k in 1..30]
+
+stateTone = {draft: "Muted", unpaid: "Warn", overdue: "Danger", paid: "Ok"}
+stateWord = {draft: "Draft", unpaid: "Unpaid", overdue: "Overdue", paid: "Paid"}
+
+defn amountWrong(s)
+  (** What is wrong with the text of an amount, or "". *)
+  n = text.Number(text.Trim(s))
+  if not value.IsNumber(n) "An amount is a number, as 1280.50." else if n < 0 "An amount is 0 or more." else "" end
+end
+
+(* The state of the app, kept across its pages. *)
+invoices = web.Signal(seed)
+status = web.Signal("all")
+search = web.Signal("")
+checks = web.Signal(dict.Dict())
+cross = web.Signal(missing)
+
+defn shown()
+  (** The invoices of the state chosen whose number or client holds the search. *)
+  q = text.Lower(text.Trim(web.Get(search)))
+  [i for i in web.Get(invoices) if (web.Get(status) == "all" or i.Status == web.Get(status)) and (q == "" or text.Contains(q, text.Lower(i.Client)) or text.Contains(q, value.Text(i.Number)))]
+end
+
+defn frame(p, page)
+  (** Every page in the shell: the side bar of the pages, where one is at the top, the invoice opened at the right. *)
+  web.Shell(p, page,
+    side = [web.Row([web.Stack([web.Text("IA", font = "strong", color = 0xffffff)], width = 26, height = 26, fill = "Accent", radius = 6, align = "center"),
+        web.Stack([web.Text("Invoices", font = "strong"), web.Text("Office of Lyon", size = "small", color = "Muted")], gap = 0)], gap = 8),
+      web.Nav(() -> [web.Group("", [web.Item("Dashboard", icon = "layout-dashboard", to = "/")]),
+        web.Group("Data", [web.Item("Invoices", icon = "file-text", to = "/invoices", count = value.Len(web.Get(invoices))),
+          web.Item("Clients", icon = "building", to = "/clients", count = value.Len(clients))]),
+        web.Group("Setup", [web.Item("Settings", icon = "settings", to = "/settings")])], label = "Pages"),
+      web.Spacer(),
+      web.Row([web.Icon("circle-check", color = "Ok"), web.Text("Live", size = "small", color = "Muted")], gap = 6),
+      web.Row([web.Icon("circle-user", color = "Muted"), web.Stack([web.Text("ana@office.test", size = "small", font = "strong"), web.Text("Owner", size = "small", color = "Muted")], gap = 0)], gap = 8)],
+    top = [() -> crumbs(web.Get(p.Nav))],
+    sheet = () -> opened(web.Get(p.Nav), p),
+    find = () -> list.Concat([web.Command("Dashboard", to = "/", group = "Pages", icon = "layout-dashboard"), web.Command("Invoices", to = "/invoices", group = "Pages", icon = "file-text"),
+      web.Command("Clients", to = "/clients", group = "Pages", icon = "building"), web.Command("Settings", to = "/settings", group = "Pages", icon = "settings"),
+      web.Command("New invoice", on = () -> web.Toast(p, "A new invoice"), group = "Actions", icon = "plus", key = "M-n")],
+      [web.Command("Invoice $(i.Number) · $(i.Client)", to = "/invoices/$(i.Number)", group = "Invoices", icon = "file-text") for i in web.Get(invoices)]),
+    view = () -> viewOf(web.Get(p.Nav)), label = "Invoices")
+end
+
+viewOf(path) = if text.StartsWith("/invoices", path) "/invoices" else path end   (* The view of a path: an invoice opened is in the list's. *)
+
+defn crumbs(path)
+  (** Where one is: the app, the group, the page. *)
+  page = if path == "/" "Dashboard" else if text.StartsWith("/invoices", path) "Invoices" else if path == "/clients" "Clients" else "Settings" end
+  web.Row([web.Text("Invoices", color = "Muted"), web.Icon("chevron-right", size = 12, color = "Muted"), web.Text(page, font = "strong")], gap = 6)
+end
+
+defn opened(path, p)
+  (** The invoice of the address, in the sheet: its fields, checked as one types, saved together. *)
+  parts = text.Split("/", path)
+  if value.Len(parts) != 3 or parts[2] != "invoices"
+    return missing
+  end
+  n = text.Number(parts[3])
+  i = list.FindFirst(x -> x.Number == n, web.Get(invoices))
+  if value.IsMissing(i)
+    return missing
+  end
+  client = web.Signal(i.Client)
+  total = web.Signal(value.Text(i.Total))
+  changed = () -> web.Get(client) != i.Client or web.Get(total) != value.Text(i.Total)
+  save = defn ()
+    if amountWrong(web.Get(total)) != ""
+      return missing
+    end
+    web.Set(invoices, [if x.Number == n dict.Put("Total", text.Number(web.Get(total)), dict.Put("Client", web.Get(client), x)) else x end for x in web.Get(invoices)])
+    web.Toast(p, "Invoice $n saved")
+  end
+  web.Unsaved(p, changed, save = save)
+  web.Sheet("$n", web.Stack([
+      web.Text("Client", size = "small", color = "Muted"), web.Select(client, clients, c -> c, c -> c, name = "Client", width = 100000),
+      web.Text("Total", size = "small", color = "Muted"), web.Input(total, label = "Total", width = 100000, invalid = () -> amountWrong(web.Get(total)) != "", onEnter = save),
+      () -> (if amountWrong(web.Get(total)) == "" missing else web.Text(amountWrong(web.Get(total)), size = "small", color = "Danger") end),
+      web.Text("Activity", font = "strong"), web.Text("Made on day $(i.Day) by ana", color = "Muted")], gap = 6),
+    close = () -> web.Go("/invoices", p), kicker = "Invoice · id $(i.Id)", sub = "$(i.Client) · due day $(i.Day)",
+    tag = web.Pill(stateWord[i.Status], tone = stateTone[i.Status]),
+    foot = [web.Text("Ctrl S save · Esc close", size = "small", color = "Muted"), web.Spacer(), web.Button("Cancel", () -> web.Go("/invoices", p), style = "ghost"),
+      web.Button("Save", save, key = "C-s", style = "primary")])
+end
+
+defn Invoices(p)
+  (** The invoices: the chips of their states, the search, the table, what to do with the rows checked. *)
+  all = web.Get(invoices)
+  owed = list.Sum([i.Total for i in all if i.Status == "unpaid" or i.Status == "overdue"])
+  count = s -> value.Len([i for i in all if s == "all" or i.Status == s])
+  table = web.Table(web.Memo(shown), [web.Column("Id", i -> web.Text(i.Id, size = "small", color = "Muted"), sort = "Id", width = 70),
+      web.Column("Number", i -> web.Text(value.Text(i.Number), font = "strong"), sort = "Number", width = 80), web.Column("Client", i -> i.Client, sort = "Client"),
+      web.Column("Status", i -> web.Pill(stateWord[i.Status], tone = stateTone[i.Status]), sort = "Status", width = 110),
+      web.Column("Total", i -> web.Money(i.Total), sort = "Total", width = 120)],
+    height = missing, label = "Invoices", checks = checks, key = i -> i.Number, open = i -> web.Go("/invoices/$(i.Number)", p),
+    picked = web.Memo(() -> pickedOf(web.Get(p.Nav))))
+  web.Stack([
+    web.Header("Invoices", summary = "$(value.Len(all)) invoices · $(web.Money(owed).Text) to collect",
+      actions = [web.Button("Export", () -> web.Toast(p, "Exported $(value.Len(shown())) invoices"), icon = "download"),
+        web.Button("New invoice", () -> web.Toast(p, "A new invoice"), icon = "plus", style = "primary", key = "M-n")]),
+    web.Spread(web.Chips(status, [web.Chip(s, if s == "all" "All" else stateWord[s] end, count = count(s)) for s in list.Prepend("all", states)], label = "State"),
+      web.Input(search, label = "Search", placeholder = "Number or client", icon = "search", hint = "/", width = 240)),
+    web.Bulk(checks, [web.Button("Mark paid", () -> markPaid(p), icon = "check")]),
+    table,
+    () -> web.Text("$(value.Len(shown())) of $(value.Len(all)) shown", size = "small", color = "Muted"),
+  ], gap = 10)
+end
+
+defn pickedOf(path)
+  (** The number of the invoice opened at path, or missing. *)
+  parts = text.Split("/", path)
+  if value.Len(parts) == 3 and parts[2] == "invoices" text.Number(parts[3]) else missing end
+end
+
+defn markPaid(p)
+  (** The invoices checked, paid; none checked after. *)
+  marked = web.Get(checks)
+  web.Set(invoices, [if x.Number in marked dict.Put("Status", "paid", x) else x end for x in web.Get(invoices)])
+  web.Toast(p, "$(value.Len(marked)) invoices marked paid")
+  web.Set(checks, dict.Dict())
+end
+
+defn Dashboard(p)
+  (** A board of graphs that share a crosshair: the mouse over one shows the same minute in all of them. *)
+  ns = [40 + math.Mod(k * 37, 23) + math.Mod(k * k, 9) for k in 1..60]
+  ms = [4 + math.Mod(k * 13, 5) for k in 1..60]
+  ps = [20 + math.Mod(k * 17, 15) for k in 1..60]
+  es = [if math.Mod(k, 17) == 0 2 else 0 end for k in 1..60]
+  at = i -> "14:$(text.PadLeft(2, "0", value.Text(i - 1)))"
+  pick = (xs, i) -> if value.IsMissing(i) xs[value.Len(xs)] else xs[i] end
+  web.Stack([
+    web.Header("Dashboard", summary = "The office, the last hour"),
+    web.Strip([web.Row([web.Icon("circle-check", color = "Ok"), web.Text("Live", font = "strong")], gap = 6), web.Text("312 requests/min"), web.Text("p50 4 ms · p99 31 ms"),
+      web.Text("0 errors", color = "Ok"), web.Text("1 job failed", color = "Danger")]),
+    web.Row([web.Grow(web.Metric("Requests", i -> value.Text(pick(ns, i)), () -> [{Values: ns, Tone: "S1"}], unit = "/min", note = "peak 70", at = at, cross = cross)),
+      web.Grow(web.Metric("Response time", i -> "$(pick(ms, i)) / $(pick(ps, i))", () -> [{Values: ms, Tone: "S1"}, {Values: ps, Tone: "S4"}], unit = "ms", note = "p50 / p99", at = at, cross = cross, style = "line")),
+      web.Grow(web.Metric("Errors", i -> value.Text(pick(es, i)), () -> [{Values: es, Tone: "Danger"}], unit = "/min", at = at, cross = cross, style = "bars"))], gap = 8, align = "start"),
+  ], gap = 10)
+end
+
+defn Clients(p)
+  (** The clients and what each owes. *)
+  web.Stack([web.Header("Clients", summary = "$(value.Len(clients)) clients"),
+    web.Table([{Name: c, Owed: list.Sum([i.Total for i in web.Get(invoices) if i.Client == c and i.Status != "paid"])} for c in clients],
+      [web.Column("Name", c -> c.Name, sort = "Name"), web.Column("Owed", c -> web.Money(c.Owed), sort = "Owed", width = 140)], height = missing, label = "Clients")], gap = 10)
+end
+
+defn Settings(p)
+  (** The look of the app on this machine: its theme and its density. *)
+  look = web.LookOf(p)
+  theme = web.Signal(look.Theme)
+  density = web.Signal(look.Density)
+  web.Stack([web.Header("Settings", summary = "Kept on this machine"),
+    web.Row([web.Stack([web.Text("Theme", font = "strong"), web.Text("System follows the device.", color = "Muted")], gap = 2), web.Spacer(),
+      web.Chips(theme, [web.Chip("system", "System"), web.Chip("light", "Light"), web.Chip("dark", "Dark")], label = "Theme")], gap = 12),
+    web.Row([web.Stack([web.Text("Density", font = "strong"), web.Text("Rows of 24, 30 or 44 pixels.", color = "Muted")], gap = 2), web.Spacer(),
+      web.Chips(density, [web.Chip("dense", "Dense"), web.Chip("compact", "Compact"), web.Chip("comfortable", "Comfortable")], label = "Density")], gap = 12),
+    () -> applied(web.Get(theme), web.Get(density), p),
+  ], gap = 14)
+end
+
+defn applied(theme, density, p)
+  (** The look chosen, applied as soon as it is chosen. *)
+  web.SetLook(p, theme = theme, density = density)
+  missing
+end
+
+(** The app: the system's theme by default. *)
+App(theme = web.System()) = web.App([web.Route("/", Dashboard), web.Route("/invoices", Invoices), web.Route("/invoices/:n", Invoices), web.Route("/clients", Clients),
+  web.Route("/settings", Settings)], title = "Invoices — pages", theme = theme, frame = frame)

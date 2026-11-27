@@ -112,7 +112,7 @@ defn Toolbar(items)
       pushes the next to the right, a web.Divider is a thin line up between two groups.
 
         Toolbar([Button("Save", () -> missing, icon = "save", key = "C-s")]).Kind --> "toolbar" *)
-  {Kind: "toolbar", Kids: [barred(x) for x in kids(items)], Gap: 4, Pad: 4, Fill: "Header", Border: missing, Radius: 0, Width: missing,
+  {Kind: "toolbar", Kids: [barred(x) for x in kids(items)], Gap: 4, Pad: 4, Fill: "Band", Border: missing, Radius: 0, Width: missing,
     Height: missing, Align: "center", Grow: 0, Kit: kit}
 end
 
@@ -131,19 +131,19 @@ defn StatusBar(items)
       counts, a web.Spacer between those at the left and those at the right, a web.Divider a line up between two.
 
         StatusBar(["Ready"]).Kind --> "statusbar" *)
-  {Kind: "statusbar", Kids: [barred(x) for x in kids(items)], Gap: 12, Pad: 4, Fill: "Header", Border: missing, Radius: 0, Width: missing,
+  {Kind: "statusbar", Kids: [barred(x) for x in kids(items)], Gap: 12, Pad: 4, Fill: "Band", Border: missing, Radius: 0, Width: missing,
     Height: missing, Align: "center", Grow: 0, Kit: kit}
 end
 
-defn Item(label, icon = missing, kids = [], on = missing, count = missing, key = missing, to = missing)
-  (** A row of a web.Tree: its label, an icon of web.Icons, the rows under it, on(), what choosing it does, a count
-      shown at its right, and key, what tells it apart, its label by default. to, a route of the app, makes the row a
-      link to it: choosing it goes there, as web.Go does, and in a browser Ctrl or the middle button opens it in a new
-      tab.
+defn Item(label, icon = missing, kids = [], on = missing, count = missing, key = missing, to = missing, tone = missing)
+  (** A row of a web.Tree or a web.Nav: its label, an icon of web.Icons, the rows under it, on(), what choosing it
+      does, a count shown at its right, in the color tone (a role of the theme, as "Danger" for "1 failed"), and key,
+      what tells it apart, its label by default. to, a route of the app, makes the row a link to it: choosing it goes
+      there, as web.Go does, and in a browser Ctrl or the middle button opens it in a new tab.
 
         Item("Users", icon = "person", count = 7).Count --> 7
         Item("Users", to = "/users").To --> "/users" *)
-  {Label: label, Icon: icon, Kids: kids, On: on, Count: count, Key: if value.IsMissing(key) label else key end, To: to}
+  {Label: label, Icon: icon, Kids: kids, On: on, Count: count, Key: if value.IsMissing(key) label else key end, To: to, Tone: tone}
 end
 
 defn Tree(items, chosen = missing, closed = [], label = "")
@@ -216,7 +216,7 @@ end
 defn kit()
   (** The functions of the widgets of a desktop tool, as a page calls them. *)
   {Lay: layDesk, Mounted: restored, Sem: semDesk, Patch: patchDesk, Drop: dropItems, Hover: hoverDesk, Down: dockDown,
-    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk, Fold: foldKey, Pane: paneTo}
+    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk, Fold: foldKey, Pane: paneTo, Modal: shellModal}
 end
 
 defn layDesk(id, maxW, ui)
@@ -230,12 +230,26 @@ defn layDesk(id, maxW, ui)
   else if k == "section" laySection(id, maxW, ui)
   else if k == "icon" layIcon(id, ui)
   else if k == "sep" layLine(id, ui)
+  else if k == "shell" layShell(id, maxW, ui)
+  else if k == "side" laySide(id, maxW, ui)
+  else if k == "inset" layInset(id, maxW, ui)
+  else if k == "narrow" layNarrow(id, maxW, ui)
+  else if k == "sheet" laySheet(id, maxW, ui)
+  else if k == "pop" layPop(id, maxW, ui)
+  else if k == "picks" layPicks(id, maxW, ui)
+  else if k == "nav" layNav(id, maxW, ui)
+  else if k == "header" layHeader(id, maxW, ui)
+  else if k == "chips" layChips(id, maxW, ui)
+  else if k == "pill" layPill(id, ui)
+  else if k == "asked" layAsked(id, maxW, ui)
+  else if k == "strip" layStrip(id, maxW, ui)
+  else if k == "metric" layMetric(id, maxW, ui)
   else bug.Panic("No layout for the widget kind $k.") end
 end
 
 (* ---- Layout: each of these is given its height by the one around it (layout's h), as a panel gives its own. *)
 
-fillKinds = ["dock", "split", "tabs", "scroll"]   (* The kinds that take the height they are given. *)
+fillKinds = ["dock", "split", "tabs", "scroll", "shell", "sheet", "side"]   (* The kinds that take the height they are given. *)
 
 defn grows(id, u)
   (** Does the box id take a share of the height left in a stack: web.Grow marks it, or it is a spacer of no size? *)
@@ -267,7 +281,10 @@ defn pageFills(u)
     return false
   end
   live = u.Boxes[r.Kids[1]]
-  not value.IsEmpty(live.Kids) and u.Boxes[live.Kids[1]].Node.Kind == "dock"
+  if live.Node.Kind in ["dock", "shell"]
+    return true
+  end
+  live.Node.Kind == "live" and not value.IsEmpty(live.Kids) and u.Boxes[live.Kids[1]].Node.Kind in ["dock", "shell"]
 end
 
 iconItem(x, y, name, size, color) = {Kind: "text", X: x, Y: y, Text: glyph(name), Size: size, Color: color, Font: "icon", Icon: name}   (* An icon as a draw item. *)
@@ -425,7 +442,7 @@ defn layTabs(id, maxW, ui)
   inside = holdsFocus(id, u)
   lh = lineOf(t.Size, u)
   ic = role("Icon", t)
-  items = [rect(0, 0, maxW, th, role("Header", t)), rect(0, th, maxW, h - th, role("Panel", t))]
+  items = [rect(0, 0, maxW, th, tok("Desk", t, "Header")), rect(0, th, maxW, h - th, role("Panel", t))]
   x = 0
   spans = []
   titles = []
@@ -443,7 +460,7 @@ defn layTabs(id, maxW, ui)
     else if hov
       items = list.Append(rect(x, 2, tw, th - 2, role("Hover", t)), items)
     end
-    ink = t.Ink if on or hov else t.Muted
+    ink = t.Ink if on or hov else tok("TabOff", t, "Muted")
     if value.IsSome(icon)
       items = list.Append(iconItem(x + 12, math.Div(th - ic, 2), icon, ic, t.Link if on and inside else ink), items)
     end
@@ -461,12 +478,12 @@ defn layTabs(id, maxW, ui)
     shut = h <= th
     fx = maxW - ic - 8
     fold = [fx - 4, ic + 8]
-    items = list.Append(iconItem(fx, math.Div(th - ic, 2), "chevron-up" if shut else "chevron-down", ic, t.Muted), items)
+    items = list.Append(iconItem(fx, math.Div(th - ic, 2), "chevron-up" if shut else "chevron-down", ic, tok("TabOff", t, "Muted")), items)
     e = if shut shownEmpty(c, u) else missing end
     if value.IsSome(e)
       say = shown(e)
       ex = list.Max(x + 12, fx - 12 - widthOf(say, t.Size, "body", u))
-      items = list.Append(group(ex, 0, fx - 12 - ex, th, true, [words(0, math.Div(th - lh, 2), say, t.Size, t.Muted)]), items)
+      items = list.Append(group(ex, 0, fx - 12 - ex, th, true, [words(0, math.Div(th - lh, 2), say, t.Size, tok("TabOff", t, "Muted"))]), items)
     end
   end
   items = list.Append(group(0, th, maxW, h - th, true, u.Boxes[c].Items), items)
@@ -644,7 +661,7 @@ defn hoverDesk(h, ui)
   else if k == "tree"
     return {Id: h.Id, Part: rowAt(h.Y, b), Cursor: "default"}
   end
-  {Id: 0, Part: missing, Cursor: "default"}
+  shellHover(h, ui)
 end
 
 defn wheelDesk(id, by, ui)
@@ -664,7 +681,7 @@ defn keyDesk(e, ui)
   (** A key for the widget of a desktop tool in focus: a tree's, tabs', or PgUp and PgDn on a button or a section,
       which scroll its panel. *)
   k = ui.Boxes[ui.Focus].Node.Kind
-  if k == "tree" treeKey(e, ui) else if k == "tabs" tabsKey(e, ui) else paneKey(e, ui) end
+  if k == "tree" treeKey(e, ui) else if k == "tabs" tabsKey(e, ui) else if k == "nav" or k == "chips" shellKey(e, ui) else paneKey(e, ui) end
 end
 
 defn dockDown(h, e, ui)
@@ -698,6 +715,8 @@ defn dockDown(h, e, ui)
     return u
   else if k == "tree"
     return treeDown(h, u)
+  else if k in ["nav", "chips", "picks", "asked"]
+    return shellDown(h, e, u)
   end
   focus(0, u)
 end
@@ -990,7 +1009,9 @@ end
 defn semDesk(b, x, y, ui, inner)
   (** The semantic nodes of a tree, tabs, a section or a toolbar, at x, y, inner those of its children. *)
   k = b.Node.Kind
-  if k == "tree"
+  if k in ["nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell"]
+    shellSem(b, x, y, ui, inner)
+  else if k == "tree"
     [treeSem(b, x, y, ui)]
   else if k == "tabs"
     tabsSem(b, x, y, ui, inner)
@@ -1048,6 +1069,9 @@ defn patchDesk(id, at, since, ui)
   ey = at[2] if b.W > 0 else y
   f = ui.Focus == id
   k = b.Node.Kind
+  if k in ["nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell"]
+    return shellPatch(id, at, since, ui)
+  end
   if k == "tree"
     return treePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
   else if k == "tabs"

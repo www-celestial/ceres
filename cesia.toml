@@ -67,3 +67,9 @@ allow = ["net=127.0.0.1", "read=examples/desk", "env=PORT"]
 [tasks.desk-window]
 file = "examples/desk/window.ce"
 allow = ["ffi=SDL3", "ffi=SDL3_ttf", "read=src/sdl/fonts"]
+
+# The page of examples/pages, a web app laid out as pages (web.Shell), in a browser, compiled to WebAssembly first
+# (cesia build --target wasm examples/pages/pages.ce): http://127.0.0.1:8080/ (PORT for another port).
+[tasks.pages]
+file = "examples/pages/serve.ce"
+allow = ["net=127.0.0.1", "read=examples/pages", "env=PORT"]

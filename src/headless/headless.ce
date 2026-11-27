@@ -14,7 +14,7 @@ use std/value
 
 (** The measures of the headless text: a character is half the size wide, an icon a square, a line one size and a
     half high, its baseline one size under its top. *)
-Measure = {Width: (s, size, font) -> size if font == "icon" else value.Len(s) * math.Div(size, 2), Line: size -> size + math.Div(size, 2),
+Measure = {Width: (s, size, font) -> size if font == "icon" else value.Len(s) * math.Div(math.Round(size), 2), Line: size -> math.Round(size) + math.Div(math.Round(size), 2),
   Base: (size, font) -> size}
 
 (** An app mounted in a page of width by height pixels at path, its live screen at origin if it has one; dark says
@@ -225,7 +225,7 @@ defn Contrasts(page)
   for i in 1..value.Len(items)
     t = items[i]
     if t.Kind == "text"
-      back = backAt(items, i, t.X + math.Div(t.Size, 4), t.Y + math.Div(t.Size * 3, 4))
+      back = backAt(items, i, t.X + math.Div(math.Round(t.Size), 4), t.Y + math.Div(math.Round(t.Size) * 3, 4))
       out = list.Append({Text: t.Text, Ink: t.Color, Back: back, Ratio: web.Contrast(t.Color, back)}, out)
     end
   end

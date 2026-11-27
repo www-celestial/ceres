@@ -60,12 +60,12 @@ defn isTableKept()
   p = headless.Wheel(tb.X + 100, tb.Y + 100, -2, p)
   p = headless.Click(tb.X + 100, tb.Y + 22 + 22 + 8, p)
   before = cells(headless.Tree(p))
-  chosen = text.Contains("#1f5fb0", headless.Draw(p))
+  chosen = text.Contains("#0070e0", headless.Draw(p))
   p = headless.ClickOn("To the second", p)
   p = headless.ClickOn("Back to the first", p)
   after = cells(headless.Tree(p))
   list.All([chosen, value.Equal(before, after), not value.IsEmpty(after), not text.Contains("cell \"100\"", text.Join("\n", after)),
-    text.Contains("cell \"9", text.Join("\n", after)), text.Contains("#1f5fb0", headless.Draw(p))])
+    text.Contains("cell \"9", text.Join("\n", after)), text.Contains("#0070e0", headless.Draw(p))])
 end
 
 defn isUnsavedAsked()
