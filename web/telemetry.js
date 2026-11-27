@@ -47,7 +47,7 @@ function context () {
     Session: session, Path: location.pathname,
     Browser: brand ? brand.brand : browserOf(n.userAgent), Version: brand ? brand.version : versionOf(n.userAgent), Os: ua ? ua.platform : osOf(n.userAgent),
     Mobile: ua ? ua.mobile : /Mobi/.test(n.userAgent), Screen: [screen.width, screen.height], Viewport: [innerWidth, innerHeight], Dpr: devicePixelRatio,
-    Dark: m('(prefers-color-scheme: dark)'), Motion: m('(prefers-reduced-motion: reduce)'), Lang: n.language, Zone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    Dark: m('(prefers-color-scheme: dark)'), Motion: m('(prefers-reduced-motion: reduce)'), Lang: n.language, Zone: zone(),
     Cores: n.hardwareConcurrency, Memory: n.deviceMemory, Net: c ? c.effectiveType : undefined, Rtt: c ? c.rtt : undefined, Down: c ? c.downlink : undefined,
     Save: c ? c.saveData : undefined, Online: n.onLine,
     Ref: !ref ? '' : ref.origin === location.origin ? 'same' : ref.origin, Utm: utm,
@@ -57,6 +57,9 @@ function context () {
     Wasm: wasm ? { Fetch: round(wasm.responseEnd - wasm.startTime), Bytes: wasm.transferSize, Start: round(performance.now()) } : { Start: round(performance.now()) }
   }
 }
+// The offset of the visitor's clock, as UTC+01:00: coarser than the name of his zone, and the name costs 12 ms at the
+// first call (Intl.DateTimeFormat), on the page's main thread as it loads.
+const zone = () => { const m = -new Date().getTimezoneOffset(), a = Math.abs(m); return 'UTC' + (m < 0 ? '-' : '+') + String(Math.floor(a / 60)).padStart(2, '0') + ':' + String(a % 60).padStart(2, '0') }
 // A random id of 64 bits, as hex: a tab's session, kept in its sessionStorage only, which no other tab nor site reads.
 const hex = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), b => b.toString(16).padStart(2, '0')).join('')
 // Without client hints (Firefox, Safari): the name and major version of the browser, the system, from the user agent.
