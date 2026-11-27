@@ -120,7 +120,7 @@ web.Row([web.Grow(web.Metric("Requests", i -> value.Text(pick(ns, i)), () -> [{V
   web.Grow(web.Metric("Errors", i -> value.Text(pick(es, i)), () -> [{Values: es, Tone: "Danger"}], unit = "/min", at = at, cross = cross, style = "bars"))], gap = 8)
 ```
 
-![A board: the strip Live, 312 requests/min, p50 4 ms · p99 31 ms, 0 errors, 1 job failed; three graphs, the mouse over the first, the crosshair at 14:37 in each.](images/pages-board.png)
+![A board: the strip Live, 312 requests/min, p50 4 ms · p99 31 ms, 0 errors, 1 job failed; three graphs, the mouse over the first, the crosshair at 14:34 in each, with its number then.](images/pages-board.png)
 
 `web.Steps(steps)` is the list of the first steps of an app that has nothing yet, each with its action, a bar above
 that says how many are done.
