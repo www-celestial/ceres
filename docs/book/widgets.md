@@ -191,6 +191,48 @@ headless.Tree(headless.ClickOn("Invoice 42", headless.Open(app))) -->
 
 ![Before and after: the link Invoice 42, underlined; a click on it shows the route /invoices/:id, the title Invoice 42.](images/widgets-link.png)
 
+In a browser, the address holds the route shown after a `#`, as `page.html#/invoices/42`, the way a web site gives each
+page its address: each route the app goes to is a new entry of the browser's history, so Back and Forward bring the
+pages back; an address kept in a bookmark or sent to someone opens on its route; a link pressed with Ctrl (Cmd on a
+Mac) or the middle button opens in a new tab, and its element of the hidden DOM is a real `<a href="#/invoices/42">`,
+which a screen reader announces as a link. The `#` needs nothing from the server: any server of files serves the
+page, and the route never leaves the browser. In a window, Alt+Left and Alt+Right go back and forward, as in a file
+manager.
+
+A view comes back as it was left. A table shown again in its route, by Back, by a link or because a live part made the
+page again, has its order, its scroll and its row chosen of before (a table is known by its route, its label and the
+titles of its columns: two tables alike in one route share them), and the page is scrolled to where it was.
+`web.Path(page)` gives the route shown.
+
+```cesia
+app = web.App([web.Route("/", p -> web.Link("Invoice 42", "/invoices/42")), web.Route("/invoices/:id", p -> web.Title("Invoice $(p.Params.id)"))])
+page = headless.ClickOn("Invoice 42", headless.Open(app))
+web.Path(page) --> "/invoices/42"
+back = web.Handle({Kind: "key", Key: "left", Ctrl: false, Shift: false, Alt: true}, page)
+web.Path(back) --> "/"
+```
+
+### Changes not saved
+
+`web.Unsaved(p, changed, save)` says that the view of the page `p` holds changes that aren't saved while `changed()`
+is true (a function, or a signal of true or false). Going to another route then asks first, in the band at the bottom
+of the window: save and leave (Ctrl+S, which runs `save()`), leave without saving (Ctrl+D) or stay (Esc); the band is an
+alert with its three buttons for a screen reader. It asks the same for a link, for `web.Go`, for Back and Forward and
+for a new address typed in the browser, whose address then shows the view that stays; and in a browser, closing the
+tab or loading another page makes the browser ask too. A page calls it as it makes its widgets: it gives nothing to
+show.
+
+```cesia
+name = web.Signal("Ada")
+edit = p -> web.Stack([web.Unsaved(p, () -> web.Get(name) != "Ada"), web.Input(name, label = "Name"), web.Link("Home", "/")])
+app = web.App([web.Route("/", p -> web.Title("Home")), web.Route("/edit", edit)])
+page = headless.Type(" Lovelace", headless.ClickOn("Name", headless.Open(app, path = "/edit")))
+asked = headless.ClickOn("Home", page)
+web.Path(asked) --> "/edit"
+web.Guarded(asked) --> true
+web.Path(web.Handle({Kind: "key", Key: "d", Ctrl: true, Shift: false, Alt: false}, asked)) --> "/"
+```
+
 ## The band of keys
 
 Every action is in sight with its key: at the bottom of the window, a band lists the keys of the widget in focus and

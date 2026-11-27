@@ -5,7 +5,8 @@
 #   without a window and cut to the widget (tools/docshots/shoot.ce);
 # - in a window of SDL3 under SDL's dummy driver, the page of the tutorial live from a server of its own
 #   (tools/docshots/window.ce), the line of the connection as the network drops and comes back, and a conflict
-#   (tools/docshots/connection.ce);
+#   (tools/docshots/connection.ce), and the page of examples/desk laid out as a desktop tool, dark and light, and a
+#   dock whose bottom panels have nothing yet (tools/docshots/desk.ce);
 # - the drawings of a mechanism, as SVG (tools/docshots/figures.ce).
 # ImageMagick, when here, puts the steps of a widget side by side and makes each picture a PNG of 64 colors without its
 # metadata. CHROME names the browser, a Chrome or a chrome-headless-shell (chrome by default); PROFILE the folder of
@@ -24,6 +25,7 @@ CHROME="$chrome" PROFILE="$profile" OUT="$out" cesia run --allow "net=127.0.0.1,
 sdl="ffi=SDL3,ffi=SDL3_ttf,read=src/sdl/fonts,net=127.0.0.1,env=OUT,write=$out"
 OUT="$out" cesia run --allow "$sdl" tools/docshots/window.ce
 OUT="$out" cesia run --allow "$sdl" tools/docshots/connection.ce
+OUT="$out" cesia run --allow "$sdl" tools/docshots/desk.ce
 OUT="$out" cesia run --allow "env=OUT,write=$out" tools/docshots/figures.ce
 if command -v magick > /dev/null; then
   line=#cfcfcf
