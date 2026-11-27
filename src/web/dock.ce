@@ -334,8 +334,8 @@ end
 
 defn folding(u)
   (** The split of the bottom area of the page's dock, its id and whether it is folded: {Id, Folded}, or missing. *)
-  id = dict.Get("Foldable", u)
-  if value.IsMissing(id) or not (id in u.Boxes) or u.Boxes[id].Node.Kind != "split"
+  id = dict.GetOr("Foldable", 0, u)
+  if id == 0 or not (id in u.Boxes) or u.Boxes[id].Node.Kind != "split"
     return missing
   end
   {Id: id, Folded: dict.GetOr("Folded", false, u.Boxes[id].Cache)}

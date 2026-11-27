@@ -117,52 +117,55 @@ end
 
 defn routeMoved(ui)
   (** The page after its route changed since the last update: the route left goes into the history (unless the move
-      came from it), and each route keeps where its page was scrolled to, found again when it comes back. *)
-  path = nowOf(ui.Nav)
-  if path == ui.Shown
+      came from it), and each route keeps where its page was scrolled to, found again when it comes back. The history
+      and the memory of the views live in cells of the router, so that the page keeps its shape. *)
+  r = ui.Router
+  h = peek(r.Hist)
+  path = nowOf(r.Nav)
+  if path == h.Shown
     return ui
   end
+  scrolls = dict.Put(h.Shown, ui.ScrollY, peek(r.Scrolls))
+  put(scrolls, r.Scrolls)
+  put({Shown: path, Back: if h.Going h.Back else list.Append(h.Shown, h.Back) end, Forward: if h.Going h.Forward else [] end, Going: false}, r.Hist)
   u = ui
-  if value.IsSome(u.Shown)
-    u.Views["$(u.Shown) page"] = u.ScrollY
-    if not u.Going
-      u.Back = list.Append(u.Shown, u.Back)
-      u.Forward = []
-    end
-  end
-  u.Going = false
-  u.Shown = path
-  u.ScrollY = dict.GetOr("$path page", 0, u.Views)
+  u.ScrollY = math.Div(dict.GetOr(path, 0, scrolls), 1)
   u.Changed = true
   u
 end
 
 defn travel(way, ui)
   (** Goes back or forward in the window's history (way "back" or "forward"), as a browser's buttons do. *)
-  from = if way == "back" ui.Back else ui.Forward end
-  if value.IsEmpty(from) or value.IsMissing(ui.Router)
+  if value.IsMissing(ui.Router)
+    return ui
+  end
+  h = peek(ui.Router.Hist)
+  from = if way == "back" h.Back else h.Forward end
+  if value.IsEmpty(from)
     return ui
   end
   to = from[value.Len(from)]
   _ = going(ui.Router, to, way)
-  if nowOf(ui.Nav) != to
-    return ui
+  if nowOf(ui.Nav) == to
+    arrived(way, ui.Router)
   end
-  arrived(way, ui)
+  ui
 end
 
-defn arrived(way, ui)
+defn arrived(way, r)
   (** The history once a move back or forward went through: the route left goes to the other side. *)
-  u = ui
+  h = peek(r.Hist)
   if way == "back"
-    u.Forward = list.Append(u.Shown, u.Forward)
-    u.Back = list.Take(value.Len(u.Back) - 1, u.Back)
+    put({Shown: h.Shown, Back: list.Take(value.Len(h.Back) - 1, h.Back), Forward: list.Append(h.Shown, h.Forward), Going: true}, r.Hist)
   else
-    u.Back = list.Append(u.Shown, u.Back)
-    u.Forward = list.Take(value.Len(u.Forward) - 1, u.Forward)
+    put({Shown: h.Shown, Back: list.Append(h.Shown, h.Back), Forward: list.Take(value.Len(h.Forward) - 1, h.Forward), Going: true}, r.Hist)
   end
-  u.Going = true
-  u
+end
+
+defn went(r)
+  (** The move that comes is one through the history: it doesn't go into it. *)
+  h = peek(r.Hist)
+  put({Shown: h.Shown, Back: h.Back, Forward: h.Forward, Going: true}, r.Hist)
 end
 
 defn navigated(path, ui)
@@ -170,10 +173,11 @@ defn navigated(path, ui)
   if value.IsMissing(ui.Router)
     return ui
   end
-  u = ui
-  _ = going(u.Router, path, "address")
-  u.Going = nowOf(u.Nav) == path
-  u
+  _ = going(ui.Router, path, "address")
+  if nowOf(ui.Nav) == path
+    went(ui.Router)
+  end
+  ui
 end
 
 defn Path(ui)
@@ -194,9 +198,9 @@ defn held(ui)
   if value.IsMissing(ui.Router) missing else nowOf(ui.Router.Held) end
 end
 
-defn heldPairs(ui)
+defn heldPairs(r)
   (** The answers to the question, as the band shows them: [key, what it does, its action] for each. *)
-  g = peek(ui.Router.Guard)
+  g = peek(r.Guard)
   save = if value.IsSome(g) and value.IsFunction(g.Save) [["C-s", "save and leave", "save"]] else [] end
   list.Concat(save, [["C-d", "leave without saving", "leave"], ["Esc", "stay", "stay"]])
 end
@@ -219,9 +223,12 @@ defn heldAnswered(act, ui)
   put(missing, r.Guard)
   Set(r.Held, missing)
   Set(r.Nav, h.To)
-  u = if h.Way == "back" or h.Way == "forward" arrived(h.Way, ui) else ui end
-  u.Going = u.Going or h.Way == "address"
-  touch(u.Root, u)
+  if h.Way == "back" or h.Way == "forward"
+    arrived(h.Way, r)
+  else if h.Way == "address"
+    went(r)
+  end
+  touch(ui.Root, ui)
 end
 
 defn Start(app, width, height, measure, origin = missing, path = "/", theme = missing, headers = [], wake = missing, net = missing, dark = missing, store = missing)
@@ -242,10 +249,10 @@ defn Start(app, width, height, measure, origin = missing, path = "/", theme = mi
   ui.Say = dict.Get("Say", app)
   screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net) else missing end
   nav = Signal(path)
-  router = {Nav: nav, Guard: cell(missing), Held: Signal(missing)}
+  router = {Nav: nav, Guard: cell(missing), Held: Signal(missing), Hist: cell({Shown: path, Back: [], Forward: [], Going: false}),
+    Views: cell(dict.Dict()), Scrolls: cell(dict.Dict())}
   ui.Nav = nav
   ui.Router = router
-  ui.Shown = path
   ui.Screens = if value.IsSome(screen) [screen] else [] end
   made = mount(Stack([routed(app, router, screen)], pad = ui.Theme.Page), 0, ui)
   u = made.Ui
@@ -260,7 +267,7 @@ defn Update(ui)
     pump(s)
   end
   u = flush(ui)
-  if value.IsSome(u.Nav)
+  if value.IsSome(u.Router)
     u = routeMoved(u)
   end
   if u.Boxes[u.Root].Dirty
@@ -343,7 +350,7 @@ defn Keys(ui)
   else
     [["Tab", "first field"], ["PgUp PgDn", "scroll the page"]]
   end
-  if value.IsSome(dict.Get("Foldable", ui)) and value.IsSome(ui.Kit)
+  if dict.GetOr("Foldable", 0, ui) != 0 and value.IsSome(ui.Kit)
     own = list.Concat(own, [["f6 S-f6", "next panel, previous"], ["C-j", "fold or open the bottom panels"]])
   end
   if k == "tabs" and value.IsSome(dict.Get("Dock", ui.Boxes[f].Node))
@@ -353,29 +360,36 @@ defn Keys(ui)
   list.Concat(if value.IsMissing(say) own else [[say(x[1]), say(x[2])] for x in own] end, buttonKeys(ui.Root, ui))
 end
 
+defn spotted(pairs, x0, t, m)
+  (** Pairs of a key and what it does placed in the band from x0: [{X, Wx, X1, Key, What, Act}], X1 where each ends. *)
+  x = x0
+  out = []
+  for pair in pairs
+    kx = x
+    x += m.Width(pair[1], t.Size, "code") + 8
+    wx = x
+    x += m.Width(pair[2], t.Size, "body") + 20
+    out = list.Append({X: kx, Wx: wx, X1: x - 12, Key: pair[1], What: pair[2], Act: pair[3]}, out)
+  end
+  out
+end
+
+defn heldSpots(r, t, m, say)
+  (** The question of a view left with changes not saved and its answers, placed in the band: {Lead, Pairs}, Lead
+      {X, Text}; or missing while none waits. It reads only what it needs of the page, so that the patch of the
+      semantics and the frame take it without the page whole. *)
+  if value.IsMissing(r) or value.IsMissing(nowOf(r.Held))
+    return missing
+  end
+  q = said(say, "The changes of this page aren't saved.")
+  {Lead: {X: t.Page, Text: q}, Pairs: spotted([[p[1], said(say, p[2]), p[3]] for p in heldPairs(r)], t.Page + m.Width(q, t.Size, "strong") + 20, t, m)}
+end
+
 defn bandSpots(ui)
   (** What the band at the bottom of the window shows, placed: {Lead, Pairs}, Lead the question of a view left with
       changes not saved ({X, Text}) or missing, Pairs [{X, Key, What, Act, X1}] for each key, X1 where it ends. *)
-  t = ui.Theme
-  h = held(ui)
-  lead = missing
-  x = t.Page
-  pairs = if value.IsSome(h) heldPairs(ui) else [[k[1], k[2], missing] for k in Keys(ui)] end
-  if value.IsSome(h)
-    q = said(dict.Get("Say", ui), "The changes of this page aren't saved.")
-    lead = {X: x, Text: q}
-    x += widthOf(q, t.Size, "strong", ui) + 20
-  end
-  out = []
-  for pair in pairs
-    what = if value.IsSome(h) said(dict.Get("Say", ui), pair[2]) else pair[2] end
-    kx = x
-    x += widthOf(pair[1], t.Size, "code", ui) + 8
-    wx = x
-    x += widthOf(what, t.Size, "body", ui) + 20
-    out = list.Append({X: kx, Wx: wx, X1: x - 12, Key: pair[1], What: what, Act: pair[3]}, out)
-  end
-  {Lead: lead, Pairs: out}
+  got = heldSpots(ui.Router, ui.Theme, ui.Measure, dict.Get("Say", ui))
+  if value.IsSome(got) got else {Lead: missing, Pairs: spotted([[k[1], k[2], missing] for k in Keys(ui)], ui.Theme.Page, ui.Theme, ui.Measure)} end
 end
 
 defn bandItems(ui)
@@ -401,15 +415,15 @@ defn bandItems(ui)
   out
 end
 
-defn heldSem(ui)
+defn heldSem(r, t, m, say, height)
   (** The question of a view left with changes not saved, as the semantics tree holds it: an alert and a button for
-      each answer, in the band. *)
-  spots = bandSpots(ui)
-  if value.IsMissing(spots.Lead)
+      each answer, in the band at the bottom of a window height pixels high. *)
+  spots = heldSpots(r, t, m, say)
+  if value.IsMissing(spots)
     return []
   end
-  y = ui.Height - bandHeight(ui)
-  h = bandHeight(ui)
+  h = m.Line(t.Size) + 8
+  y = height - h
   one = {Id: "held", Role: "alert", Name: spots.Lead.Text, Value: missing, X: spots.Lead.X, Y: y, W: spots.Pairs[1].X - spots.Lead.X, H: h, Focused: false, Kids: []}
   list.Prepend(one, [{Id: "held$(p.Act)", Role: "button", Name: "$(p.What) ($(p.Key))", Value: missing, X: p.X, Y: y, W: p.X1 - p.X, H: h, Focused: false, Kids: []} for p in spots.Pairs])
 end
@@ -473,7 +487,7 @@ defn Semantics(ui)
       the number of rows in all, and Kids, its header and the rows in sight, "row" with Index, of "cell"), "img" for a
       graph, "list" of "listitem". The boxes that only place others, stacks and rows, give their children. *)
   root = ui.Boxes[ui.Root]
-  {Id: 0, Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: list.Concat(semOf(ui.Root, 0, -ui.ScrollY, ui), heldSem(ui))}
+  {Id: 0, Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: list.Concat(semOf(ui.Root, 0, -ui.ScrollY, ui), heldSem(ui.Router, ui.Theme, ui.Measure, dict.Get("Say", ui), ui.Height))}
 end
 
 defn node(role, name, b, x, y, ui, kids = [], v = missing)

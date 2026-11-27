@@ -14,8 +14,8 @@ defn newUi(width, height, measure, theme)
   {Boxes: dict.Dict(), Root: 0, Comps: dict.Dict(), Deps: dict.Dict(), Subs: dict.Dict(), Width: width, Height: height,
     Measure: measure, Theme: theme, Focus: 0, Ring: false, Caret: 0, Pressed: 0, Popup: 0, Drag: missing, ScrollY: 0, Changed: true,
     Screens: [], Nav: missing, Memos: dict.Dict(), SemSeq: 0, SemPage: "", SemKids: "", Hover: 0, HoverPart: missing, Drop: missing,
-    Store: missing, Cursor: "default", Choice: theme, Dark: missing, Kit: missing, Router: missing, Shown: missing, Back: [], Forward: [],
-    Going: false, Views: dict.Dict(), SemHeld: "", Foldable: missing}
+    Store: missing, Cursor: "default", Choice: theme, Dark: missing, Kit: missing, Router: missing, SemHeld: "",
+    Foldable: 0}
 end
 
 defn mount(node, parent, ui)

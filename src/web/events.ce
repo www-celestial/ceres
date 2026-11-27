@@ -369,7 +369,7 @@ defn key(e, ui)
   u = ui
   if value.IsSome(held(u))
     c = chord(e)
-    act = if c == "escape" "stay" else if c == "C-d" "leave" else if c == "C-s" and list.Any([p[3] == "save" for p in heldPairs(u)]) "save" else missing end
+    act = if c == "escape" "stay" else if c == "C-d" "leave" else if c == "C-s" and list.Any([p[3] == "save" for p in heldPairs(u.Router)]) "save" else missing end
     if value.IsSome(act)
       return heldAnswered(act, u)
     end

@@ -30,12 +30,12 @@ defn Patch(ui)
     u.SemPage = page
   end
   u = semWalk(u.Root, 0, 0, 0, -u.ScrollY, since, u)
-  asked = heldSem(u)
+  asked = heldSem(u.Router, u.Theme, u.Measure, dict.Get("Say", u), u.Height)
   heldNodes = [json.Text([n.Id, n.Role, n.Name, missing, n.X, n.Y, n.W, n.H, false, missing]) for n in asked]
   joined = text.Join(",", heldNodes)
   if joined != u.SemHeld
-    for one in heldNodes
-      fiber.Send(one, semNodes)
+    if joined != ""
+      fiber.Send(joined, semNodes)
     end
     u.SemHeld = joined
   end

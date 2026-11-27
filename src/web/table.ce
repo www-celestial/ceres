@@ -110,10 +110,10 @@ end
 
 defn recalled(n, ui)
   (** A table as it was the last time its route showed it, if it did. *)
-  if value.IsMissing(ui.Nav)
+  if value.IsMissing(ui.Router)
     return missing
   end
-  kept = dict.Get(tableMemory(n, ui), ui.Views)
+  kept = dict.Get(tableMemory(n, ui), peek(ui.Router.Views))
   if value.IsSome(kept)
     quiet(n.Sort, kept.Sort)
     quiet(n.Offset, kept.Offset)
@@ -147,8 +147,8 @@ defn layTable(id, maxW, ui)
   h = if value.IsSome(b.Gh) and dict.GetOr("Grow", 0, n) > 0 list.Max(2 * (ui.Theme.Row), b.Gh) else n.Height end
   got = watched(id, () -> tableView(id, n, w, ui, h), ui)
   u = got.Ui
-  if value.IsSome(u.Nav)
-    u.Views[tableMemory(n, u)] = {Sort: nowOf(n.Sort), Offset: nowOf(n.Offset), Chosen: nowOf(n.Chosen)}
+  if value.IsSome(u.Router)
+    put(dict.Put(tableMemory(n, u), {Sort: nowOf(n.Sort), Offset: nowOf(n.Offset), Chosen: nowOf(n.Chosen)}, peek(u.Router.Views)), u.Router.Views)
   end
   cached(id, w, h, got.Value.Items, got.Value.Cache, u)
 end
