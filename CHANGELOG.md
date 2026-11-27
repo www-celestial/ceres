@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Pages of a web app
+
+- `web.Shell`, the layout of a web app: the pages in a side bar (`web.Nav`, `web.Group`, `web.Item` with `to`, `count`
+  and `tone`), a top bar with the buttons of the palette, of the density and of the theme, the page that scrolls by
+  itself and keeps its place for each view, the details of a thing in a `web.Sheet` beside the page from 1280 pixels,
+  over it under, the whole window on a phone, where the side bar is a drawer and the rows of a table cards; `tabs` keeps
+  the views opened as tabs. `web.App(frame = ...)` makes what stands around every page once. The chapter Pages of a web
+  app and `examples/pages`.
+- The palette of Ctrl+K (`web.Command`), `web.Toast`, `web.Asked` (a change not saved asked in the sheet, inline),
+  `web.Header`, `web.Spread`, `web.Wide`, `web.Chips` and `web.Chip`, `web.Bulk`, `web.Strip`, `web.Metric` (graphs that
+  share a crosshair) and `web.Steps`.
+- `web.Table` takes `checks` and `key` (a box to check each row), `open` and `picked` (a row opened at its address), and
+  `height = missing` (as tall as its rows); `web.Pill(word, tone)` in a cell. `web.Button(style = ...)` (primary,
+  ghost, danger, field) and `web.IconButton`; `web.Input(icon, hint)`, the key / of search; `web.Row(wrap = true)`.
+- `web.Dark` and `web.Light` are made of `web.Tokens.Desktop` (tokens.md) on every platform, at three densities
+  (`web.Densities`); `web.App(density = ...)`, `web.SetLook` and `web.LookOf`, the person's choice kept on his machine.
+  An app that names no theme keeps `web.Theme`, its look of before.
+
 ### Like a desktop tool
 
 - `web.Dock`, the layout of a desktop tool that fills the window: panels with tabs (`web.Panel`) docked left, center,

@@ -71,7 +71,10 @@ folds or opens the bottom panels.
 `web.Dark`, the default of a desktop tool, and `web.Light` are its themes; `web.System()` follows the system and
 changes with it. A color in a widget is a number or the name of a role of the theme, as `"Muted"` or `"Ok"`, so a page
 looks right in both. `web.Tokens.Desktop` holds every value of the design of this look by its name, dark and light,
-which the themes carry as their field `Tokens`; `web.Tokens.Web`, the look of a web page, comes with its design.
+which the themes are made of and carry as their field `Tokens`: one set of materials for every platform, the pages of a
+web app (the chapter [Pages of a web app](pages.md)) as the dock of a window; `web.Tokens.Web` stays empty, there is no
+second palette. The themes come at three densities (`web.Densities`: dense, compact, comfortable), which
+`web.App(density = ...)` and `web.SetLook` choose.
 
 Each text of these themes over each surface it is drawn on reaches the contrast of WCAG 2.2 AA, 4.5:1, and the focus
 3:1. `web.Contrast(a, b)` measures two colors; `headless.Contrasts(page)` measures each text a page draws against what
