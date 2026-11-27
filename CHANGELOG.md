@@ -21,6 +21,10 @@
   (`web.Densities`); `web.App(density = ...)`, `web.SetLook` and `web.LookOf`, the person's choice kept on his machine.
   An app that names no theme keeps `web.Theme`, its look of before.
 
+- A part of a `web.Stack` that shows nothing (a live part that gives missing) takes no gap: a band that comes only
+  when it has something to say (a question, a reply, the rows checked) leaves no hole while it is away.
+- `headless.Contrasts` leaves out a text whose first letter's middle is out of the window, which no one reads there.
+
 ### Like a desktop tool
 
 - `web.Dock`, the layout of a desktop tool that fills the window: panels with tabs (`web.Panel`) docked left, center,

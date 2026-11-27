@@ -180,6 +180,8 @@ defn place(id, x, y, ui)
   u
 end
 
+spaced(h, gap) = if h > 0 h + gap else 0 end   (* A part of a stack and the gap after it: none for a part that shows nothing (a live part of missing). *)
+
 defn layStack(id, maxW, fit, ui)
   u = ui
   b = u.Boxes[id]
@@ -196,7 +198,7 @@ defn layStack(id, maxW, fit, ui)
     if not (c in growing)
       u = layout(c, inner, fit, u)
       widest = list.Max(widest, u.Boxes[c].W)
-      y += u.Boxes[c].H + gap
+      y += spaced(u.Boxes[c].H, gap)
     end
   end
   if not value.IsEmpty(growing)
@@ -209,7 +211,7 @@ defn layStack(id, maxW, fit, ui)
       y += u.Boxes[c].H + gap
     end
   end
-  if value.Len(b.Kids) > 0
+  if y > pad
     y -= gap
   end
   w = if value.IsSome(fixed) fixed else if fit widest + 2 * pad else maxW end
@@ -221,7 +223,7 @@ defn layStack(id, maxW, fit, ui)
     cw = u.Boxes[c].W
     x = pad + (0 if align == "start" else math.Div(room - cw, 2) if align == "center" else room - cw)
     u = place(c, x, y, u)
-    y += u.Boxes[c].H + gap
+    y += spaced(u.Boxes[c].H, gap)
   end
   sized(id, w, h, list.Concat(decor(n, w, h, u.Theme), kidGroups(u.Boxes[id], u)), u)
 end

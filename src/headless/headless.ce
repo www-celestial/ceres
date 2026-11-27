@@ -219,14 +219,19 @@ defn Contrasts(page)
   (** Each text the page draws in the window, with the color under it and their contrast as WCAG 2.2 measures it, from
       1 to 21: [{Text, Ink, Back, Ratio}], for a test that every text can be read (4.5 for AA). The color under a text
       is the one under the middle of its first letter, what was painted there before it: a rectangle drawn with an
-      alpha is mixed with what is under it. *)
+      alpha is mixed with what is under it. A text whose first letter's middle is out of the window is left out. *)
   items = flat(web.Frame(page), 0, 0, [0, 0, page.Width, page.Height], [])
   out = []
   for i in 1..value.Len(items)
     t = items[i]
     if t.Kind == "text"
-      back = backAt(items, i, t.X + math.Div(math.Round(t.Size), 4), t.Y + math.Div(math.Round(t.Size) * 3, 4))
-      out = list.Append({Text: t.Text, Ink: t.Color, Back: back, Ratio: web.Contrast(t.Color, back)}, out)
+      x = t.X + math.Div(math.Round(t.Size), 4)
+      y = t.Y + math.Div(math.Round(t.Size) * 3, 4)
+      (* a text cut by the edge of the window, its first letter's middle out of it, is not read there *)
+      if x < page.Width and y < page.Height
+        back = backAt(items, i, x, y)
+        out = list.Append({Text: t.Text, Ink: t.Color, Back: back, Ratio: web.Contrast(t.Color, back)}, out)
+      end
     end
   end
   out
