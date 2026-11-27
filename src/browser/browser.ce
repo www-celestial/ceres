@@ -23,9 +23,13 @@ defn Run(app, origin = missing, path = missing)
       page's own by default; path is the route shown first, the canvas's data-path or "/". *)
   events = fiber.Channel()
   net = fiber.Channel()
+  told = fiber.Channel()
   page = js.Call("../../web/ceres.js", "Start", [events, "lists", net])
+  first = if value.IsMissing(path) page[4] else path end
   ui = web.Start(app, page[1], page[2], Measure(), origin = if value.IsMissing(origin) page[3] else origin end,
-    path = if value.IsMissing(path) page[4] else path end, wake = events, net = net)
+    path = first, wake = events, net = net, telemetry = told)
+  fiber.Spawn(() -> Telemetry(told, app, first))   (* waits for the app's settings, and does nothing unless they ask *)
+  shown = first
   check = value.Len(page) >= 5 and page[5] == true
   asked = false
   while true
@@ -46,6 +50,10 @@ defn Run(app, origin = missing, path = missing)
       end
     end
     ui = web.Update(ui)
+    if value.IsSome(ui.Nav) and web.Get(ui.Nav) != shown
+      shown = web.Get(ui.Nav)
+      fiber.Send({Kind: "view", Path: shown}, told)
+    end
     if frame
       asked = false
       if web.Changed(ui)

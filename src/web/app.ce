@@ -59,15 +59,29 @@ end
 (** Goes to another route of the app, as a link does. *)
 Go(path, p) = Set(p.Nav, path)
 
-defn Start(app, width, height, measure, origin = missing, path = "/", theme = Theme, headers = [], wake = missing, net = missing)
+defn RouteOf(app, path)
+  (** The pattern of the route that takes a path, or "" when none does: what a page's telemetry names a view by, never
+      its path, whose ids are data.
+
+        RouteOf({Routes: [{Pattern: "/invoices/:id"}]}, "/invoices/42") --> "/invoices/:id" *)
+  for r in app.Routes
+    if value.IsSome(matched(r.Pattern, path))
+      return r.Pattern
+    end
+  end
+  ""
+end
+
+defn Start(app, width, height, measure, origin = missing, path = "/", theme = Theme, headers = [], wake = missing, net = missing, telemetry = missing)
   (** Mounts an app in a window of width by height pixels, at a path: the state that a back-end keeps and gives to
       Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels}, font "body", "strong" or
       "code". With
       origin, as "http://127.0.0.1:8080", an app with live opens its screen there, sending headers with it; wake is as
-      for the live screen (web.Connect), and net, the channel of the browser's online, offline and now. *)
+      for the live screen (web.Connect), and net, the channel of the browser's online, offline and now; telemetry, a
+      channel that the screen tells of its connection and its actions (src/browser/telemetry.ce). *)
   ui = newUi(width, height, measure, theme)
   ui.Say = dict.Get("Say", app)
-  screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net) else missing end
+  screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net, telemetry = telemetry) else missing end
   nav = Signal(path)
   ui.Nav = nav
   ui.Screens = if value.IsSome(screen) [screen] else [] end

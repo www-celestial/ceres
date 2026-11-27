@@ -1,0 +1,83 @@
+(** What a page in the browser learns of its visit, for its app, when the app asks for it (Centauri's
+    APP_TELEMETRY_CLIENT, in the settings its live screen gives): its speed, its errors, its device and its journey,
+    sent to the app's own address, never to another site. web/telemetry.js, the glue, observes what only the browser
+    can tell; this fiber adds what Ceres knows itself (the time to its live screen, its breaks, each action from the
+    click to its answer with the trace of both sides, the views by their route), keeps the batch and sends it every
+    Every seconds, and the glue sends the rest at once when the tab is hidden or closes. A view is named by its route,
+    "/invoices/:id", never its path; an action by its name, never its values. *)
+use src/web
+use std/dict
+use std/fiber
+use std/js
+use std/json
+use std/list
+use std/math
+use std/random
+use std/result
+use std/sys
+use std/text
+use std/value
+
+glue = "../../web/telemetry.js"
+
+hex(n) = text.Join("", [text.ByteSlice(k, k, "0123456789abcdef") for k in [math.Div(math.Floor(random.Float() * 16), 1) + 1 for i in 1..n]])   (* n random hex digits. *)
+
+defn Telemetry(events, app, path)
+  (** The fiber of a page's telemetry: it waits for the settings of the app's screen ({Kind: "up", Settings}), does
+      nothing if they don't turn it on (or if this view isn't in its sample), and else sends a batch every Every
+      seconds while anything happened. events is the channel that the live screen and the page tell it on: "up" and
+      "down" of the screen, "action" ({Name, Ms, Ok, Trace, Server}), "view" ({Path}); path is the page's first. *)
+  started = sys.Now()
+  o = missing
+  while value.IsMissing(o)
+    got = fiber.Receive(events)
+    if result.IsErr(got)
+      return missing
+    end
+    e = got.Value
+    if e.Kind == "up"
+      s = dict.Get("Settings", e)
+      if not value.IsDict(s) or dict.Get("On", s) != true or random.Float() >= dict.GetOr("Sample", 1, s)
+        return missing
+      end
+      o = s
+    end
+  end
+  every = list.Max([1, dict.GetOr("Every", 30, o)])
+  ctx = json.Parse(js.Call(glue, "Start", [json.Text({Path: dict.GetOr("Path", "/telemetry", o)})]))!
+  head = {V: 1, Session: dict.GetOr("Session", hex(16), ctx), View: hex(16)}
+  route = web.RouteOf(app, path)
+  items = [{K: "view", Route: route, Ref: ctx.Ref, Utm: ctx.Utm}, dict.Merge({K: "device"}, dict.Drop("Nav", dict.Drop("Wasm", dict.Drop("Ref", dict.Drop("Utm", dict.Drop("Path", dict.Drop("Session", ctx))))))),
+    dict.Merge({K: "nav"}, ctx.Nav), dict.Merge({K: "wasm"}, ctx.Wasm), {K: "live", Connect: math.Round((sys.Now() - started) * 1000) + ctx.Wasm.Start}]
+  down = missing
+  next = sys.Now() + every
+  js.Call(glue, "Ready", [json.Text(head)])
+  while true
+    got = fiber.Receive(events, timeout = list.Max([0, next - sys.Now()]))
+    if result.IsOk(got)
+      e = got.Value
+      if e.Kind == "down" and value.IsMissing(down)
+        down = sys.Now()
+      else if e.Kind == "up" and value.IsSome(down)
+        items = list.Append({K: "live", Reconnect: math.Round((sys.Now() - down) * 1000)}, items)
+        down = missing
+      else if e.Kind == "action" and value.Len(items) < 200
+        items = list.Append({K: "action", Name: e.Name, Ms: e.Ms, Ok: e.Ok, Trace: e.Trace, Server: e.Server, Waited: e.Waited}, items)
+      else if e.Kind == "view"
+        r = web.RouteOf(app, e.Path)
+        if r != route
+          route = r
+          items = list.Append({K: "view", Route: r}, items)
+        end
+      end
+    end
+    if sys.Now() >= next
+      if value.Len(items) > 0
+        taken = json.Parse(js.Call(glue, "Take", []))!
+        js.Call(glue, "Send", [json.Text(dict.Merge(head, {Items: list.Concat(items, taken)}))])
+        items = []
+      end
+      next = sys.Now() + every
+    end
+  end
+end

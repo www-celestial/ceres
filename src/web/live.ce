@@ -22,7 +22,7 @@ use std/websocket
 (* What a page does about its connection, until the app's own settings come with its screen ({Client}). *)
 defaults = {Outbox: "on", OutboxCount: 100, OutboxBytes: 1048576, OutboxWait: 3600, ReconnectFirst: 500, ReconnectMax: 30000, PingEvery: 15, DeadAfter: 30}
 
-defn Connect(url, headers = [], wake = missing, net = missing, settings = {})
+defn Connect(url, headers = [], wake = missing, net = missing, settings = {}, telemetry = missing)
   (** Opens a screen of the app at url, a ws:// URL, as web.Start does with the app's live path: its shows and actions
       for the page, a screen that comes back by itself after a break, to the same screen while the app keeps it
       (every frame missed, once), else to a new one whose answers replace the rows. The wait before each try is drawn
@@ -31,6 +31,8 @@ defn Connect(url, headers = [], wake = missing, net = missing, settings = {})
       handshake, as the session's token of a native app. wake, a channel, gets "live" each time the screen passes
       something on, for a back-end that waits on its own channel, as the browser's does. net, a channel, gets the
       browser's "online" and "offline", and "now" to try at once. settings are the page's own, over the app's.
+      telemetry, a channel, gets "up" (with the app's settings of telemetry) and "down" as the screen connects and
+      breaks, and each action answered, its name, its time from the click, its trace and the server's.
 
       The screen is {Up, Error, Status, Conflicts, ...}: Up a signal, true while connected; Error a signal of the error
       that ended the screen, or missing; Status a signal of {State, Waiting, Retry, Last, At, Offline, Error}, State
@@ -42,7 +44,7 @@ defn Connect(url, headers = [], wake = missing, net = missing, settings = {})
     Net: if value.IsMissing(net) fiber.Channel() else net end, Given: settings, Settings: cell(dict.Merge(defaults, settings)),
     Outbox: cell([]), Who: cell(missing), State: cell({State: "connecting", Retry: missing, Last: missing, At: 0, Offline: false}),
     Status: Signal({State: "connecting", Waiting: 0, Retry: missing, Last: missing, At: 0, Offline: false, Error: missing}),
-    Conflicts: Signal([])}
+    Conflicts: Signal([]), Tel: telemetry}
   fiber.Spawn(() -> dialing(s, headers))
   s
 end
@@ -281,7 +283,8 @@ defn actThen(name, args, screen, reply, base = missing, mine = missing, read = f
   end
   id = peek(screen.Next)
   put(id + 1, screen.Next)
-  a = {Id: id, Key: newKey(), Name: name, Args: args, Base: base, Mine: mine, Read: read, Who: peek(screen.Who), At: sys.Now(), Bytes: bytes, Sent: false}
+  a = {Id: id, Key: newKey(), Name: name, Args: args, Base: base, Mine: mine, Read: read, Who: peek(screen.Who), At: sys.Now(), Bytes: bytes, Sent: false,
+    Trace: if value.IsSome(screen.Tel) "00-$(text.ByteSlice(1, 32, "$(newKey())"))-$(text.ByteSlice(1, 16, newKey()))-01" else missing end, Down: not up}
   acts = peek(screen.Acts)
   acts[id] = reply
   put(acts, screen.Acts)
@@ -306,6 +309,9 @@ defn sendAct(a, screen)
   if value.IsSome(a.Who)
     m.Who = a.Who
   end
+  if value.IsSome(a.Trace)
+    m.Trace = a.Trace
+  end
   if result.IsOk(websocket.Send(json.Text(m), conn))
     box = peek(screen.Outbox)
     put([if x.Id == a.Id dict.Put("Sent", true, x) else x end for x in box], screen.Outbox)
@@ -324,6 +330,10 @@ defn answered(id, m, screen)
     put([x for x in box if x.Id != id], screen.Outbox)
     if "Err" in m and value.IsDict(m.Err) and dict.Get("Kind", m.Err) == "conflict" and value.IsSome(mine)
       Set(screen.Conflicts, list.Append({Id: id, Name: mine.Name, Args: mine.Args, Base: mine.Base, Mine: mine.Mine, Error: m.Err, Reply: f}, untracked(screen.Conflicts)))
+    end
+    if value.IsSome(screen.Tel) and value.IsSome(mine)
+      fiber.Send({Kind: "action", Name: mine.Name, Ms: math.Round((sys.Now() - mine.At) * 1000), Ok: not ("Err" in m), Trace: mine.Trace,
+        Server: dict.Get("Trace", m), Waited: mine.Down}, screen.Tel)
     end
     f(m)
     status(screen)
@@ -413,6 +423,9 @@ defn pump(screen)
   for e in events
     st = peek(screen.State)
     if e.Kind == "up"
+      if value.IsSome(screen.Tel)
+        fiber.Send({Kind: "up", Settings: dict.Get("Telemetry", dict.GetOr("Client", {}, e))}, screen.Tel)
+      end
       put(e.Conn, screen.Out)
       put(dict.Merge(defaults, dict.GetOr("Client", {}, e)), screen.Settings)
       ever = peek(screen.Ever)
@@ -441,6 +454,9 @@ defn pump(screen)
         end
       end
     else if e.Kind == "down"
+      if value.IsSome(screen.Tel)
+        fiber.Send({Kind: "down"}, screen.Tel)
+      end
       put(missing, screen.Out)
       Set(screen.Up, false)
       if st.State != "ended"
