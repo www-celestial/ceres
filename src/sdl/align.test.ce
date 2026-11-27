@@ -24,9 +24,9 @@ defn widgets(tile)
     web.Table(rows, [web.Column("Number", r -> r.N), web.Column("Client", r -> r.C)], height = 80, label = "Invoices"),
     web.Row([web.Text("Tenant"), web.Input(web.Signal("65541"), label = "Tenant", width = 160), web.Text("link", color = "Muted")], gap = 8),
     web.Row([web.Button("Save", () -> missing, key = "C-s")]),
-    web.Toolbar([web.Button("Users", () -> missing, icon = "person")]),
-    web.Row([web.Icon("person"), web.Text("Users"), web.Spacer(), web.Text("73", size = 20, font = "code")], pad = 8, height = 56, fill = tile),
-    web.Tree([web.Item("Users", icon = "person", count = 7), web.Item("Tenants", count = 5)], label = "Pages"),
+    web.Toolbar([web.Button("Users", () -> missing, icon = "user")]),
+    web.Row([web.Icon("user"), web.Text("Users"), web.Spacer(), web.Text("73", size = 20, font = "code")], pad = 8, height = 56, fill = tile),
+    web.Tree([web.Item("Users", icon = "user", count = 7), web.Item("Tenants", count = 5)], label = "Pages"),
   ], gap = 8, pad = 8)
 end
 

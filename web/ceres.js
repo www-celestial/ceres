@@ -27,11 +27,16 @@
 // Nothing is drawn while nothing changes: a frame is asked only by Wake.
 
 const FONTS = ['system-ui, sans-serif', '600 system-ui, sans-serif', 'ui-monospace, Menlo, Consolas, monospace', 'ceres-icons']
-// The font of the icons (web/icons.js adds it to the document's fonts the first time a page draws an icon, so that a
-// page without icons spends nothing on it): until it is ready, an icon isn't drawn, and the page is painted again once
-// it is.
+// The font of the icons, in web/icons.js, which the build puts beside this file: imported the first time a page draws an
+// icon, so that a page without icons never fetches it. Until it is ready, an icon isn't drawn, and the page is painted
+// again once it is (the event ceres-icons). globalThis.ceresIcons says where it is: 'loading', 'ready' or 'failed'.
 const iconsReady = () => globalThis.ceresIcons === 'ready'
-const iconsWanted = () => { if (globalThis.ceresIcons === 'known') globalThis.ceresIconsLoad() }
+function iconsWanted() {
+  if (globalThis.ceresIcons) return
+  globalThis.ceresIcons = 'loading'
+  import('./icons.js').then(m => m.Load()).then(() => { globalThis.ceresIcons = 'ready'; dispatchEvent(new Event('ceres-icons')) },
+    () => { globalThis.ceresIcons = 'failed' })
+}
 let iconsMissed = false
 // A vertex: its place p, its color c, its place in the atlas t, the box b of its rectangle (center, half sizes), r its
 // corner's radius and whether it is an edge (r.x -1 for a text), k the clip in pixels of the canvas (x, y from its
