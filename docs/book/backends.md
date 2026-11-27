@@ -139,3 +139,32 @@ tree after each of 25 steps, and `tests/encode.test.ce` reads the bytes of `web.
 those of `web.Encode(web.Frame(page))`.
 
 ![The invoices page compiled from Cesia to WebAssembly, painted by web/ceres.js with WebGL2 in Chrome.](images/invoices-webgl.png)
+
+### What a page tells its app
+
+When the settings of its live screen ask for it (Centauri's `APP_TELEMETRY_CLIENT`, on by default there), a page in
+the browser tells its app what it sees of each visit, and nothing when they don't. `web/telemetry.js` observes what
+only the browser can tell, by its `PerformanceObserver` and its events: the Web Vitals (LCP, INP, CLS, FCP, TTFB, as
+Google's `web-vitals` counts them), the navigation, the resources, the long tasks, the frames that `web/ceres.js`
+painted, the errors (a Cesia error with its place in the `.ce`, which the loader tells as the event `cesia-error`, a
+trap of WebAssembly, an exception, a rejected promise, a refusal of the Content-Security-Policy, a file that didn't
+load), and the device: browser and major version, system and mobile by the low-entropy client hints only, screen,
+window, density, color scheme, reduced motion, language, the clock's offset from UTC, cores, memory, network. It reads
+nothing that would tell one browser from another (no canvas, no fonts, no audio). `src/browser/telemetry.ce`, the
+fiber `browser.Telemetry` that `browser.Run` starts, adds what Ceres knows: the time to the live screen and its breaks,
+each action from its click to its answer with the `traceparent` it sent and the server's trace it got back, and each
+view by its route (`web.RouteOf`, `/invoices/:id`, never the path). The page masks its texts (addresses of mail, long
+numbers, tokens, the query of an address), sends a batch to its own app every `Every` seconds, and the rest by the
+browser's beacon when the tab is hidden or closes.
+
+A page of Ceres draws in a canvas, which the browser never counts for LCP: its first paint, from `web/ceres.js`, is its
+measure of the same. The app's banner of consent, if any, tells the page by an event of the window, and a visitor can
+object (or his browser's Global Privacy Control does): then nothing is measured nor sent.
+
+```js
+dispatchEvent(new CustomEvent('ceres-consent', { detail: true }))   // yes; false: the measure only; 'off': nothing
+```
+
+It adds 6.7 KB with Brotli to a page: `telemetry.js`, 3.7 KB, and 3.0 KB of WebAssembly. What Centauri keeps of it,
+and what the law lets it keep, is in Centauri's chapter
+[Telemetry](https://github.com/www-celestial/centauri/blob/main/docs/book/telemetry.md).

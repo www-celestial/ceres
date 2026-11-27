@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Telemetry of the pages
+
+- A page in the browser tells its app what it sees, when the settings of its live screen ask (Centauri's
+  `APP_TELEMETRY_CLIENT`): its Web Vitals (LCP, INP, CLS, FCP, TTFB), its navigation, resources, long tasks and frames,
+  the fetch and start of its WebAssembly, the time to its live screen and its breaks, each action from the click to its
+  answer with its `traceparent` and the server's, its errors (Cesia's with their place, traps, exceptions, rejections,
+  CSP, files that didn't load), its device (the low-entropy client hints only) and its views by their route
+  (`web.RouteOf`), the referrer's origin and the `utm_*`. Masked in the page, sent to the app's own `/telemetry`, the
+  rest by a beacon when the tab is hidden. `web/telemetry.js` (3.7 KB with Brotli) observes what only the browser can
+  tell; `src/browser/telemetry.ce` keeps the batch. A visitor who objects (`ceres-consent` "off", or Global Privacy
+  Control) sends nothing.
+- `web.Start` and `web.Connect` take `telemetry`, a channel the screen tells of its connection and its actions.
+
 ### When the connection drops
 
 - A page carries on through a break of its connection, without a reload: it comes back by itself (full jitter from
