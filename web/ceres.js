@@ -23,6 +23,7 @@
 //   Mirror(json)             the hidden DOM of the semantics tree, as JSON text (web.Semantics)
 //   Patch(json)              the hidden DOM changed as a patch of the tree says, the JSON text of web.Patch
 //   Check(json)              in a page whose address holds ceres-check: the whole tree, for a test (tests/web/check.js)
+//   Copy(route)              the address of a route, the page's with the route after its #, in the clipboard
 //   Wake()                   sends "frame" on events at the browser's next frame: the page paints then
 //   Begin()                  a frame that the page paints at once, not at the browser's next frame (its first): its
 //                            time in Stats counts from here
@@ -588,6 +589,8 @@ export const Wake = () => glue.wake()
 export const Begin = () => { glue.asked = glue.called = performance.now() }
 let cursor = 'default'
 export const Cursor = name => { const c = text(name); if (c !== cursor) { cursor = c; document.querySelector('canvas').style.cursor = c } }
+// The address of a route, the page's own with the route after its #, in the clipboard (web.CopyLink).
+export const Copy = route => { try { navigator.clipboard.writeText(location.origin + location.pathname + location.search + '#' + text(route)).catch(() => { }) } catch (e) { } }
 export const Keep = (name, value) => { try { localStorage.setItem('ceres ' + text(name), text(value)) } catch (e) { } }
 export const Kept = name => { try { return localStorage.getItem('ceres ' + text(name)) || '' } catch (e) { return '' } }
 export function Paint(bytes) {

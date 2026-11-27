@@ -40,7 +40,8 @@ defn Run(app, origin = missing, path = missing)
   page = js.Call("../../web/ceres.js", "Start", [events, "lists", net])
   dark = if value.Len(page) >= 6 and value.IsBool(page[6]) page[6] else missing end
   ui = web.Start(app, page[1], page[2], Measure(), origin = if value.IsMissing(origin) page[3] else origin end,
-    path = if value.IsMissing(path) page[4] else path end, wake = events, net = net, dark = dark, store = Store())
+    path = if value.IsMissing(path) page[4] else path end, wake = events, net = net, dark = dark, store = Store(),
+    clip = {Put: route -> js.Call("../../web/ceres.js", "Copy", [route])})
   check = value.Len(page) >= 5 and page[5] == true
   (* the first frame at once, as the page was laid out, without waiting for the browser's next frame: before what the
      live screen brings meanwhile, which the next frame shows *)

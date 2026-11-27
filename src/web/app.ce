@@ -267,6 +267,20 @@ defn relooked(ui)
   restyled(u)
 end
 
+defn CopyLink(p, done = "Link copied")
+  (** Puts the address of the route shown in the clipboard, as a browser writes it (its page's own with the route
+      after its #), to send to someone: the same view opens for him. A toast says done, in the app's language when
+      it is one of the app's texts. Nothing on a back-end without a clipboard.
+
+        CopyLink({Path: "/"}) --> missing *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r) or value.IsMissing(dict.Get("Clip", r))
+    return missing
+  end
+  r.Clip.Put(nowOf(r.Nav))
+  Toast(p, done)
+end
+
 defn Toast(p, words)
   (** A short word of what just happened ("Invoice 1027 saved"), at the bottom of the page for four seconds, as a
       web.Shell shows it, read aloud by a screen reader (a status).
@@ -332,7 +346,7 @@ defn heldAnswered(act, ui)
   touch(ui.Root, ui)
 end
 
-defn Start(app, width, height, measure, origin = missing, path = "/", theme = missing, headers = [], wake = missing, net = missing, dark = missing, store = missing)
+defn Start(app, width, height, measure, origin = missing, path = "/", theme = missing, headers = [], wake = missing, net = missing, dark = missing, store = missing, clip = missing)
   (** Mounts an app in a window of width by height pixels, at a path: the state that a back-end keeps and gives to
       Handle and Frame. measure is the back-end's {Width: (text, size, font) -> pixels, Line: size -> pixels, Base:
       (size, font) -> pixels}: the width of a text, the height of a line, which holds the letters of every font in its
@@ -341,7 +355,8 @@ defn Start(app, width, height, measure, origin = missing, path = "/", theme = mi
       for the live screen (web.Connect), and net, the channel of the browser's online, offline and now. theme is the
       app's (App's theme) unless given here; dark tells whether the system is dark, for web.System, missing when the
       back-end can't tell; store is where a web.Dock keeps its layout, {Get: name -> text or missing, Put: (name, text)
-      -> missing}, as the browser's local storage, or missing for nowhere. *)
+      -> missing}, as the browser's local storage, or missing for nowhere; clip is the clipboard, {Put: route ->
+      missing}, which puts the address of a route there (web.CopyLink), or missing. *)
   given = if value.IsSome(theme) theme else if value.IsSome(dict.Get("Theme", app)) app.Theme else Theme end
   mine = keptLook(store)
   choice = if value.IsSome(mine.Theme) and value.IsSome(dict.Get("Tokens", themeFor(given, dark))) named(mine.Theme) else given end
@@ -354,7 +369,7 @@ defn Start(app, width, height, measure, origin = missing, path = "/", theme = mi
   screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net) else missing end
   nav = Signal(path)
   router = {Nav: nav, Guard: cell(missing), Held: Signal(missing), Hist: cell({Shown: path, Back: [], Forward: [], Going: false}),
-    Views: cell(dict.Dict()), Scrolls: cell(dict.Dict()), Look: Signal({Theme: choice, Density: density}), Toast: Signal(missing), Wake: wake}
+    Views: cell(dict.Dict()), Scrolls: cell(dict.Dict()), Look: Signal({Theme: choice, Density: density}), Toast: Signal(missing), Wake: wake, Clip: clip}
   ui.LookSeen = version(router.Look)
   ui.Nav = nav
   ui.Router = router

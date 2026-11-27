@@ -7,7 +7,9 @@ use examples/pages/page
 use src/web
 use src/headless
 use std/dict
+use std/fiber
 use std/list
+use std/result
 use std/text
 use std/value
 
@@ -145,4 +147,12 @@ end
 defn isEveryTextReadable()
   list.All([value.IsEmpty(unreadable(web.Dark, "/invoices/1017")), value.IsEmpty(unreadable(web.Light, "/invoices/1017")),
     value.IsEmpty(unreadable(web.Dark, "/")), value.IsEmpty(unreadable(web.Light, "/"))])
+end
+
+defn isTheLinkCopied()
+  got = fiber.Channel(size = 1)
+  p = headless.Open(page.App(theme = web.Dark), width = 1440, height = 800, path = "/invoices/1017", clip = {Put: route -> fiber.Send(route, got)})
+  p = headless.ClickOn("Copy the link", p)
+  sent = fiber.Receive(got, timeout = 0)
+  result.IsOk(sent) and sent.Value == "/invoices/1017" and has(p, "status", "Link copied")
 end

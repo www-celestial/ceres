@@ -19,8 +19,8 @@ Measure = {Width: (s, size, font) -> size if font == "icon" else value.Len(s) * 
 
 (** An app mounted in a page of width by height pixels at path, its live screen at origin if it has one; dark says
     whether the system is dark, for a theme that follows it, and store is where a web.Dock keeps its layout
-    (headless.Store()), nowhere by default. *)
-Open(app, width = 800, height = 600, origin = missing, path = "/", dark = missing, store = missing) = web.Start(app, width, height, Measure, origin = origin, path = path, dark = dark, store = store)
+    (headless.Store()), nowhere by default; clip, the clipboard, {Put: route -> missing}, none by default. *)
+Open(app, width = 800, height = 600, origin = missing, path = "/", dark = missing, store = missing, clip = missing) = web.Start(app, width, height, Measure, origin = origin, path = path, dark = dark, store = store, clip = clip)
 
 defn Store()
   (** A store in memory, as a back-end gives web.Start one, for a test of what a page keeps: the same store given to

@@ -92,6 +92,7 @@ defn opened(path, p, s)
       () -> (if amountWrong(web.Get(total)) == "" missing else web.Text(amountWrong(web.Get(total)), size = "small", color = "Danger") end),
       web.Text("Activity", font = "strong"), web.Text("Made on day $(i.Day) by ana", color = "Muted")], gap = 6),
     close = () -> web.Go("/invoices", p), kicker = "Invoice · id $(i.Id)", sub = "$(i.Client) · due day $(i.Day)",
+    tools = [web.IconButton("link", "Copy the link", () -> web.CopyLink(p))],
     tag = web.Pill(stateWord[i.Status], tone = stateTone[i.Status]),
     foot = [web.Text("Ctrl S save · Esc close", size = "small", color = "Muted"), web.Spacer(), web.Button("Cancel", () -> web.Go("/invoices", p), style = "ghost"),
       web.Button("Save", save, key = "C-s", style = "primary")])
