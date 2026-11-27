@@ -57,13 +57,18 @@ defn Stack(items, gap = missing, pad = 0, fill = missing, border = missing, radi
   {Kind: "stack", Kids: kids(items), Gap: gap, Pad: pad, Fill: fill, Border: border, Radius: radius, Width: width, Height: height, Align: align, Grow: 0}
 end
 
-defn Row(items, gap = missing, pad = 0, fill = missing, border = missing, radius = 0, width = missing, height = missing, align = "center")
+defn Row(items, gap = missing, pad = 0, fill = missing, border = missing, radius = 0, width = missing, height = missing, align = "center", wrap = false)
   (** Widgets side by side, gap pixels apart. Each child is as wide as it needs, and those that web.Grow marks share
-      what is left; align places them up and down: "start", "center" or "end". The other options are those of
-      web.Stack.
+      what is left; align places them up and down: "start", "center" or "end". wrap = true puts the children that
+      don't fit on the next line, as the fields of a filter on a phone. The other options are those of web.Stack.
 
-        Row(["a", Spacer(), "b"]).Kind --> "row" *)
-  {Kind: "row", Kids: kids(items), Gap: gap, Pad: pad, Fill: fill, Border: border, Radius: radius, Width: width, Height: height, Align: align, Grow: 0}
+        Row(["a", Spacer(), "b"]).Kind --> "row"
+        Row(["a"], wrap = true).Wrap --> true *)
+  out = {Kind: "row", Kids: kids(items), Gap: gap, Pad: pad, Fill: fill, Border: border, Radius: radius, Width: width, Height: height, Align: align, Grow: 0}
+  if wrap
+    out.Wrap = true
+  end
+  out
 end
 
 defn Grow(item, share = 1)

@@ -112,12 +112,22 @@ defn Header(title, summary = missing, actions = [])
   {Kind: "header", Kids: [left, Row(actions, gap = 8)], Kit: kit}
 end
 
-defn Spread(left, right)
+defn Spread(left, right, grow = false)
   (** Two parts of a line: left at its left, right at its right, as the chips of a table and its search; right goes
-      under left when both don't fit, as on a phone. Each is a widget or a list of them.
+      under left when both don't fit, as on a phone. Each is a widget or a list of them. With grow, right takes the
+      width that left leaves (a column of titles and one of settings), and goes under it when that is under 320
+      pixels.
 
         Spread(Text("a"), Text("b")).Kind --> "header" *)
-  {Kind: "header", Kids: [if value.IsArray(left) Row(left, gap = 8) else kid(left) end, if value.IsArray(right) Row(right, gap = 8) else kid(right) end], Kit: kit}
+  {Kind: "header", Grows: grow, Kids: [if value.IsArray(left) Row(left, gap = 8) else kid(left) end, if value.IsArray(right) Row(right, gap = 8) else kid(right) end], Kit: kit}
+end
+
+defn Wide(item)
+  (** A part shown only on a window of 760 pixels and more: on a phone it takes no room, as the start of a path of
+      crumbs in a top bar.
+
+        Wide(Text("Data")).Kind --> "narrow" *)
+  {Kind: "narrow", Kids: [kid(item)], Wide: true, Kit: kit}
 end
 
 defn Chips(v, options, label = "")
@@ -381,7 +391,7 @@ defn layNarrow(id, maxW, ui)
   c = b.Kids[1]
   u = layout(c, maxW, true, ui)
   u = place(c, 0, 0, u)
-  if ui.Width >= phoneWidth
+  if (ui.Width >= phoneWidth) != dict.GetOr("Wide", false, b.Node)
     return sized(id, 0, 0, [group(0, 0, 0, 0, true, u.Boxes[c].Items)], u)
   end
   sized(id, u.Boxes[c].W, u.Boxes[c].H, kidGroups(u.Boxes[id], u), u)
@@ -597,6 +607,20 @@ defn layHeader(id, maxW, ui)
   b = ui.Boxes[id]
   l = b.Kids[1]
   r = b.Kids[2]
+  if dict.GetOr("Grows", false, b.Node)
+    u = layout(l, maxW, true, ui)
+    lw = u.Boxes[l].W
+    if maxW - lw - 24 >= 320
+      u = layout(r, maxW - lw - 24, false, u)
+      u = place(l, 0, 0, u)
+      u = place(r, lw + 24, 0, u)
+      return sized(id, maxW, list.Max(u.Boxes[l].H, u.Boxes[r].H), kidGroups(u.Boxes[id], u), u)
+    end
+    u = layout(r, maxW, false, u)
+    u = place(l, 0, 0, u)
+    u = place(r, 0, u.Boxes[l].H + 12, u)
+    return sized(id, maxW, u.Boxes[l].H + 12 + u.Boxes[r].H, kidGroups(u.Boxes[id], u), u)
+  end
   u = layout(r, maxW, true, ui)
   u = layout(l, maxW, true, u)
   lw = u.Boxes[l].W

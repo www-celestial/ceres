@@ -155,9 +155,16 @@ end
    again by a live part) comes back with its order, its scroll and its row chosen as they were. *)
 
 defn tableMemory(n, ui)
-  (** What a table is known by in the memory of the views: the route shown, its label and the titles of its
-      columns. Two tables alike in one route share it. *)
-  "$(nowOf(ui.Nav)) table $(n.Label) $(text.Join("|", [if value.IsText(c.Title) c.Title else "" end for c in n.Columns]))"
+  (** What a table is known by in the memory of the views: the view shown (the route, or in a web.Shell its view,
+      so that a row opened in its sheet keeps the list as it was), its label and the titles of its columns. Two
+      tables alike in one view share it. *)
+  "$(viewKey(ui)) table $(n.Label) $(text.Join("|", [if value.IsText(c.Title) c.Title else "" end for c in n.Columns]))"
+end
+
+defn viewKey(ui)
+  (** The view shown: the shell's (its view), or the route. *)
+  s = dict.GetOr("Shell", 0, ui)
+  if s != 0 and s in ui.Boxes and value.IsFunction(dict.Get("View", ui.Boxes[s].Node)) ui.Boxes[s].Node.View() else nowOf(ui.Nav) end
 end
 
 defn recalled(n, ui)

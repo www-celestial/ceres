@@ -30,6 +30,9 @@ defn mount(node, parent, ui)
     (* the first widget of a desktop tool: the page takes their functions, which a page without them never holds *)
     u.Kit = n.Kit()
   end
+  if k == "shell"
+    u.Shell = id
+  end
   if k == "dock"
     u = u.Kit.Mounted(n.State, u)
   else if k == "table"

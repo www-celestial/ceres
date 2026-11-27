@@ -230,6 +230,9 @@ defn layRow(id, maxW, fit, ui)
   u = ui
   b = u.Boxes[id]
   n = b.Node
+  if dict.GetOr("Wrap", false, n)
+    return layFlow(id, maxW, fit, u)
+  end
   gap = u.Theme.Gap if value.IsMissing(n.Gap) else n.Gap
   w0 = maxW if value.IsMissing(n.Width) else n.Width
   inner = w0 - 2 * n.Pad
@@ -266,6 +269,47 @@ defn layRow(id, maxW, fit, ui)
     x += u.Boxes[c].W + gap
   end
   w = if value.IsSome(n.Width) n.Width else if fit and shares == 0 used + gaps + 2 * n.Pad else maxW end
+  sized(id, w, h, list.Concat(decor(n, w, h, u.Theme), kidGroups(u.Boxes[id], u)), u)
+end
+
+defn layFlow(id, maxW, fit, ui)
+  (** A row that wraps: each child as wide as it needs, on the next line when it doesn't fit, each line's children in
+      its middle; the space of a web.Spacer only between those on one line. *)
+  u = ui
+  b = u.Boxes[id]
+  n = b.Node
+  gap = u.Theme.Gap if value.IsMissing(n.Gap) else n.Gap
+  inner = (maxW if value.IsMissing(n.Width) else n.Width) - 2 * n.Pad
+  lines = []
+  line = []
+  x = 0
+  for c in b.Kids
+    u = layout(c, inner, true, u)
+    cw = u.Boxes[c].W
+    if x > 0 and x + cw > inner
+      lines = list.Append(line, lines)
+      line = []
+      x = 0
+    end
+    line = list.Append(c, line)
+    x += cw + gap
+  end
+  lines = list.Append(line, lines)
+  y = n.Pad
+  widest = 0
+  for l in lines
+    tall = list.Max(list.Append(0, [u.Boxes[c].H for c in l]))
+    x = n.Pad
+    for c in l
+      ch = u.Boxes[c].H
+      u = place(c, x, y + (0 if n.Align == "start" else math.Div(tall - ch, 2) if n.Align == "center" else tall - ch), u)
+      x += u.Boxes[c].W + gap
+    end
+    widest = list.Max(widest, x - gap)
+    y += tall + gap
+  end
+  h = y - gap + n.Pad
+  w = if fit widest + n.Pad else maxW end
   sized(id, w, h, list.Concat(decor(n, w, h, u.Theme), kidGroups(u.Boxes[id], u)), u)
 end
 

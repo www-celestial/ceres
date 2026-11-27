@@ -288,7 +288,7 @@ defn wheel(e, ui)
   (** The wheel scrolls the table under the mouse, or else the page. *)
   by = math.Round(-e.Amount * 48)
   h = hit(e.X, e.Y, ui)
-  if value.IsSome(h) and ui.Boxes[h.Id].Node.Kind == "table"
+  if value.IsSome(h) and ui.Boxes[h.Id].Node.Kind == "table" and value.IsDict(ui.Boxes[h.Id].Cache) and dict.GetOr("Most", 0, ui.Boxes[h.Id].Cache) > 0
     return scrollTable(h.Id, by, ui)
   end
   if value.IsSome(h) and value.IsSome(ui.Kit) and ui.Kit.Wheel(h.Id, by, ui)

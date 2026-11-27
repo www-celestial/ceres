@@ -469,6 +469,7 @@ const keyOf = (k, ev) => ({ Kind: 'key', Key: k, Ctrl: ev.ctrlKey || ev.metaKey,
 function keyName(ev, typing) {
   if (ev.key === ' ' && typing) return null
   if (KEYS[ev.key]) return KEYS[ev.key]
+  if (ev.key === '/' && !typing && !(ev.ctrlKey || ev.metaKey || ev.altKey)) return '/' // the key of search (an input's hint)
   if (/^F\d\d?$/.test(ev.key)) return ev.key.toLowerCase()
   if (ev.key.length !== 1 || ev.getModifierState('AltGraph') || !(ev.ctrlKey || ev.metaKey || ev.altKey)) return null
   const k = ev.key.toLowerCase()
