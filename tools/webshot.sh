@@ -10,4 +10,5 @@ chrome=${CHROME:-chrome}
 command -v "$chrome" > /dev/null || { echo "webshot: no browser $chrome; set CHROME to a Chrome or a chrome-headless-shell" >&2; exit 1; }
 cesia build --target wasm examples/invoices/browser.ce
 cesia build --target wasm tests/web/align.ce
+cesia build --target wasm tests/web/route.ce
 CHROME="$chrome" cesia do webshot

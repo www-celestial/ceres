@@ -109,6 +109,7 @@ end
 same(a, b) = (value.IsNumber(a) and value.IsNumber(b) or value.IsText(a) and value.IsText(b) or value.IsBool(a) and value.IsBool(b)) and a == b or value.IsMissing(a) and value.IsMissing(b)
 
 version(s) = peek(s.Cell).Version   (* How many times a signal changed. *)
+nowOf(s) = peek(s.Cell).Value   (* The value of a signal, read without being followed: for the runtime and the handlers. *)
 
 defn Memo(f)
   (** A signal whose value is f(), computed now and again when a signal that f read changes, before the live parts

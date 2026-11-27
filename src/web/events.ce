@@ -15,6 +15,7 @@ defn Handle(e, ui)
   else if e.Kind == "text" typed(e.Text, ui)
   else if e.Kind == "resize" resized(e, ui)
   else if e.Kind == "scheme" schemed(e.Dark, ui)
+  else if e.Kind == "nav" navigated(e.Path, ui)
   else ui end
   Update(u)
 end
@@ -145,6 +146,9 @@ end
 
 defn mouse(e, ui)
   u = ui
+  if e.Action == "down" and value.IsSome(held(u)) and e.Y >= seenHeight(u)
+    return bandDown(e, u)
+  end
   if e.Action == "wheel"
     return wheel(e, u)
   else if e.Action == "move"
@@ -178,6 +182,16 @@ defn mouse(e, ui)
     return tableDown(h, focus(h.Id, u))
   end
   u
+end
+
+defn bandDown(e, ui)
+  (** A press on the band while it asks what to do with the changes of a view left: the answer under the mouse. *)
+  for p in bandSpots(ui).Pairs
+    if e.X >= p.X and e.X < p.X1
+      return heldAnswered(p.Act, ui)
+    end
+  end
+  ui
 end
 
 defn opened(id, ui)
@@ -235,7 +249,7 @@ defn clicked(id, ui)
   if n.Kind == "button"
     n.On()
   else if n.Kind == "link"
-    Set(ui.Nav, n.To)
+    if value.IsSome(ui.Router) going(ui.Router, n.To, missing) else Set(ui.Nav, n.To) end
   else if n.Kind == "section"
     Set(n.Open, not Get(n.Open))
   end
@@ -353,6 +367,16 @@ end
 
 defn key(e, ui)
   u = ui
+  if value.IsSome(held(u))
+    c = chord(e)
+    act = if c == "escape" "stay" else if c == "C-d" "leave" else if c == "C-s" and list.Any([p[3] == "save" for p in heldPairs(u)]) "save" else missing end
+    if value.IsSome(act)
+      return heldAnswered(act, u)
+    end
+  end
+  if dict.GetOr("Alt", false, e) and not dict.GetOr("Ctrl", false, e) and (e.Key == "left" or e.Key == "right")
+    return travel(if e.Key == "left" "back" else "forward" end, u)
+  end
   if dict.GetOr("Ctrl", false, e) or dict.GetOr("Alt", false, e) or text.StartsWith("f", e.Key) and value.Len(e.Key) > 1
     b = keyed(u.Root, chord(e), u)
     if b != 0

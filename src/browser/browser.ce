@@ -6,7 +6,10 @@
     semantics tree at each frame, web.Patch; a page whose address holds ceres-check, as page.html?ceres-check, also
     sends the whole tree, which ceres.js checks the hidden DOM against (Stats().checks). The icons' font comes in
     web/icons.js, which the build puts beside the page too; a web.Dock keeps its layout in the browser's local storage,
-    and a page whose theme is web.System follows the browser's prefers-color-scheme. *)
+    and a page whose theme is web.System follows the browser's prefers-color-scheme. The address holds the route
+    shown after a #, as page.html#/users/42: each route the app goes to is a new entry of the browser's history, Back
+    and Forward bring the page back to theirs, and an address kept or shared opens its route; a view whose changes
+    aren't saved (web.Unsaved) makes the browser ask before the tab closes. *)
 use src/web
 use std/fiber
 use std/js
@@ -28,7 +31,8 @@ end
 
 defn Run(app, origin = missing, path = missing)
   (** Runs the app in the page's canvas, until the page closes. Its live screen, if it has one, opens at origin, the
-      page's own by default; path is the route shown first, the canvas's data-path or "/". *)
+      page's own by default; path is the route shown first, the one in the address after its #, else the canvas's
+      data-path, else "/". *)
   events = fiber.Channel()
   net = fiber.Channel()
   js.Call("../../web/icons.js", "Load", [])
@@ -39,6 +43,8 @@ defn Run(app, origin = missing, path = missing)
   check = value.Len(page) >= 5 and page[5] == true
   asked = false
   cursor = "default"
+  synced = web.Path(ui)
+  guarded = false
   while true
     if web.Changed(ui) and not asked
       js.Call("../../web/ceres.js", "Wake", [])
@@ -51,12 +57,26 @@ defn Run(app, origin = missing, path = missing)
     frame = false
     for x in list.Prepend(got.Value, drain(events))
       if not value.IsText(x)
+        if x[1] == "nav"
+          synced = x[2]
+        end
         ui = web.Handle(event(x), ui)
       else if x == "frame"
         frame = true
       end
     end
     ui = web.Update(ui)
+    now = web.Path(ui)
+    if now != synced
+      (* the app went to another route, or stayed where Back would have lost its changes: the address follows *)
+      js.Call("../../web/ceres.js", "Go", [now])
+      synced = now
+    end
+    g = web.Guarded(ui)
+    if g != guarded
+      js.Call("../../web/ceres.js", "Unsaved", [g])
+      guarded = g
+    end
     if ui.Cursor != cursor
       cursor = ui.Cursor
       js.Call("../../web/ceres.js", "Cursor", [cursor])
@@ -92,6 +112,8 @@ defn event(x)
     {Kind: k, Text: x[2]}
   else if k == "scheme"
     {Kind: k, Dark: x[2] == true}
+  else if k == "nav"
+    {Kind: k, Path: x[2]}
   else
     {Kind: k, Width: x[2], Height: x[3]}
   end

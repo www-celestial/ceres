@@ -43,24 +43,186 @@ defn matched(pattern, path)
   params
 end
 
-defn routed(app, nav, screen)
+defn routed(app, router, screen)
   (** The live part of the whole app: the page of the route of the current path. *)
-  () -> pageAt(app, Get(nav), nav, screen)
+  () -> pageAt(app, Get(router.Nav), router, screen)
 end
 
-defn pageAt(app, path, nav, screen)
+defn pageAt(app, path, router, screen)
   (** The page of the first route that a path matches, or a page that says there is none. *)
   for r in app.Routes
     params = matched(r.Pattern, path)
     if value.IsSome(params)
-      return r.Page({Path: path, Params: params, Screen: screen, Nav: nav})
+      return r.Page({Path: path, Params: params, Screen: screen, Nav: router.Nav, Router: router})
     end
   end
   Stack([Title(said(dict.Get("Say", app), "Nothing here")), Text(said(dict.Get("Say", app), "No page of this app is at $path."))])
 end
 
-(** Goes to another route of the app, as a link does. *)
-Go(path, p) = Set(p.Nav, path)
+defn Go(path, p)
+  (** Goes to another route of the app, as a link does. In a browser the address shows each route (page.html#/users/42):
+      Back and Forward go through them, a link opens in a new tab with Ctrl or the middle button, and an address
+      kept or shared opens the same route; in a window Alt+Left and Alt+Right go back and forward. A view whose
+      changes aren't saved (web.Unsaved) asks first. *)
+  r = dict.Get("Router", p)
+  if value.IsMissing(r)
+    return Set(p.Nav, path)
+  end
+  going(r, path, missing)
+end
+
+defn Unsaved(p, changed, save = missing)
+  (** Says that the view of the page p has changes that aren't saved while changed() is true (a function, or a signal
+      of true or false). Going to another route then asks first, in the band at the bottom of the window: save and
+      leave (Ctrl+S, which runs save(), the function that saves them, when there is one), leave without saving
+      (Ctrl+D) or stay (Esc); in a browser, closing the tab or loading another address asks too. A page calls it as it
+      makes its widgets; it gives nothing to show.
+
+        Unsaved({Path: "/"}, () -> false) --> missing *)
+  r = dict.Get("Router", p)
+  if value.IsSome(r)
+    put({Path: p.Path, Changed: changed, Save: save}, r.Guard)
+  end
+  missing
+end
+
+defn changedNow(g)
+  (** Has the view of a guard changes that aren't saved, now? *)
+  c = g.Changed
+  (if isSignal(c) nowOf(c) else c() end) == true
+end
+
+defn guardOf(r)
+  (** The guard of the view shown, when its changes aren't saved: {Path, Changed, Save}, or missing. *)
+  g = peek(r.Guard)
+  if value.IsSome(g) and g.Path == nowOf(r.Nav) and changedNow(g) g else missing end
+end
+
+defn going(r, path, way)
+  (** Goes to path, or holds the way there while the view shown has changes that aren't saved: way is "back" or
+      "forward" for a move through the window's history, "address" when a browser's address changed, missing for a
+      link or web.Go. *)
+  if path == nowOf(r.Nav)
+    return Set(r.Held, missing)
+  end
+  if value.IsSome(guardOf(r))
+    return Set(r.Held, {To: path, Way: way})
+  end
+  put(missing, r.Guard)
+  Set(r.Held, missing)
+  Set(r.Nav, path)
+end
+
+(* ---- The history of a window: Alt+Left and Alt+Right. A browser keeps its own, which web/ceres.js follows. *)
+
+defn routeMoved(ui)
+  (** The page after its route changed since the last update: the route left goes into the history (unless the move
+      came from it), and each route keeps where its page was scrolled to, found again when it comes back. *)
+  path = nowOf(ui.Nav)
+  if path == ui.Shown
+    return ui
+  end
+  u = ui
+  if value.IsSome(u.Shown)
+    u.Views["$(u.Shown) page"] = u.ScrollY
+    if not u.Going
+      u.Back = list.Append(u.Shown, u.Back)
+      u.Forward = []
+    end
+  end
+  u.Going = false
+  u.Shown = path
+  u.ScrollY = dict.GetOr("$path page", 0, u.Views)
+  u.Changed = true
+  u
+end
+
+defn travel(way, ui)
+  (** Goes back or forward in the window's history (way "back" or "forward"), as a browser's buttons do. *)
+  from = if way == "back" ui.Back else ui.Forward end
+  if value.IsEmpty(from) or value.IsMissing(ui.Router)
+    return ui
+  end
+  to = from[value.Len(from)]
+  _ = going(ui.Router, to, way)
+  if nowOf(ui.Nav) != to
+    return ui
+  end
+  arrived(way, ui)
+end
+
+defn arrived(way, ui)
+  (** The history once a move back or forward went through: the route left goes to the other side. *)
+  u = ui
+  if way == "back"
+    u.Forward = list.Append(u.Shown, u.Forward)
+    u.Back = list.Take(value.Len(u.Back) - 1, u.Back)
+  else
+    u.Back = list.Append(u.Shown, u.Back)
+    u.Forward = list.Take(value.Len(u.Forward) - 1, u.Forward)
+  end
+  u.Going = true
+  u
+end
+
+defn navigated(path, ui)
+  (** The browser went back or forward to path (its address changed): the page follows, or asks first. *)
+  if value.IsMissing(ui.Router)
+    return ui
+  end
+  u = ui
+  _ = going(u.Router, path, "address")
+  u.Going = nowOf(u.Nav) == path
+  u
+end
+
+defn Path(ui)
+  (** The route the page shows, as a back-end writes it in its address. *)
+  if value.IsMissing(ui.Nav) "/" else nowOf(ui.Nav) end
+end
+
+defn Guarded(ui)
+  (** Would leaving the page now lose changes (web.Unsaved)? A browser asks before it closes the tab when it would. *)
+  value.IsSome(ui.Router) and value.IsSome(guardOf(ui.Router))
+end
+
+(* ---- The question of a view left with its changes not saved, in the band at the bottom of the window. *)
+
+defn held(ui)
+  (** The way out that waits for an answer: {To, Way}, Way "back" or "forward" through the window's history,
+      "address" when a browser's address changed, missing for a link or web.Go; or missing. *)
+  if value.IsMissing(ui.Router) missing else nowOf(ui.Router.Held) end
+end
+
+defn heldPairs(ui)
+  (** The answers to the question, as the band shows them: [key, what it does, its action] for each. *)
+  g = peek(ui.Router.Guard)
+  save = if value.IsSome(g) and value.IsFunction(g.Save) [["C-s", "save and leave", "save"]] else [] end
+  list.Concat(save, [["C-d", "leave without saving", "leave"], ["Esc", "stay", "stay"]])
+end
+
+defn heldAnswered(act, ui)
+  (** The page once the question is answered: act is "save", "leave" or "stay". *)
+  h = held(ui)
+  if value.IsMissing(h)
+    return ui
+  end
+  r = ui.Router
+  if act == "stay"
+    Set(r.Held, missing)
+    return touch(ui.Root, ui)
+  end
+  g = peek(r.Guard)
+  if act == "save" and value.IsSome(g) and value.IsFunction(g.Save)
+    g.Save()
+  end
+  put(missing, r.Guard)
+  Set(r.Held, missing)
+  Set(r.Nav, h.To)
+  u = if h.Way == "back" or h.Way == "forward" arrived(h.Way, ui) else ui end
+  u.Going = u.Going or h.Way == "address"
+  touch(u.Root, u)
+end
 
 defn Start(app, width, height, measure, origin = missing, path = "/", theme = missing, headers = [], wake = missing, net = missing, dark = missing, store = missing)
   (** Mounts an app in a window of width by height pixels, at a path: the state that a back-end keeps and gives to
@@ -80,9 +242,12 @@ defn Start(app, width, height, measure, origin = missing, path = "/", theme = mi
   ui.Say = dict.Get("Say", app)
   screen = if value.IsSome(app.Live) and value.IsSome(origin) Connect("$(text.Replace("http", "ws", origin))$(app.Live)", headers = headers, wake = wake, net = net) else missing end
   nav = Signal(path)
+  router = {Nav: nav, Guard: cell(missing), Held: Signal(missing)}
   ui.Nav = nav
+  ui.Router = router
+  ui.Shown = path
   ui.Screens = if value.IsSome(screen) [screen] else [] end
-  made = mount(Stack([routed(app, nav, screen)], pad = ui.Theme.Page), 0, ui)
+  made = mount(Stack([routed(app, router, screen)], pad = ui.Theme.Page), 0, ui)
   u = made.Ui
   u.Root = made.Id
   Update(u)
@@ -95,6 +260,9 @@ defn Update(ui)
     pump(s)
   end
   u = flush(ui)
+  if value.IsSome(u.Nav)
+    u = routeMoved(u)
+  end
   if u.Boxes[u.Root].Dirty
     u = layout(u.Root, u.Width, false, u)
     u = scrolled(u.ScrollY, u)
@@ -139,7 +307,7 @@ defn Frame(ui)
   list.Concat(list.Concat(list.Concat(page, popupItems(ui)), dropped(ui)), bandItems(ui))
 end
 
-bandHeight(ui) = lineOf(ui.Theme.Size, ui) + 8 if ui.Theme.Keys else 0   (* The height of the band of keys. *)
+bandHeight(ui) = lineOf(ui.Theme.Size, ui) + 8 if ui.Theme.Keys or value.IsSome(held(ui)) else 0   (* The height of the band of keys. *)
 seenHeight(ui) = ui.Height - bandHeight(ui)   (* The height of the window that shows the page. *)
 
 defn buttonKeys(id, ui)
@@ -179,23 +347,65 @@ defn Keys(ui)
   list.Concat(if value.IsMissing(say) own else [[say(x[1]), say(x[2])] for x in own] end, buttonKeys(ui.Root, ui))
 end
 
-defn bandItems(ui)
-  (** The band of keys at the bottom of the window: each key in the code font, then what it does. *)
+defn bandSpots(ui)
+  (** What the band at the bottom of the window shows, placed: {Lead, Pairs}, Lead the question of a view left with
+      changes not saved ({X, Text}) or missing, Pairs [{X, Key, What, Act, X1}] for each key, X1 where it ends. *)
   t = ui.Theme
-  if not t.Keys
+  h = held(ui)
+  lead = missing
+  x = t.Page
+  pairs = if value.IsSome(h) heldPairs(ui) else [[k[1], k[2], missing] for k in Keys(ui)] end
+  if value.IsSome(h)
+    q = said(dict.Get("Say", ui), "The changes of this page aren't saved.")
+    lead = {X: x, Text: q}
+    x += widthOf(q, t.Size, "strong", ui) + 20
+  end
+  out = []
+  for pair in pairs
+    what = if value.IsSome(h) said(dict.Get("Say", ui), pair[2]) else pair[2] end
+    kx = x
+    x += widthOf(pair[1], t.Size, "code", ui) + 8
+    wx = x
+    x += widthOf(what, t.Size, "body", ui) + 20
+    out = list.Append({X: kx, Wx: wx, X1: x - 12, Key: pair[1], What: what, Act: pair[3]}, out)
+  end
+  {Lead: lead, Pairs: out}
+end
+
+defn bandItems(ui)
+  (** The band of keys at the bottom of the window: each key in the code font, then what it does. While a view with
+      changes not saved waits to be left, the band asks what to do with them instead, its edge in the color of
+      warnings. *)
+  t = ui.Theme
+  h = bandHeight(ui)
+  if h == 0
     return []
   end
-  h = bandHeight(ui)
   y = ui.Height - h
-  out = [rect(0, y, ui.Width, h, t.Band), rect(0, y, ui.Width, 1, t.Grid)]
-  x = t.Page
-  for pair in Keys(ui)
-    out = list.Append(words(x, y + 4, pair[1], t.Size, role("Link", t), "code"), out)
-    x += widthOf(pair[1], t.Size, "code", ui) + 8
-    out = list.Append(words(x, y + 4, pair[2], t.Size, t.Ink), out)
-    x += widthOf(pair[2], t.Size, "body", ui) + 20
+  spots = bandSpots(ui)
+  asking = value.IsSome(spots.Lead)
+  out = [rect(0, y, ui.Width, h, t.Band), rect(0, y, ui.Width, 2 if asking else 1, role("Warn", t) if asking else t.Grid)]
+  if asking
+    out = list.Append(words(spots.Lead.X, y + 4, spots.Lead.Text, t.Size, t.Ink, "strong"), out)
+  end
+  for p in spots.Pairs
+    out = list.Append(words(p.X, y + 4, p.Key, t.Size, role("Link", t), "code"), out)
+    out = list.Append(words(p.Wx, y + 4, p.What, t.Size, t.Ink), out)
   end
   out
+end
+
+defn heldSem(ui)
+  (** The question of a view left with changes not saved, as the semantics tree holds it: an alert and a button for
+      each answer, in the band. *)
+  spots = bandSpots(ui)
+  if value.IsMissing(spots.Lead)
+    return []
+  end
+  y = ui.Height - bandHeight(ui)
+  h = bandHeight(ui)
+  one = {Id: "held", Role: "alert", Name: spots.Lead.Text, Value: missing, X: spots.Lead.X, Y: y, W: spots.Pairs[1].X - spots.Lead.X, H: h, Focused: false, Kids: []}
+  list.Prepend(one, [{Id: "held$(p.Act)", Role: "button", Name: "$(p.What) ($(p.Key))", Value: missing, X: p.X, Y: y, W: p.X1 - p.X, H: h, Focused: false, Kids: []} for p in spots.Pairs])
 end
 
 defn at(id, ui)
@@ -257,7 +467,7 @@ defn Semantics(ui)
       the number of rows in all, and Kids, its header and the rows in sight, "row" with Index, of "cell"), "img" for a
       graph, "list" of "listitem". The boxes that only place others, stacks and rows, give their children. *)
   root = ui.Boxes[ui.Root]
-  {Id: 0, Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: semOf(ui.Root, 0, -ui.ScrollY, ui)}
+  {Id: 0, Role: "page", Name: "", Value: missing, X: 0, Y: 0, W: ui.Width, H: ui.Height, Focused: false, Kids: list.Concat(semOf(ui.Root, 0, -ui.ScrollY, ui), heldSem(ui))}
 end
 
 defn node(role, name, b, x, y, ui, kids = [], v = missing)

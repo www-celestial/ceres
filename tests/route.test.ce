@@ -1,0 +1,121 @@
+(* The routes of an app as the pages of a web site, on the headless back-end: a link goes, Alt+Left and Alt+Right go
+   back and forward, a table comes back with its order, its scroll and its row chosen, a view whose changes aren't
+   saved asks before it is left (by a link, by the history, by the browser's address), and a row of an outliner that
+   is a link says where it goes. *)
+use src/web
+use src/headless
+use std/list
+use std/test
+use std/text
+use std/value
+
+rows = [{N: k, Name: "Row $(k)"} for k in 1..100]
+name = web.Signal("Ada")
+saved = web.Signal("")
+
+defn first(p)
+  web.Stack([web.Title("First"), web.Link("To the second", "/second"),
+    web.Table(rows, [web.Column("N", r -> r.N, sort = "N", width = 80), web.Column("Name", r -> r.Name)], height = 200, label = "Rows")])
+end
+
+defn second(p)
+  web.Unsaved(p, () -> web.Get(name) != "Ada", save = () -> web.Set(saved, web.Get(name)))
+  web.Stack([web.Title("Second"), web.Link("Back to the first", "/"), web.Input(name, label = "Name")])
+end
+
+app = web.App([web.Route("/", first), web.Route("/second", second)], theme = web.Dark)
+
+alt(k, p) = web.Handle({Kind: "key", Key: k, Ctrl: false, Shift: false, Alt: true}, p)
+ctrl(k, p) = web.Handle({Kind: "key", Key: k, Ctrl: true, Shift: false, Alt: false}, p)
+address(path, p) = web.Handle({Kind: "nav", Path: path}, p)
+
+defn isLinkAndHistory()
+  web.Set(name, "Ada")
+  p = headless.ClickOn("To the second", headless.Open(app))
+  there = web.Path(p) == "/second" and text.Contains("heading \"Second\"", headless.Tree(p))
+  p = alt("left", p)
+  back = web.Path(p) == "/" and text.Contains("heading \"First\"", headless.Tree(p))
+  p = alt("right", p)
+  forward = web.Path(p) == "/second"
+  p = alt("right", p)
+  list.All([there, back, forward, web.Path(p) == "/second"])
+end
+
+defn placeOf(tree, start)
+  (** Where the node of the tree whose line starts so is: {X, Y}. *)
+  line = list.FindFirst(l -> text.StartsWith(start, text.Trim(l)), text.Lines(tree))
+  xy = text.Split(",", text.Split(" ", text.Split(" at ", line)[2])[1])
+  {X: text.Number(xy[1]), Y: text.Number(xy[2])}
+end
+
+cells(tree) = [text.Trim(l) for l in text.Lines(tree) if text.StartsWith("cell \"", text.Trim(l))]   (* The cells in sight. *)
+
+defn isTableKept()
+  web.Set(name, "Ada")
+  p = headless.Open(app, width = 600, height = 500)
+  tb = placeOf(headless.Tree(p), "table \"Rows\"")
+  (* sorted by N the other way, 100 first, then scrolled down two notches, and the second row in sight chosen *)
+  p = headless.Click(tb.X + 20, tb.Y + 8, p)
+  p = headless.Click(tb.X + 20, tb.Y + 8, p)
+  p = headless.Wheel(tb.X + 100, tb.Y + 100, -2, p)
+  p = headless.Click(tb.X + 100, tb.Y + 22 + 22 + 8, p)
+  before = cells(headless.Tree(p))
+  chosen = text.Contains("#1f5fb0", headless.Draw(p))
+  p = headless.ClickOn("To the second", p)
+  p = headless.ClickOn("Back to the first", p)
+  after = cells(headless.Tree(p))
+  list.All([chosen, value.Equal(before, after), not value.IsEmpty(after), not text.Contains("cell \"100\"", text.Join("\n", after)),
+    text.Contains("cell \"9", text.Join("\n", after)), text.Contains("#1f5fb0", headless.Draw(p))])
+end
+
+defn isUnsavedAsked()
+  web.Set(name, "Ada")
+  web.Set(saved, "")
+  p = headless.ClickOn("To the second", headless.Open(app))
+  p = headless.ClickOn("Name", p)
+  p = headless.Type(" Lovelace", p)
+  p = headless.ClickOn("Back to the first", p)
+  asked = web.Path(p) == "/second" and text.Contains("alert \"The changes of this page aren't saved.\"", headless.Tree(p))
+  buttons = text.Contains("button \"save and leave (C-s)\"", headless.Tree(p)) and text.Contains("button \"stay (Esc)\"", headless.Tree(p))
+  drawn = text.Contains("The changes of this page aren't saved.", headless.Draw(p))
+  p = headless.Press("escape", p)
+  stayed = web.Path(p) == "/second" and not text.Contains("alert", headless.Tree(p)) and web.Get(name) == "Ada Lovelace"
+  p = headless.ClickOn("Back to the first", p)
+  p = ctrl("s", p)
+  left = web.Path(p) == "/" and web.Get(saved) == "Ada Lovelace"
+  list.All([asked, buttons, drawn, stayed, left])
+end
+
+defn isLeftWithoutSaving()
+  web.Set(name, "Ada")
+  web.Set(saved, "")
+  p = headless.ClickOn("To the second", headless.Open(app))
+  p = headless.ClickOn("Name", p)
+  p = headless.Type("x", p)
+  (* the browser's Back changed its address: the page holds, and asks *)
+  p = address("/", p)
+  held = web.Path(p) == "/second" and text.Contains("alert", headless.Tree(p)) and web.Guarded(p)
+  p = ctrl("d", p)
+  list.All([held, web.Path(p) == "/", web.Get(saved) == "", not text.Contains("alert", headless.Tree(p))])
+end
+
+defn isUnchangedNotAsked()
+  web.Set(name, "Ada")
+  p = headless.ClickOn("To the second", headless.Open(app))
+  guarded = web.Guarded(p)
+  p = alt("left", p)
+  not guarded and web.Path(p) == "/"
+end
+
+defn outline(p)
+  tree = web.Tree([web.Item("First", to = "/"), web.Item("Second", to = "/second")], chosen = "First", label = "Pages")
+  web.Stack([tree, web.Title(p.Path)])
+end
+
+defn isOutlinerLinks()
+  a = web.App([web.Route("/", outline), web.Route("/second", outline)], theme = web.Dark)
+  p = headless.Open(a)
+  links = text.Contains("treeitem \"Second\" href /second level 1", headless.Tree(p))
+  p = headless.ClickOn("Second", p)
+  list.All([links, web.Path(p) == "/second", text.Contains("heading \"/second\"", headless.Tree(p))])
+end

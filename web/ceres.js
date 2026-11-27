@@ -352,14 +352,14 @@ export function mirror(layer, host) {
       const take = () => { if (el.value) host.event({ Kind: 'text', Text: el.value }); el.value = '' }
       el.addEventListener('input', ev => { if (!ev.isComposing) take() })
       el.addEventListener('compositionend', take)
-      el.addEventListener('keydown', ev => { const k = keyName(ev, true); if (k && !ev.isComposing) { ev.preventDefault(); host.event(keyOf(k, ev)) } })
+      el.addEventListener('keydown', ev => { const k = keyName(ev, true); if (k && !ev.isComposing && !browsers(ev)) { ev.preventDefault(); host.event(keyOf(k, ev)) } })
     }
     return el
   }
   // The node e given to its kept node k: only what differs from its last node is written.
   function put(k, e) {
     if (k === root) { root.e = e; return }
-    const role = e[1], tag = TAGS[role] || 'div'
+    const role = e[1], tag = TAGS[role] || (field(e, 'Href') !== undefined ? 'a' : 'div')
     let o = k.e || NONE, el = k.el
     if (k.tag !== tag) {
       const made = element(tag)
@@ -379,7 +379,7 @@ export function mirror(layer, host) {
       const level = field(e, 'Level'), selected = field(e, 'Selected')
       if (level !== field(o, 'Level')) { if (level !== undefined) el.setAttribute('aria-level', level); else el.removeAttribute('aria-level') }
       if (selected !== field(o, 'Selected')) { if (selected !== undefined) el.setAttribute('aria-selected', selected); else el.removeAttribute('aria-selected') }
-      if (role === 'link' && href !== field(o, 'Href')) el.href = href
+      if (tag === 'a' && href !== field(o, 'Href')) el.href = typeof href === 'string' && href.startsWith('/') ? '#' + href : href
       if (expanded !== field(o, 'Expanded')) { if (expanded !== undefined) el.setAttribute('aria-expanded', expanded); else el.removeAttribute('aria-expanded') }
       if (!invalid !== !field(o, 'Invalid')) { if (invalid) el.setAttribute('aria-invalid', 'true'); else el.removeAttribute('aria-invalid') }
       if (index !== field(o, 'Index')) { if (index) el.setAttribute('aria-rowindex', index); else el.removeAttribute('aria-rowindex') }
@@ -484,7 +484,11 @@ const text = b => typeof b === 'string' ? b : dec.decode(b)
 // Sets up the canvas of the page (the first <canvas> of the document): it fills its parent, the events go to the page
 // on events, as JSON text or, with form "lists", as lists. Gives the page its width, height, origin and first path.
 const listed = e => e.Kind === 'mouse' ? ['mouse', e.Action, e.X, e.Y, e.Button, e.Amount] : e.Kind === 'key' ? ['key', e.Key, e.Ctrl, e.Alt, e.Shift]
-  : e.Kind === 'text' ? ['text', e.Text] : e.Kind === 'scheme' ? ['scheme', e.Dark] : ['resize', e.Width, e.Height]
+  : e.Kind === 'text' ? ['text', e.Text] : e.Kind === 'scheme' ? ['scheme', e.Dark] : e.Kind === 'nav' ? ['nav', e.Path] : ['resize', e.Width, e.Height]
+// The route in the address, after its # (page.html#/users/42), or null when it holds none.
+const routeOf = () => location.hash.startsWith('#/') ? decodeURIComponent(location.hash.slice(1)) : null
+// Alt+Left and Alt+Right stay the browser's: Back and Forward, which the page follows by the address.
+const browsers = ev => ev.altKey && !ev.ctrlKey && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight')
 export function Start(events, form, net) {
   const canvas = document.querySelector('canvas')
   canvas.style.display = 'block'
@@ -510,8 +514,29 @@ export function Start(events, form, net) {
   }).observe(canvas.parentNode)
   const at = ev => { const r = canvas.getBoundingClientRect(); return [Math.floor(ev.clientX - r.left), Math.floor(ev.clientY - r.top)] }
   canvas.addEventListener('mousedown', ev => ev.preventDefault()) // the input in focus keeps it: the page moves focus
+  // A link (or a row of an outliner that is one) pressed with Ctrl, Cmd or the middle button opens in a new tab, as a
+  // link of a web page does; the page doesn't see that press.
+  const linkAt = ev => {
+    for (const a of layer.querySelectorAll('a[href]')) {
+      const r = a.getBoundingClientRect()
+      if (ev.clientX >= r.left && ev.clientX < r.right && ev.clientY >= r.top && ev.clientY < r.bottom) return a
+    }
+    return null
+  }
+  let opened = false
+  canvas.addEventListener('pointerdown', ev => {
+    opened = false
+    if (ev.button !== 1 && !ev.ctrlKey && !ev.metaKey) return
+    const a = linkAt(ev)
+    if (a) { opened = true; ev.preventDefault(); ev.stopImmediatePropagation(); window.open(a.href, '_blank', 'noopener') }
+  })
   for (const [name, action] of [['pointerdown', 'down'], ['pointerup', 'up'], ['pointermove', 'move']])
-    canvas.addEventListener(name, ev => { const [x, y] = at(ev); send({ Kind: 'mouse', Action: action, X: x, Y: y, Button: ev.button + 1, Amount: 0 }) })
+    canvas.addEventListener(name, ev => {
+      if (opened && action !== 'move') { if (action === 'up') opened = false; return }
+      const [x, y] = at(ev); send({ Kind: 'mouse', Action: action, X: x, Y: y, Button: ev.button + 1, Amount: 0 })
+    })
+  addEventListener('popstate', () => { const p = routeOf(); send({ Kind: 'nav', Path: p === null ? (canvas.dataset.path || '/') : p }) })
+  addEventListener('beforeunload', ev => { if (unsaved) { ev.preventDefault(); ev.returnValue = '' } })
   canvas.addEventListener('wheel', ev => { ev.preventDefault(); const [x, y] = at(ev); send({ Kind: 'mouse', Action: 'wheel', X: x, Y: y, Button: 0, Amount: -Math.sign(ev.deltaY) }) }, { passive: false })
   if (net) {
     // The network as the browser sees it, for the live screen: offline at once, online and a tab shown again try now.
@@ -520,7 +545,7 @@ export function Start(events, form, net) {
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') net.send('now') })
   }
   window.addEventListener('keydown', ev => {
-    if (ev.target.tagName === 'INPUT') return
+    if (ev.target.tagName === 'INPUT' || browsers(ev)) return
     const k = keyName(ev, false)
     if (k) { ev.preventDefault(); send(keyOf(k, ev)) }
   })
@@ -529,8 +554,14 @@ export function Start(events, form, net) {
   addEventListener('ceres-icons', again)
   const scheme = typeof matchMedia === 'function' ? matchMedia('(prefers-color-scheme: dark)') : null
   if (scheme) scheme.addEventListener('change', () => send({ Kind: 'scheme', Dark: scheme.matches }))
-  return [Math.floor(r.width), Math.floor(r.height), location.origin, canvas.dataset.path || '/', /[?&]ceres-check\b/.test(location.search), scheme ? scheme.matches : null]
+  return [Math.floor(r.width), Math.floor(r.height), location.origin, routeOf() || canvas.dataset.path || '/', /[?&]ceres-check\b/.test(location.search), scheme ? scheme.matches : null]
 }
+
+// The route the page went to: a new entry of the browser's history, its address the page's own with the route after
+// its #. A page whose view has changes not saved (web.Unsaved) makes the browser ask before it is left.
+export const Go = path => { const h = '#' + text(path); if (location.hash !== h && !(h === '#/' && !location.hash)) history.pushState(null, '', h) }
+let unsaved = false
+export const Unsaved = flag => { unsaved = flag === true || flag === 1 }
 
 export const Measure = (t, size, font) => glue.p.measure(text(t), size, text(font))
 export const Line = size => glue.p.line(size)

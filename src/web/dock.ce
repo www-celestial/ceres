@@ -132,12 +132,15 @@ defn StatusBar(items)
     Height: missing, Align: "center", Grow: 0, Kit: kit}
 end
 
-defn Item(label, icon = missing, kids = [], on = missing, count = missing, key = missing)
-  (** A row of a web.Tree: its label, an icon of web.Icons, the rows under it, on(), what choosing it does (as
-      web.Go to a page), a count shown at its right, and key, what tells it apart, its label by default.
+defn Item(label, icon = missing, kids = [], on = missing, count = missing, key = missing, to = missing)
+  (** A row of a web.Tree: its label, an icon of web.Icons, the rows under it, on(), what choosing it does, a count
+      shown at its right, and key, what tells it apart, its label by default. to, a route of the app, makes the row a
+      link to it: choosing it goes there, as web.Go does, and in a browser Ctrl or the middle button opens it in a new
+      tab.
 
-        Item("Users", icon = "person", count = 7).Count --> 7 *)
-  {Label: label, Icon: icon, Kids: kids, On: on, Count: count, Key: if value.IsMissing(key) label else key end}
+        Item("Users", icon = "person", count = 7).Count --> 7
+        Item("Users", to = "/users").To --> "/users" *)
+  {Label: label, Icon: icon, Kids: kids, On: on, Count: count, Key: if value.IsMissing(key) label else key end, To: to}
 end
 
 defn Tree(items, chosen = missing, closed = [], label = "")
@@ -759,10 +762,10 @@ defn treeDown(h, ui)
     return u
   end
   r = b.Cache.Rows[k]
-  if r.Kids and (h.X < 4 + (r.Level - 1) * 14 + role("Icon", u.Theme) + 2 or value.IsMissing(r.Item.On))
+  if r.Kids and (h.X < 4 + (r.Level - 1) * 14 + role("Icon", u.Theme) + 2 or value.IsMissing(r.Item.On) and value.IsMissing(dict.Get("To", r.Item)))
     toggleRow(b.Node, r)
   else
-    chooseRow(b.Node, r)
+    chooseRow(b.Node, r, u)
   end
   u
 end
@@ -773,9 +776,13 @@ defn toggleRow(n, r)
   Set(n.Closed, if r.Item.Key in shut dict.Drop(r.Item.Key, shut) else dict.Put(r.Item.Key, true, shut) end)
 end
 
-defn chooseRow(n, r)
-  (** Chooses a row of a tree and runs what it does. *)
+defn chooseRow(n, r, ui)
+  (** Chooses a row of a tree and runs what it does, or goes to its route. *)
   Set(n.Chosen, r.Item.Key)
+  to = dict.Get("To", r.Item)
+  if value.IsSome(to) and value.IsSome(ui.Router)
+    _ = going(ui.Router, to, missing)
+  end
   if value.IsFunction(r.Item.On)
     r.Item.On()
   end
@@ -801,12 +808,12 @@ defn treeKey(e, ui)
   if k == "down" or k == "up" or k == "home" or k == "end"
     j = if k == "down" list.Min(value.Len(rows), i + 1) else if k == "up" list.Max(1, i - 1) else if k == "home" 1 else value.Len(rows) end
     if j != i
-      chooseRow(n, rows[j])
+      chooseRow(n, rows[j], ui)
     end
   else if value.IsMissing(r)
     return ui
   else if k == "right" and r.Kids
-    if r.Open chooseRow(n, rows[i + 1]) else toggleRow(n, r) end
+    if r.Open chooseRow(n, rows[i + 1], ui) else toggleRow(n, r) end
   else if k == "left"
     if r.Kids and r.Open
       toggleRow(n, r)
@@ -818,11 +825,11 @@ defn treeKey(e, ui)
         end
       end
       if up > 0
-        chooseRow(n, rows[up])
+        chooseRow(n, rows[up], ui)
       end
     end
   else if k == "enter" or k == "space"
-    if value.IsFunction(r.Item.On) r.Item.On() else if r.Kids toggleRow(n, r) end
+    if value.IsFunction(r.Item.On) or value.IsSome(dict.Get("To", r.Item)) chooseRow(n, r, ui) else if r.Kids toggleRow(n, r) end
   end
   ui
 end
@@ -869,6 +876,9 @@ defn treeSem(b, x, y, ui)
       X: x, Y: y + (k - 1) * c.Row, W: b.W, H: c.Row, Focused: false, Kids: [], Level: r.Level, Selected: r.Item.Key == c.Chosen}
     if r.Kids
       one.Expanded = r.Open
+    end
+    if value.IsSome(dict.Get("To", r.Item))
+      one.Href = r.Item.To
     end
     rows = list.Append(one, rows)
   end
@@ -950,6 +960,9 @@ defn treePatch(id, b, ex, ey, x, y, f, ax, ay, at, ui)
     more = {Level: r.Level, Selected: r.Item.Key == c.Chosen}
     if r.Kids
       more.Expanded = r.Open
+    end
+    if value.IsSome(dict.Get("To", r.Item))
+      more.Href = r.Item.To
     end
     re = json.Text([rid, "treeitem", shown(r.Item.Label), if value.IsMissing(r.Item.Count) missing else shown(r.Item.Count) end,
       x - nax, y + (k - 1) * c.Row - nay, b.W, c.Row, false, more])

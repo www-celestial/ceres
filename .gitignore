@@ -33,3 +33,6 @@ tests/web/align.wasm
 tests/web/align.sites
 tests/web/ceres.js
 tests/web/icons.js
+tests/web/route.js
+tests/web/route.wasm
+tests/web/route.sites

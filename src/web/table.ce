@@ -99,6 +99,29 @@ defn ask(src, era, by, desc, k)
   end)
 end
 
+(* ---- The memory of the views: a table mounted again in a route seen before (Back, a link to it, the page made
+   again by a live part) comes back with its order, its scroll and its row chosen as they were. *)
+
+defn tableMemory(n, ui)
+  (** What a table is known by in the memory of the views: the route shown, its label and the titles of its
+      columns. Two tables alike in one route share it. *)
+  "$(nowOf(ui.Nav)) table $(n.Label) $(text.Join("|", [if value.IsText(c.Title) c.Title else "" end for c in n.Columns]))"
+end
+
+defn recalled(n, ui)
+  (** A table as it was the last time its route showed it, if it did. *)
+  if value.IsMissing(ui.Nav)
+    return missing
+  end
+  kept = dict.Get(tableMemory(n, ui), ui.Views)
+  if value.IsSome(kept)
+    quiet(n.Sort, kept.Sort)
+    quiet(n.Offset, kept.Offset)
+    quiet(n.Chosen, kept.Chosen)
+  end
+  missing
+end
+
 defn colWidths(cols, w)
   (** The width of each column: its own, or a share of what is left. *)
   fixed = list.Sum([c.Width for c in cols if value.IsSome(c.Width)])
@@ -124,6 +147,9 @@ defn layTable(id, maxW, ui)
   h = if value.IsSome(b.Gh) and dict.GetOr("Grow", 0, n) > 0 list.Max(2 * (ui.Theme.Row), b.Gh) else n.Height end
   got = watched(id, () -> tableView(id, n, w, ui, h), ui)
   u = got.Ui
+  if value.IsSome(u.Nav)
+    u.Views[tableMemory(n, u)] = {Sort: nowOf(n.Sort), Offset: nowOf(n.Offset), Chosen: nowOf(n.Chosen)}
+  end
   cached(id, w, h, got.Value.Items, got.Value.Cache, u)
 end
 

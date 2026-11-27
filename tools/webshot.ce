@@ -3,7 +3,8 @@
    window, and reads the title that tests/web/page.html writes once it played a person (the rows of the table, a click
    into the field Due, "Brun" typed, then Backspace and a space), the hidden DOM and the texts in the middle of their
    boxes checked (ceres-check). Then it opens tests/web/align.html, the page of tests/web/align.ce, with the system's
-   colors dark and then light, which reads from its pixels that every text and icon is in the middle of its box. It
+   colors dark and then light, which reads from its pixels that every text and icon is in the middle of its box, and
+   tests/web/route.html, the page of tests/web/route.ce, which goes through its routes by the address and the history. It
    drives Chrome by its DevTools protocol, over a WebSocket of std/websocket, and writes the picture of the invoices page
    in shots/invoices-webgl.png. It prints each title and fails when one is off. CHROME names the browser, a Chrome or a
    chrome-headless-shell; the browser's profile is in /tmp/ceres-webshot. *)
@@ -66,8 +67,8 @@ defn played(chrome, url, scheme, shot)
 end
 
 defn main()
-  (** Serves, then plays the invoices page (its picture taken) and the page of tests/web/align.ce dark and light: an Ok
-      of their titles, one a line. *)
+  (** Serves, then plays the invoices page (its picture taken), the page of tests/web/align.ce dark and light, and the
+      routes of tests/web/route.ce in the browser's address and its history: an Ok of their titles, one a line. *)
   chrome = sys.Env("CHROME")
   store = server.Store()
   l = net.Listen(0)?
@@ -77,10 +78,12 @@ defn main()
   page = played(chrome, "$at/tests/page.html?ceres-check", "light", "shots/invoices-webgl.png")?
   dark = played(chrome, "$at/tests/align.html?ceres-check", "dark", missing)?
   light = played(chrome, "$at/tests/align.html?ceres-check", "light", missing)?
-  result.Ok([page, dark, light])
+  routes = played(chrome, "$at/tests/route.html", "light", missing)?
+  deep = played(chrome, "$at/tests/route.html#/second", "light", missing)?
+  result.Ok([page, dark, light, routes, deep])
 end
 
 got = main()
 io.Print(if result.IsOk(got) text.Join("\n", got.Value) else "webshot: $(got.Error.Message)" end)
-good = result.IsOk(got) and value.Len([t for t in got.Value if text.StartsWith("done", t) and not text.Contains("off:", t)]) == 3
+good = result.IsOk(got) and value.Len([t for t in got.Value if text.StartsWith("done", t) and not text.Contains("off:", t)]) == 5
 sys.Exit(if good 0 else 1 end)
