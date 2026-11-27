@@ -473,13 +473,14 @@ end
 
 defn cardLine(i, row, on, back, columns, rights, inner, rh, t, u)
   (** A row of a table on a phone, as a card: its first two columns of text as its title, the other texts under it,
-      its first amount (a column at the right) and its first pill at its right. *)
+      its last amount (a column at the right, as a total) and its first pill at its right. *)
   y = (i - 1) * rh
   lh = lineOf(t.Size, u)
   cells = [columns[c].Cell(row) for c in 1..value.Len(columns)]
   texts = [if isPill(x) shown(x.Text) else shown(x) end for x in cells]
   lefts = [c for c in 1..value.Len(columns) if not rights[c] and not isPill(cells[c])]
-  amount = list.FindFirst(c -> rights[c] and not isPill(cells[c]), 1..value.Len(columns))
+  amounts = [c for c in 1..value.Len(columns) if rights[c] and not isPill(cells[c])]
+  amount = if value.IsEmpty(amounts) missing else amounts[value.Len(amounts)] end
   pill = list.FindFirst(c -> isPill(cells[c]), 1..value.Len(columns))
   side = 0
   out = []
