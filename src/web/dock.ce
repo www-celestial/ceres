@@ -434,13 +434,16 @@ end
 
 defn layTree(id, maxW, ui)
   (** The rows of an outliner, one under the other: further in for each level, a triangle before those that have rows
-      under them, the chosen row in the color of the choice, the row under the mouse lighter. *)
+      under them, the chosen row in the color of the choice, the row under the mouse lighter. A row that is a link to
+      the route shown is the one chosen, so that Back and Forward move the choice with the page. *)
   b = ui.Boxes[id]
   n = b.Node
-  got = watched(id, () -> {Items: itemsOf(n), Chosen: Get(n.Chosen), Closed: Get(n.Closed)}, ui)
+  got = watched(id, () -> {Items: itemsOf(n), Chosen: Get(n.Chosen), Closed: Get(n.Closed), Path: if value.IsSome(ui.Nav) Get(ui.Nav) else missing end}, ui)
   u = got.Ui
   t = u.Theme
   rows = rowsOf(got.Value.Items, got.Value.Closed, 1)
+  linked = if value.IsMissing(got.Value.Path) missing else list.FindFirst(r -> dict.Get("To", r.Item) == got.Value.Path, rows) end
+  chosen = if value.IsSome(linked) linked.Item.Key else got.Value.Chosen end
   rh = t.Row
   lh = lineOf(t.Size, u)
   ic = role("Icon", t)
@@ -451,7 +454,7 @@ defn layTree(id, maxW, ui)
     r = rows[k]
     one = r.Item
     y = (k - 1) * rh
-    on = one.Key == got.Value.Chosen
+    on = one.Key == chosen
     if on
       items = list.Append(rect(0, y, maxW, rh, t.Chosen), items)
     else if u.Hover == id and u.HoverPart == k
@@ -477,7 +480,7 @@ defn layTree(id, maxW, ui)
   if u.Focus == id and u.Ring
     items = list.Append(frame(0, 0, maxW, list.Max(rh, value.Len(rows) * rh), t.Accent), items)
   end
-  cached(id, maxW, list.Max(rh, value.Len(rows) * rh), items, {Rows: rows, Row: rh, Chosen: got.Value.Chosen, Text: n.Label}, u)
+  cached(id, maxW, list.Max(rh, value.Len(rows) * rh), items, {Rows: rows, Row: rh, Chosen: chosen, Text: n.Label}, u)
 end
 
 defn laySection(id, maxW, ui)
@@ -777,11 +780,14 @@ defn toggleRow(n, r)
 end
 
 defn chooseRow(n, r, ui)
-  (** Chooses a row of a tree and runs what it does, or goes to its route. *)
-  Set(n.Chosen, r.Item.Key)
+  (** Chooses a row of a tree and runs what it does, or goes to its route: a row that is a link is chosen once its
+      page shows, not while a page with changes not saved asks first. *)
   to = dict.Get("To", r.Item)
   if value.IsSome(to) and value.IsSome(ui.Router)
     _ = going(ui.Router, to, missing)
+  end
+  if value.IsMissing(to) or value.IsMissing(ui.Router) or nowOf(ui.Nav) == to
+    Set(n.Chosen, r.Item.Key)
   end
   if value.IsFunction(r.Item.On)
     r.Item.On()
