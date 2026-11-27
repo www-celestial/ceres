@@ -464,6 +464,10 @@ defn Keys(ui)
     list.Concat([["Tab S-Tab", "next field, previous"], ["Left Right Home End", "move"]], if value.IsFunction(ui.Boxes[f].Node.OnEnter) [["Enter", "send"]] else [] end)
   else if k == "select" and ui.Popup == f
     [["Up Down", "choose"], ["Enter Esc", "close the list"]]
+  else if k == "date" and ui.Popup == f
+    [["Left Right Up Down", "day, week"], ["PgUp PgDn", "month"], ["Enter Esc", "close"]]
+  else if k == "date"
+    [["Enter Down", "open the calendar"], ["Delete", "clear"], ["Tab S-Tab", "next field, previous"]]
   else if k == "select"
     [["Up Down", "choose"], ["Enter", "open the list"], ["Tab S-Tab", "next field, previous"]]
   else if k == "button"
@@ -573,7 +577,7 @@ end
 
 defn popup(ui)
   (** The open list of a select: {Box, X, Y, W, Row, Options}, or missing. *)
-  if ui.Popup == 0 or not (ui.Popup in ui.Boxes)
+  if ui.Popup == 0 or not (ui.Popup in ui.Boxes) or ui.Boxes[ui.Popup].Node.Kind != "select"
     return missing
   end
   b = ui.Boxes[ui.Popup]
@@ -586,7 +590,8 @@ defn popupItems(ui)
   (** The items of the open list of a select, over the page: the chosen option is ink on paper turned round. *)
   o = popup(ui)
   if value.IsMissing(o)
-    return []
+    (* a calendar of web.DateInput, which the kit draws *)
+    return if value.IsSome(ui.Kit) and ui.Popup != 0 and value.IsSome(dict.Get("Popup", ui.Kit)) ui.Kit.Popup(ui) else [] end
   end
   t = ui.Theme
   n = ui.Boxes[o.Box].Node
@@ -658,7 +663,7 @@ defn semOf(id, x0, y0, ui)
     [node("img", b.Cache.Text, b, x, y, ui)]
   else if k == "table"
     [tableSem(b, x, y, ui)]
-  else if k in ["tree", "tabs", "section", "toolbar", "nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell", "vtabs"]
+  else if k in ["tree", "tabs", "section", "toolbar", "nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell", "vtabs", "date"]
     ui.Kit.Sem(b, x, y, ui, inner)
   else if k == "each"
     [node("list", "", b, x, y, ui, kids = [{Id: "$(c)i", Role: "listitem", Name: "", Value: missing, X: 0, Y: 0, W: 0, H: 0, Focused: false, Kids: semOf(c, x, y, ui)} for c in b.Kids])]

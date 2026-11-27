@@ -48,7 +48,7 @@ defn resized(e, ui)
   touch(u.Root, u)
 end
 
-active = ["button", "link", "input", "select", "table", "split", "tabs", "tree", "scroll", "section", "nav", "chips", "picks", "metric", "asked", "vtabs"]   (* The kinds of widgets that take the mouse. *)
+active = ["button", "link", "input", "select", "table", "split", "tabs", "tree", "scroll", "section", "nav", "chips", "picks", "metric", "asked", "vtabs", "date"]   (* The kinds of widgets that take the mouse. *)
 
 defn hitIn(id, x, y, ui)
   (** The deepest box under x, y, given in the box's own coordinates, or 0. *)
@@ -124,7 +124,7 @@ defn hovered(e, ui)
     n = ui.Boxes[h.Id].Node
     k = n.Kind
     over = if k == "button" and (tooled(n, ui.Theme) or tokens) or k == "section" {Id: h.Id, Part: missing, Cursor: "pointer" if tokens else "default"}
-    else if k == "input" or k == "select" {Id: h.Id if tokens else 0, Part: missing, Cursor: "text" if k == "input" else "pointer"}
+    else if k == "input" or k == "select" or k == "date" {Id: h.Id if tokens else 0, Part: missing, Cursor: "text" if k == "input" else "pointer"}
     else if k == "link" {Id: 0, Part: missing, Cursor: "pointer"}
     else if value.IsSome(ui.Kit) ui.Kit.Hover(h, ui)
     else if k == "table" and tokens hoverRow(h, ui)
@@ -198,7 +198,7 @@ defn mouse(e, ui)
     u.Pressed = h.Id
     u = touch(h.Id, u)
     return if k == "link" u else focus(h.Id, u) end
-  else if k in ["split", "tabs", "tree", "scroll", "nav", "chips", "picks", "asked", "vtabs"]
+  else if k in ["split", "tabs", "tree", "scroll", "nav", "chips", "picks", "asked", "vtabs", "date"]
     return u.Kit.Down(h, e, u)
   else if k == "input"
     u = focus(h.Id, u)
@@ -495,7 +495,7 @@ defn key(e, ui)
     selectKey(e, u)
   else if k == "table"
     tableKey(e, u)
-  else if k == "tree" or k == "tabs" or k == "nav" or k == "chips"
+  else if k == "tree" or k == "tabs" or k == "nav" or k == "chips" or k == "date"
     u.Kit.Key(e, u)
   else if k == "section"
     if e.Key == "enter" or e.Key == "space" clicked(u.Focus, u) else u end

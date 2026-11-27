@@ -7,7 +7,8 @@ use std/math
 use std/text
 use std/value
 
-defn Table(source, columns, height = 400, rowHeight = missing, width = missing, label = "", checks = missing, key = missing, open = missing, picked = missing)
+defn Table(source, columns, height = 400, rowHeight = missing, width = missing, label = "", checks = missing, key = missing, open = missing, picked = missing,
+  title = missing)
   (** A table of rows under a header, with a scroll bar: source is a signal of a list of rows, a list, or web.Pages,
       the rows the app gives a window at a time; columns are web.Column. Only the rows in sight are drawn. A click on
       the title of a column that sorts sorts by it, a second click the other way. The wheel scrolls it, and so do Up,
@@ -19,11 +20,12 @@ defn Table(source, columns, height = 400, rowHeight = missing, width = missing, 
       row is chosen, as a click on it or Enter does, to show it (its address, web.Go); picked, a signal of the key of
       the row shown, marks that row chosen while it holds it, as the address of a row opened does. In web.Dark and
       web.Light, a row is striped, lit under the mouse, and in a web.Shell on a phone (a window under 760 pixels) drawn
-      as a card of two lines: its first columns as its title, the others under it, its amount and its pill at its right.
+      as a card of two lines: title(row) as its title (its first columns when title is missing), the others under it,
+      its amount and its pill at its right, its box to check before it; a column with card = false stays off the cards.
 
         Table([{N: 1}], [Column("N", r -> r.N)]).Kind --> "table" *)
   {Kind: "table", Source: source, Columns: columns, Height: height, RowHeight: rowHeight, Width: width, Label: label,
-    Offset: Signal(0), Sort: Signal(missing), Chosen: Signal(missing), Checks: checks, KeyOf: key, Open: open, Picked: picked}
+    Offset: Signal(0), Sort: Signal(missing), Chosen: Signal(missing), Checks: checks, KeyOf: key, Open: open, Picked: picked, Title: title}
 end
 
 defn Pill(words, tone = "Muted", dot = true)
@@ -84,14 +86,16 @@ end
 
 words1(x, y, s, size, color) = {Kind: "text", X: x, Y: y, Text: s, Size: size, Color: color, Font: "body"}   (* A text item. *)
 
-defn Column(title, cell, sort = missing, align = missing, width = missing)
+defn Column(title, cell, sort = missing, align = missing, width = missing, card = true)
   (** A column of a web.Table: its title, and cell(row), what it shows of a row: a value, or a text widget as
       web.Money gives. sort is the field the rows are sorted by when its title is clicked, missing for a column that
       doesn't sort; align is "left" or "right", and by default numbers and amounts go right, in the code font, and
-      the rest left; width in pixels, else the columns share the width left.
+      the rest left; width in pixels, else the columns share the width left. card = false keeps it off the cards of a
+      phone, as an id that the card's title says better.
 
-        Column("Total", r -> r.Total, align = "right").Align --> "right" *)
-  {Title: title, Cell: cell, Sort: sort, Align: align, Width: width}
+        Column("Total", r -> r.Total, align = "right").Align --> "right"
+        Column("Id", r -> r.Id, card = false).Card --> false *)
+  {Title: title, Cell: cell, Sort: sort, Align: align, Width: width, Card: card}
 end
 
 defn Pages(name, p, chunk = 100)
@@ -337,7 +341,7 @@ defn tokenView(id, n, w, u, height)
   picked = if value.IsSome(dict.Get("Picked", n)) and value.IsFunction(dict.Get("KeyOf", n)) Get(n.Picked) else missing end
   chosen = if value.IsSome(picked) missing else Get(n.Chosen) end
   checks = if value.IsSome(dict.Get("Checks", n)) and value.IsFunction(dict.Get("KeyOf", n)) Get(n.Checks) else missing end
-  box = if value.IsSome(checks) and not phone 36 else 0 end
+  box = if value.IsSome(checks) 36 else 0 end
   inner = w - 2
   cw = colWidths(n.Columns, inner - box)
   ty = math.Div(rh - lh, 2)
@@ -357,7 +361,7 @@ defn tokenView(id, n, w, u, height)
     if value.IsSome(e) and e.Pure and e.On == on and e.Lit == lit and e.Ticked == ticked and value.Equal(e.Row, row)
       lines[i] = e
     else
-      made = track(() -> tokenLine(i, row, on, lit, ticked, box, n.Columns, cw, rights, inner, rh, ty, t, u, phone))
+      made = track(() -> tokenLine(i, row, on, lit, ticked, box, n.Columns, cw, rights, inner, rh, ty, t, u, phone, dict.Get("Title", n)))
       for r in made.Reads
         fiber.Send(r, reads)
       end
@@ -443,7 +447,7 @@ defn cellItems(got, x, y, w, rh, ty, right, on, t, u, strong = false)
   {Items: [withBytes(words(x + cx, y + math.Div(rh - lineOf(size, u), 2), s, size, ink, font))], Text: s}
 end
 
-defn tokenLine(i, row, on, lit, ticked, box, columns, cw, rights, inner, rh, ty, t, u, phone)
+defn tokenLine(i, row, on, lit, ticked, box, columns, cw, rights, inner, rh, ty, t, u, phone, title)
   (** The items of the row i of a table in a theme of tokens, as line gives them: {Row, On, Lit, Ticked, Back, Cells,
       Texts, Pure}. On a phone, Cells holds the items of the whole card. *)
   k = t.Tokens
@@ -458,7 +462,9 @@ defn tokenLine(i, row, on, lit, ticked, box, columns, cw, rights, inner, rh, ty,
     back = list.Concat(back, checkItems(11, y + math.Div(rh - 14, 2), ticked, t))
   end
   if phone and value.IsSome(row) and value.Len(columns) > 0
-    return cardLine(i, row, on, back, columns, rights, inner, rh, t, u)
+    card = cardLine(i, row, on, back, columns, rights, inner, rh, t, u, box, title)
+    card.Ticked = ticked
+    return card
   end
   cells = []
   texts = []
@@ -471,14 +477,15 @@ defn tokenLine(i, row, on, lit, ticked, box, columns, cw, rights, inner, rh, ty,
   {Row: row, On: on, Lit: lit, Ticked: ticked, Back: back, Cells: cells, Texts: texts, Pure: true}
 end
 
-defn cardLine(i, row, on, back, columns, rights, inner, rh, t, u)
-  (** A row of a table on a phone, as a card: its first two columns of text as its title, the other texts under it,
-      its last amount (a column at the right, as a total) and its first pill at its right. *)
+defn cardLine(i, row, on, back, columns, rights, inner, rh, t, u, box, title)
+  (** A row of a table on a phone, as a card: title(row) as its title, else its first two columns of text, the other
+      texts under it, its last amount (a column at the right, as a total) and its first pill at its right, after its
+      box to check when the table has them. The columns of card = false stay off it. *)
   y = (i - 1) * rh
   lh = lineOf(t.Size, u)
   cells = [columns[c].Cell(row) for c in 1..value.Len(columns)]
   texts = [if isPill(x) shown(x.Text) else shown(x) end for x in cells]
-  lefts = [c for c in 1..value.Len(columns) if not rights[c] and not isPill(cells[c])]
+  lefts = [c for c in 1..value.Len(columns) if not rights[c] and not isPill(cells[c]) and dict.GetOr("Card", true, columns[c]) != false]
   amounts = [c for c in 1..value.Len(columns) if rights[c] and not isPill(cells[c])]
   amount = if value.IsEmpty(amounts) missing else amounts[value.Len(amounts)] end
   pill = list.FindFirst(c -> isPill(cells[c]), 1..value.Len(columns))
@@ -495,11 +502,13 @@ defn cardLine(i, row, on, back, columns, rights, inner, rh, t, u)
     out = list.Append(group(inner - 14 - p.W, y + 8 + lh + 2, p.W, p.H, false, p.Items), out)
     side = list.Max(side, p.W + 14)
   end
-  title = text.Join(" · ", [texts[c] for c in list.Take(2, lefts) if texts[c] != ""])
-  sub = text.Join(" · ", [texts[c] for c in list.Skip(2, lefts) if texts[c] != ""])
-  room = inner - 14 - side - 8
-  out = list.Append(group(14, y + 8, room, lh, true, [words(0, 0, title, t.Size, t.ChosenInk if on else role("Strong", t), "strong")]), out)
-  out = list.Append(group(14, y + 8 + lh, room, lh, true, [words(0, 0, sub, t.Size - 1, t.ChosenInk if on else t.Muted, "body")]), out)
+  named = if value.IsFunction(title) shown(title(row)) else missing end
+  head1 = if value.IsSome(named) named else text.Join(" · ", [texts[c] for c in list.Take(2, lefts) if texts[c] != ""]) end
+  sub = text.Join(" · ", [texts[c] for c in (if value.IsSome(named) lefts else list.Skip(2, lefts) end) if texts[c] != ""])
+  x0 = if box > 0 box else 14 end
+  room = inner - x0 - side - 8
+  out = list.Append(group(x0, y + 8, room, lh, true, [words(0, 0, head1, t.Size, t.ChosenInk if on else role("Strong", t), "strong")]), out)
+  out = list.Append(group(x0, y + 8 + lh, room, lh, true, [words(0, 0, sub, t.Size - 1, t.ChosenInk if on else t.Muted, "body")]), out)
   sep = rect(14, y + rh - 1, inner - 28, 1, t.Tokens.Divider)
   {Row: row, On: on, Lit: false, Ticked: false, Back: list.Append(sep, back), Cells: out, Texts: texts, Pure: true}
 end

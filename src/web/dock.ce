@@ -216,7 +216,13 @@ end
 defn kit()
   (** The functions of the widgets of a desktop tool, as a page calls them. *)
   {Lay: layDesk, Mounted: restored, Sem: semDesk, Patch: patchDesk, Drop: dropItems, Hover: hoverDesk, Down: dockDown,
-    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk, Fold: foldKey, Pane: paneTo, Modal: shellModal}
+    Drag: dockDrag, Up: dockUp, Wheel: wheelDesk, Reveal: reveal, Key: keyDesk, Fold: foldKey, Pane: paneTo, Modal: deskModal, Popup: datePopup}
+end
+
+defn deskModal(e, ui)
+  (** What an open calendar (web.DateInput), then the shell, does with an event before the widgets. *)
+  m = dateModal(e, ui)
+  if value.IsSome(m) m else shellModal(e, ui) end
 end
 
 defn layDesk(id, maxW, ui)
@@ -231,6 +237,7 @@ defn layDesk(id, maxW, ui)
   else if k == "icon" layIcon(id, ui)
   else if k == "sep" layLine(id, ui)
   else if k == "shell" layShell(id, maxW, ui)
+  else if k == "date" layDate(id, maxW, ui)
   else if k == "side" laySide(id, maxW, ui)
   else if k == "inset" layInset(id, maxW, ui)
   else if k == "narrow" layNarrow(id, maxW, ui)
@@ -682,7 +689,7 @@ defn keyDesk(e, ui)
   (** A key for the widget of a desktop tool in focus: a tree's, tabs', or PgUp and PgDn on a button or a section,
       which scroll its panel. *)
   k = ui.Boxes[ui.Focus].Node.Kind
-  if k == "tree" treeKey(e, ui) else if k == "tabs" tabsKey(e, ui) else if k == "nav" or k == "chips" shellKey(e, ui) else paneKey(e, ui) end
+  if k == "tree" treeKey(e, ui) else if k == "tabs" tabsKey(e, ui) else if k == "nav" or k == "chips" shellKey(e, ui) else if k == "date" dateKey(e, ui) else paneKey(e, ui) end
 end
 
 defn dockDown(h, e, ui)
@@ -691,6 +698,9 @@ defn dockDown(h, e, ui)
   u = ui
   b = u.Boxes[h.Id]
   k = b.Node.Kind
+  if k == "date"
+    return dateDown(h, u)
+  end
   if k == "split"
     if not onHandle(h, b)
       return focus(0, u)
@@ -1012,6 +1022,8 @@ defn semDesk(b, x, y, ui, inner)
   k = b.Node.Kind
   if k in ["nav", "chips", "pill", "metric", "asked", "picks", "pop", "shell", "vtabs"]
     shellSem(b, x, y, ui, inner)
+  else if k == "date"
+    dateSem(b, x, y, ui)
   else if k == "tree"
     [treeSem(b, x, y, ui)]
   else if k == "tabs"

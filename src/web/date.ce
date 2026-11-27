@@ -1,0 +1,259 @@
+(* web.DateInput, a date chosen in a calendar: the field shows the day, a click (or Enter, Space or Down while it has
+   the focus) opens the month under it, a click on a day chooses it; while it is open the arrows move the day, a week
+   with Up and Down, Page Up and Page Down a month, Enter or Esc close it, Delete clears the field. The widget carries
+   the kit of dock.ce, as those of the web's layout do: a page that makes none holds none of its code. *)
+use std/date
+use std/dict
+use std/list
+use std/math
+use std/sys
+use std/text
+use std/value
+
+(* The names of the months and of the days of a week, Monday first, as ISO 8601 counts them; DateInput's say gives
+   them in the page's language. *)
+months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+weekdays = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+
+defn DateInput(v, label = "", width = missing, say = missing, show = missing)
+  (** A field of a day, bound to a signal v of a text YYYY-MM-DD ("" or missing for none), chosen in a calendar of
+      its month that opens under it. label names it for a screen reader; say(words) gives the names of the months and
+      of the days in the page's language; show(day) the text the field shows of the day, YYYY-MM-DD by default (as
+      13/11/2026 in French).
+
+        DateInput(Signal("2026-11-13")).Kind --> "date"
+        dayOf("2026-11-13").Month --> 11
+        dayOf("13/11/2026") --> missing *)
+  {Kind: "date", Value: v, Label: label, Width: width, Say: say, Show: show, Month: Signal(missing), Kit: kit}
+end
+
+defn dayOf(s)
+  (** The day of a text YYYY-MM-DD: {Year, Month, Day}, or missing. *)
+  if not value.IsText(s)
+    return missing
+  end
+  parts = text.Split("-", text.Trim(s))
+  if value.Len(parts) != 3
+    return missing
+  end
+  y = text.Number(parts[1])
+  m = text.Number(parts[2])
+  d = text.Number(parts[3])
+  if not value.IsNumber(y) or not value.IsNumber(m) or not value.IsNumber(d) or m < 1 or m > 12 or d < 1 or d > date.DaysInMonth(y, m)
+    return missing
+  end
+  {Year: y, Month: m, Day: d}
+end
+
+isoOf(d) = "$(d.Year)-$(if d.Month < 10 "0" else "" end)$(d.Month)-$(if d.Day < 10 "0" else "" end)$(d.Day)"   (* A day as YYYY-MM-DD. *)
+
+today() = date.Local(sys.Now())   (* The day of the viewer's clock. *)
+
+defn dayMoved(d, days)
+  (** A day some days later, or earlier. *)
+  n = date.AddDays(days, {Year: d.Year, Month: d.Month, Day: d.Day, Hour: 12, Minute: 0, Second: 0, Offset: 0})
+  {Year: n.Year, Month: n.Month, Day: n.Day}
+end
+
+defn monthMoved(d, by)
+  (** The same day some months later, or earlier, the last of its month when it has fewer. *)
+  k = d.Year * 12 + d.Month - 1 + by
+  y = math.Div(k, 12)
+  m = k - y * 12 + 1
+  {Year: y, Month: m, Day: list.Min(d.Day, date.DaysInMonth(y, m))}
+end
+
+sayDay(n, words) = if value.IsFunction(dict.Get("Say", n)) n.Say(words) else words end   (* A word in the page's language. *)
+
+defn shownDay(n, s)
+  (** What the field shows of its value. *)
+  d = dayOf(s)
+  if value.IsMissing(d) "" else if value.IsFunction(dict.Get("Show", n)) n.Show(isoOf(d)) else isoOf(d) end
+end
+
+defn monthOf(n)
+  (** The month the calendar shows: the one moved to, else the value's, else today's. *)
+  m = Get(n.Month)
+  if value.IsSome(m)
+    return m
+  end
+  d = dayOf(Get(n.Value))
+  t = if value.IsSome(d) d else today() end
+  {Year: t.Year, Month: t.Month}
+end
+
+defn layDate(id, maxW, ui)
+  (** The field: the day shown, or the label muted, and a calendar at its right. *)
+  n = ui.Boxes[id].Node
+  got = watched(id, () -> {Text: shownDay(n, Get(n.Value)), Open: ui.Popup == id}, ui)
+  u = got.Ui
+  t = u.Theme
+  w = list.Min(maxW, 200 if value.IsMissing(n.Width) else n.Width)
+  h = t.Field
+  ty = math.Div(h - lineOf(t.Size, u), 2)
+  s = got.Value.Text
+  font = fieldFont(t)
+  shownText = if s == "" words(8, ty, n.Label, t.Size, t.Muted, font) else words(8, ty, s, t.Size, t.Ink, font) end
+  ic = if value.IsSome(dict.Get("Tokens", t)) t.Tokens.Icon else t.Muted end
+  cached(id, w, h, list.Concat(fieldEdge(id, false, w, h, u), [group(0, 0, w - 30, h, true, [shownText]), iconItem(w - 24, math.Div(h - 16, 2), "calendar", 16, ic)]),
+    {Text: s}, u)
+end
+
+defn calendar(ui)
+  (** The calendar of the open date field, in pixels of the window: {Box, X, Y, W, H, Cell, Top, Month, First, Days},
+      or missing. Top is where the days start, First the weekday of the month's first day (1 for Monday). *)
+  if ui.Popup == 0 or not (ui.Popup in ui.Boxes) or ui.Boxes[ui.Popup].Node.Kind != "date"
+    return missing
+  end
+  b = ui.Boxes[ui.Popup]
+  p = at(ui.Popup, ui)
+  cell = list.Max(28, ui.Theme.Field + 4)
+  m = monthOf(b.Node)
+  w = 7 * cell + 16
+  h = 8 + 32 + 22 + 6 * cell + 8
+  {Box: ui.Popup, X: p.X, Y: p.Y + b.H + 2, W: w, H: h, Cell: cell, Top: 8 + 32 + 22, Month: m,
+    First: date.Weekday({Year: m.Year, Month: m.Month, Day: 1, Hour: 0, Minute: 0, Second: 0, Offset: 0}), Days: date.DaysInMonth(m.Year, m.Month)}
+end
+
+defn dayAt(c, k)
+  (** The cell of day k of the calendar's month: {X, Y}, in pixels of the window. *)
+  i = c.First - 1 + k - 1
+  {X: c.X + 8 + math.Mod(i, 7) * c.Cell, Y: c.Y + c.Top + math.Div(i, 7) * c.Cell}
+end
+
+defn datePopup(ui)
+  (** The items of the open calendar, over the page: its month and the arrows to the next and the one before, the
+      days of a week, the days, the chosen one in the accent, today ringed. *)
+  c = calendar(ui)
+  if value.IsMissing(c)
+    return []
+  end
+  t = ui.Theme
+  n = ui.Boxes[c.Box].Node
+  tok = value.IsSome(dict.Get("Tokens", t))
+  back = if tok t.Tokens.Dropdown else t.Paper end
+  edge = if tok t.Tokens.DropdownLine else t.Line end
+  ink = if tok role("Strong", t) else t.Ink end
+  lh = lineOf(t.Size, ui)
+  title = "$(sayDay(n, months[c.Month.Month])) $(c.Month.Year)"
+  tw = widthOf(title, t.Size, "strong", ui)
+  out = [{Kind: "rect", X: c.X, Y: c.Y, W: c.W, H: c.H, Color: back, Radius: 4}, frame(c.X, c.Y, c.W, c.H, edge, 4),
+    iconItem(c.X + 12, c.Y + 16, "chevron-left", 16, t.Muted), iconItem(c.X + c.W - 28, c.Y + 16, "chevron-right", 16, t.Muted),
+    words(c.X + math.Div(c.W - tw, 2), c.Y + 8 + math.Div(32 - lh, 2), title, t.Size, ink, "strong")]
+  for j in 1..7
+    s = sayDay(n, weekdays[j])
+    out = list.Append(words(c.X + 8 + (j - 1) * c.Cell + math.Div(c.Cell - widthOf(s, t.Size - 1, "body", ui), 2), c.Y + 40 + 2, s, t.Size - 1, t.Muted, "body"), out)
+  end
+  chosen = dayOf(Get(n.Value))
+  now = today()
+  for k in 1..c.Days
+    p = dayAt(c, k)
+    s = "$k"
+    on = value.IsSome(chosen) and chosen.Year == c.Month.Year and chosen.Month == c.Month.Month and chosen.Day == k
+    if on
+      out = list.Append({Kind: "rect", X: p.X + 2, Y: p.Y + 2, W: c.Cell - 4, H: c.Cell - 4, Color: t.Accent, Radius: 4}, out)
+    else if now.Year == c.Month.Year and now.Month == c.Month.Month and now.Day == k
+      out = list.Append(frame(p.X + 2, p.Y + 2, c.Cell - 4, c.Cell - 4, t.Accent, 4), out)
+    end
+    out = list.Append(words(p.X + math.Div(c.Cell - widthOf(s, t.Size, "body", ui), 2), p.Y + math.Div(c.Cell - lh, 2), s, t.Size, if on t.ChosenInk else t.Ink end, "body"), out)
+  end
+  out
+end
+
+defn chose(n, d, ui)
+  (** A day chosen in the calendar: the field holds it, the calendar shows its month. *)
+  Set(n.Value, isoOf(d))
+  Set(n.Month, {Year: d.Year, Month: d.Month})
+  touch(ui.Popup, ui)
+end
+
+defn dateModal(e, ui)
+  (** What an open calendar does with an event before the widgets: a click on a day chooses it and closes it, on an
+      arrow shows the month after or before, outside closes it; the keys move the day, Enter and Esc close it. The page
+      after, or missing when the event goes on as usual. *)
+  c = calendar(ui)
+  if value.IsMissing(c)
+    return missing
+  end
+  n = ui.Boxes[c.Box].Node
+  if e.Kind == "key"
+    d0 = dayOf(Get(n.Value))
+    d = if value.IsSome(d0) d0 else today() end
+    k = e.Key
+    if k == "escape" or k == "enter" or k == "space"
+      return opened(0, ui)
+    else if k == "tab"
+      return missing
+    else if k in ["left", "right", "up", "down"]
+      return chose(n, dayMoved(d, if k == "left" (-1) else if k == "right" 1 else if k == "up" (-7) else 7 end), ui)
+    else if k == "pageup" or k == "pagedown"
+      return chose(n, monthMoved(d, if k == "pageup" (-1) else 1 end), ui)
+    end
+    return ui
+  end
+  if e.Action != "down"
+    return missing
+  end
+  inside = e.X >= c.X and e.X < c.X + c.W and e.Y >= c.Y and e.Y < c.Y + c.H
+  if not inside
+    (* a click on its own field closes it, as one anywhere else does *)
+    return opened(0, ui)
+  end
+  if e.Y < c.Y + 40
+    if e.X < c.X + 40 or e.X >= c.X + c.W - 40
+      m = monthMoved({Year: c.Month.Year, Month: c.Month.Month, Day: 1}, if e.X < c.X + 40 (-1) else 1 end)
+      Set(n.Month, {Year: m.Year, Month: m.Month})
+      return touch(c.Box, ui)
+    end
+    return ui
+  end
+  for k in 1..c.Days
+    p = dayAt(c, k)
+    if e.X >= p.X and e.X < p.X + c.Cell and e.Y >= p.Y and e.Y < p.Y + c.Cell
+      u = chose(n, {Year: c.Month.Year, Month: c.Month.Month, Day: k}, ui)
+      return opened(0, u)
+    end
+  end
+  ui
+end
+
+defn dateDown(h, ui)
+  (** A press on a date field: it takes the focus and its calendar opens, at the month of its day, or closes. *)
+  n = ui.Boxes[h.Id].Node
+  Set(n.Month, missing)
+  opened(if ui.Popup == h.Id 0 else h.Id end, focus(h.Id, ui))
+end
+
+defn dateKey(e, ui)
+  (** Keys of a date field in focus while its calendar is closed: Enter, Space and Down open it, Delete and
+      Backspace clear the field. *)
+  n = ui.Boxes[ui.Focus].Node
+  if e.Key in ["enter", "space", "down"]
+    Set(n.Month, missing)
+    return opened(ui.Focus, ui)
+  else if e.Key == "delete" or e.Key == "backspace"
+    Set(n.Value, "")
+    return touch(ui.Focus, ui)
+  end
+  ui
+end
+
+defn dateSem(b, x, y, ui)
+  (** The semantic node of a date field: a combobox of its day, and while its calendar is open, its arrows and its
+      days as buttons, each named by its day (YYYY-MM-DD). *)
+  n = b.Node
+  c = calendar(ui)
+  kids = []
+  if value.IsSome(c) and c.Box == b.Id
+    kids = [{Id: "$(b.Id)d0", Role: "button", Name: sayDay(n, "Month before"), Value: missing, X: c.X, Y: c.Y, W: 40, H: 40, Focused: false, Kids: []},
+      {Id: "$(b.Id)d1", Role: "button", Name: sayDay(n, "Month after"), Value: missing, X: c.X + c.W - 40, Y: c.Y, W: 40, H: 40, Focused: false, Kids: []}]
+    for k in 1..c.Days
+      p = dayAt(c, k)
+      kids = list.Append({Id: "$(b.Id)d$(k + 1)", Role: "button", Name: isoOf({Year: c.Month.Year, Month: c.Month.Month, Day: k}), Value: missing, X: p.X, Y: p.Y,
+        W: c.Cell, H: c.Cell, Focused: false, Kids: []}, kids)
+    end
+  end
+  one = node("combobox", n.Label, b, x, y, ui, kids = kids, v = b.Cache.Text)
+  one.Expanded = ui.Popup == b.Id
+  [one]
+end

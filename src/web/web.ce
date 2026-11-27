@@ -114,19 +114,23 @@ defn IconButton(icon, label, onClick, key = missing)
   {Kind: "button", Label: label, On: onClick, Key: key, Icon: icon, Bare: true}
 end
 
-defn Input(v, label = "", placeholder = "", width = missing, onEnter = missing, invalid = missing, secret = false, icon = missing, hint = missing)
+defn Input(v, label = "", placeholder = "", width = missing, onEnter = missing, invalid = missing, secret = false, icon = missing, hint = missing,
+  unit = missing)
   (** A field of one line of text, bound to a signal of a text, v: typing changes it, and a change of it shows. label
       names it for a screen reader, placeholder shows while it is empty; onEnter() runs on Enter. invalid is a function
       that tells whether to draw it as wrong, as a form does. secret = true makes it a field of a password: it shows a
       dot for each character, the tree of semantics holds the dots only, and the browser's input is of the type
       password, which its manager of passwords fills. icon, a name of web.Icons, stands at its left, as "search"; hint
       "/" makes the key / take the page to it from anywhere, as the search of a web page does, and shows the key at
-      its right while it hasn't the focus.
+      its right while it hasn't the focus. unit, a short text as "€" or "EUR", stands muted at its right, the unit of
+      the amount typed.
 
         Input(Signal("")).Kind --> "input"
         Input(Signal(""), secret = true).Secret --> true
-        Input(Signal(""), icon = "search", hint = "/").Hint --> "/" *)
-  {Kind: "input", Value: v, Label: label, Placeholder: placeholder, Width: width, OnEnter: onEnter, Invalid: invalid, Secret: secret, Icon: icon, Hint: hint}
+        Input(Signal(""), icon = "search", hint = "/").Hint --> "/"
+        Input(Signal("12.50"), unit = "€").Unit --> "€" *)
+  {Kind: "input", Value: v, Label: label, Placeholder: placeholder, Width: width, OnEnter: onEnter, Invalid: invalid, Secret: secret, Icon: icon, Hint: hint,
+    Unit: unit}
 end
 
 defn Select(v, options, key, label, placeholder = "Choose", name = "", width = missing)

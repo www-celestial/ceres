@@ -99,7 +99,7 @@ defn semWalk(id, ax, ay, x0, y0, since, ui)
     e = json.Text([id, n.Role, s, missing, ex, ey, b.W, b.H, f, missing])
     sent(e, was)
     return kept(id, at, loose, [id], e, ui)
-  else if k == "button" or k == "link" or k == "input" or k == "select" or k == "plot"
+  else if k == "button" or k == "link" or k == "input" or k == "select" or k == "plot" or k == "date"
     e = if k == "button"
       json.Text([id, "button", b.Cache.Text, missing, ex, ey, b.W, b.H, f, missing])
     else if k == "link"
@@ -110,6 +110,8 @@ defn semWalk(id, ax, ay, x0, y0, since, ui)
       json.Text([id, "textbox", n.Label, b.Cache.Text, ex, ey, b.W, b.H, f, more])
     else if k == "select"
       json.Text([id, "combobox", n.Name, b.Cache.Text, ex, ey, b.W, b.H, f, {Expanded: ui.Popup == id}])
+    else if k == "date"
+      json.Text([id, "combobox", n.Label, b.Cache.Text, ex, ey, b.W, b.H, f, {Expanded: ui.Popup == id}])
     else
       json.Text([id, "img", b.Cache.Text, missing, ex, ey, b.W, b.H, f, missing])
     end

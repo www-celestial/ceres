@@ -547,7 +547,9 @@ defn layInput(id, maxW, ui)
   hint = dict.Get("Hint", n)
   left = if value.IsSome(icon) 28 else 6 end
   kc = if value.IsSome(hint) and value.IsSome(dict.Get("Tokens", t)) and u.Focus != id keycap(0, 0, hint, t, u, on = t.Tokens.Dropdown) else missing end
-  right = if value.IsSome(kc) kc.W + 10 else 6 end
+  unit = dict.Get("Unit", n)
+  uw = if value.IsText(unit) widthOf(unit, t.Size, "body", u) else 0 end
+  right = if value.IsSome(kc) kc.W + 10 else if uw > 0 uw + 14 else 6 end
   inside = []
   shift = 0
   if u.Focus == id
@@ -563,6 +565,8 @@ defn layInput(id, maxW, ui)
   end
   if value.IsSome(kc)
     out = list.Concat(out, [moved1(one, w - kc.W - 6, math.Div(h - (18 if t.Field >= 26 else 16), 2)) for one in kc.Items])
+  else if uw > 0
+    out = list.Append(words(w - uw - 8, ty, unit, t.Size, t.Muted, "body"), out)
   end
   cached(id, w, h, out, {Text: s, Shift: shift, Left: left}, u)
 end
