@@ -100,8 +100,8 @@ defn layDate(id, maxW, ui)
 end
 
 defn calendar(ui)
-  (** The calendar of the open date field, in pixels of the window: {Box, X, Y, W, H, Cell, Top, Month, First, Days},
-      or missing. Top is where the days start, First the weekday of the month's first day (1 for Monday). *)
+  (** The calendar of the open date field, in pixels of the window, under the field and inside the window: {Box, X, Y,
+      W, H, Cell, Top, Month, First, Days}, or missing. Top is where the days start, First the weekday of the month's first day (1 for Monday). *)
   if ui.Popup == 0 or not (ui.Popup in ui.Boxes) or ui.Boxes[ui.Popup].Node.Kind != "date"
     return missing
   end
@@ -111,7 +111,10 @@ defn calendar(ui)
   m = monthOf(b.Node)
   w = 7 * cell + 16
   h = 8 + 32 + 22 + 6 * cell + 8
-  {Box: ui.Popup, X: p.X, Y: p.Y + b.H + 2, W: w, H: h, Cell: cell, Top: 8 + 32 + 22, Month: m,
+  (* under the field, inside the window: moved left at its right edge, above the field when there is no room under *)
+  x = list.Max(0, list.Min(p.X, ui.Width - w - 4))
+  y = if p.Y + b.H + 2 + h > ui.Height and p.Y - h - 2 >= 0 p.Y - h - 2 else p.Y + b.H + 2 end
+  {Box: ui.Popup, X: x, Y: y, W: w, H: h, Cell: cell, Top: 8 + 32 + 22, Month: m,
     First: date.Weekday({Year: m.Year, Month: m.Month, Day: 1, Hour: 0, Minute: 0, Second: 0, Offset: 0}), Days: date.DaysInMonth(m.Year, m.Month)}
 end
 

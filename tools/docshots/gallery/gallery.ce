@@ -12,6 +12,7 @@ pass = web.Signal("")
 client = web.Signal("")
 city = web.Signal(missing)
 cities = [{Id: 1, Name: "Lyon"}, {Id: 2, Name: "Nice"}]
+due = web.Signal("2026-11-13")
 people = web.Signal([{Id: 1, Name: "Ana"}, {Id: 2, Name: "Bo"}])
 months = web.Signal([{Month: "Jul", Total: 120}, {Month: "Aug", Total: 260}, {Month: "Sep", Total: 190}, {Month: "Oct", Total: 340}, {Month: "Nov", Total: 80}])
 clients = ["Martin & Co", "Atelier Brun", "Cave Lemoine", "Garage Roux", "Boulangerie Petit", "Fleurs Morel"]
@@ -49,6 +50,7 @@ Routes = [
     web.Row([label("Password"), web.Input(pass, label = "Password", secret = true, width = 200)]),
   ])),
   web.Route("/select", _ -> web.Row([web.Text("City"), web.Select(city, cities, c -> c.Id, c -> c.Name, name = "City", width = 160)], gap = 8)),
+  web.Route("/date", _ -> web.Row([web.Text("Due"), web.DateInput(due, label = "Due", width = 160)], gap = 8)),
   web.Route("/each", _ -> web.Stack([
     web.Button("Change the rows", () -> web.Set(people, [{Id: 2, Name: "Bo"}, {Id: 3, Name: "Cy"}])),
     web.Each(people, r -> r.Id, r -> web.Text(r.Name)),

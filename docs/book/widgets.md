@@ -95,7 +95,8 @@ page = headless.Type("Ana", headless.ClickOn("Name", one(web.Input(name, label =
 web.Get(name) --> "Ana"
 ```
 
-`secret = true` makes it the field of a password: it shows a dot for each character, the tree of semantics (what a
+`unit`, a short text as `€`, stands muted at its right: the unit of the amount typed. `secret = true` makes it the field
+of a password: it shows a dot for each character, the tree of semantics (what a
 screen reader and a test read) holds the dots only, and in a browser its hidden input is of the type `password`, which
 the browser's manager of passwords fills.
 
@@ -121,6 +122,25 @@ web.Get(city) --> 2
 ```
 
 ![The select City open after a click, its list under it: Down twice chose Nice, which is shown in the field and marked in the list.](images/widgets-select.png)
+
+## DateInput
+
+A day chosen in a calendar, bound to a signal of a text `YYYY-MM-DD` (`""` for none). A click, or Enter, Space or Down
+while it has the focus, opens the month of its day under it (today's when it holds none): the days of a week from
+Monday, as ISO 8601 counts them, today ringed, the day chosen in the accent. A click on a day chooses it and closes the
+calendar; while it is open the arrows move the day (Up and Down a week), Page Up and Page Down a month, Enter and Esc
+close it; Delete clears the field. `say` gives the names of the months and days in the page's language, `show` the text
+the field shows of a day (`13/11/2026` in French). A screen reader reads it as a combobox, its days as buttons named by
+their day.
+
+```cesia
+due = web.Signal("2026-11-13")
+page = headless.ClickOn("Due", one(web.DateInput(due, label = "Due")))
+page = headless.Press("pagedown", headless.Press("right", page))
+web.Get(due) --> "2026-12-14"
+```
+
+![The field Due open after a click: the calendar of November 2026 under it, the days of the week from Mo to Su, the 14th chosen in the accent after Right.](images/widgets-date.png)
 
 ## Each
 

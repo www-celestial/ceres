@@ -34,6 +34,7 @@ scenes = [
   {Route: "/input", W: 360, H: 120, Steps: [["click", "textbox", "Name"], ["type", "Ana"], ["click", "textbox", "Password"], ["type", "hunter2"],
     ["shot", "widgets-input", "nodes"]]},
   {Route: "/select", W: 300, H: 150, Steps: [["click", "combobox", "City"], ["key", "down"], ["key", "down"], ["shot", "widgets-select", "window-top"]]},
+  {Route: "/date", W: 320, H: 340, Steps: [["click", "combobox", "Due"], ["key", "right"], ["shot", "widgets-date", "window-top"]]},
   {Route: "/each", W: 300, H: 170, Steps: [["shot", "widgets-each-before", "nodes"], ["click", "button", "Change the rows"], ["until", "Cy"],
     ["shot", "widgets-each-after", "nodes"]]},
   {Route: "/table", W: 480, H: 280, Steps: [["clickAt", 200, 22], ["until", "F-13"], ["shot", "widgets-table", "nodes"]]},
@@ -67,7 +68,7 @@ scenes = [
 
 (* The keys of the DevTools protocol: its key, code and key code. *)
 keys = {enter: ["Enter", "Enter", 13], escape: ["Escape", "Escape", 27], down: ["ArrowDown", "ArrowDown", 40], up: ["ArrowUp", "ArrowUp", 38],
-  backspace: ["Backspace", "Backspace", 8], tab: ["Tab", "Tab", 9], s: ["s", "KeyS", 83], k: ["k", "KeyK", 75]}
+  backspace: ["Backspace", "Backspace", 8], tab: ["Tab", "Tab", 9], s: ["s", "KeyS", 83], k: ["k", "KeyK", 75], right: ["ArrowRight", "ArrowRight", 39]}
 
 defn ask(conn, method, params)
   (** A command of the DevTools protocol and its result, the events before it left aside: one command at a time, so one

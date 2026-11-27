@@ -139,8 +139,9 @@ it on the machine, over the app's: `web.LookOf(p)` reads it.
 ## On a phone
 
 Under 760 pixels, the side bar is a drawer that the menu button opens, over a veil that a click closes; the rows of a
-table are cards of two lines (the first columns as the title, the others under it, the amount and the pill at the
-right); the sheet is the whole window; the top bar keeps where one is, a `web.Wide(...)` part only on a wider window.
+table are cards of two lines (the table's `title(row)` as the title, else its first columns, the others under it, the
+amount and the pill at the right, the box to check before it when the table has `checks`; a `web.Column` with
+`card = false`, as an id, stays off them); the sheet is the whole window; the top bar keeps where one is, a `web.Wide(...)` part only on a wider window.
 
 ![A phone: the invoices as cards, the drawer of the pages open, an invoice in the sheet over the whole window.](images/pages-phone.png)
 

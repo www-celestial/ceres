@@ -25,6 +25,11 @@
   when it has something to say (a question, a reply, the rows checked) leaves no hole while it is away.
 - `headless.Contrasts` leaves out a text whose first letter's middle is out of the window, which no one reads there.
 
+- `web.DateInput`: a day chosen in a calendar that opens under its field, the arrows, Page Up and Page Down to move it,
+  Delete to clear it, its days as buttons for a screen reader. `web.Input(unit = "€")`: the unit of an amount at the
+  right of its field. On a phone, a table's cards take `web.Table(title = row -> ...)` as their title and their boxes
+  to check; `web.Column(card = false)` keeps a column off them.
+
 ### Like a desktop tool
 
 - `web.Dock`, the layout of a desktop tool that fills the window: panels with tabs (`web.Panel`) docked left, center,
