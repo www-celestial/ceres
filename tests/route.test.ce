@@ -122,3 +122,24 @@ defn isOutlinerLinks()
   back = text.Contains("treeitem \"First\" href / level 1 selected", headless.Tree(p))
   list.All([links, there, back, web.Path(p) == "/", text.Contains("heading \"/\"", headless.Tree(p))])
 end
+
+(* A dock made once and kept from route to route, as Centauri's admin keeps its own: its center shows the route. *)
+shown = web.Signal("/")
+desk = web.Dock([web.Panel("Page", () -> if web.Get(shown) == "/" web.Stack(list.Concat([web.Link("To the second", "/second")], [web.Text("line $k") for k in 1..60])) else web.Stack([web.Title("Second"), web.Link("Back to the first", "/")]) end)])
+
+defn docked(p)
+  web.Set(shown, p.Path)
+  desk
+end
+
+defn isCenterScrollKept()
+  a = web.App([web.Route("/", docked), web.Route("/second", docked)], theme = web.Dark)
+  p = headless.Open(a, width = 600, height = 400)
+  p = headless.Wheel(300, 200, -5, p)
+  before = placeOf(headless.Tree(p), "text \"line 30\"").Y
+  p = address("/second", p)
+  top = placeOf(headless.Tree(p), "heading \"Second\"").Y < 60
+  p = address("/", p)
+  after = placeOf(headless.Tree(p), "text \"line 30\"").Y
+  list.All([before < 300, top, before == after])
+end
